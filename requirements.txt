@@ -1,0 +1,10 @@
+aiogram>=3.24.0
+aiohttp>=3.12.0
+coloredlogs>=15.0.1
+fastapi>=0.115.0
+pydantic>=2.12.0
+python-dotenv>=1.1.1
+qrcode>=8.2
+requests>=2.32.0
+SQLAlchemy>=2.0.42
+uvicorn>=0.32.0

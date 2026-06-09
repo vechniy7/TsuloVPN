@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: tsulovpn
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd src && python app.py
+    healthCheckPath: /health
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMINS
+        sync: false
+      - key: BOT_NAME
+        value: TsuloVPN
+      - key: SUBSCRIPTION_PUBLIC_URL
+        sync: false
+      - key: POOL_REFRESH_INTERVAL
+        value: "600"
+      - key: TARGET_REGULAR_COUNT
+        value: "25"
+      - key: TARGET_WHITELIST_COUNT
+        value: "7"
+      - key: PYTHON_VERSION
+        value: "3.12.8"
