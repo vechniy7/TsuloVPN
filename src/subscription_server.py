@@ -42,7 +42,10 @@ async def subscription(token: str):
 
     headers = {
         "Content-Type": "text/plain; charset=utf-8",
-        "Profile-Update-Interval": str(config.POOL_REFRESH_INTERVAL),
+        "Profile-Update-Interval": "1",
+        "Profile-Title": (
+            f"base64:{base64.b64encode(f'{config.BOT_NAME} | igareck'.encode()).decode()}"
+        ),
         "Subscription-Userinfo": (
             f"upload=0; download=0; total=0; expire={int(time.time()) + 31536000}"
         ),

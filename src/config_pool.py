@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import random
 import ssl
 import time
 from dataclasses import dataclass, field
@@ -8,7 +7,7 @@ from dataclasses import dataclass, field
 import aiohttp
 
 from config import config
-from parser import brand_config, extract_host_port, get_security, get_sni, parse_configs, quality_score
+from parser import brand_config, extract_host_port, get_security, get_sni, parse_igareck_configs
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ class WorkingConfig:
     port: int
     latency_ms: int
     category: str
-    score: int = 0
+    source: str = ""
 
 
 @dataclass
@@ -32,6 +31,7 @@ class PoolState:
     candidates_alive: int = 0
     last_error: str | None = None
     is_refreshing: bool = False
+    source_info: str = ""
 
 
 _pool = PoolState()
@@ -56,10 +56,10 @@ def get_working_subscription_lines() -> list[str]:
     for item in _pool.configs:
         if item.category == "whitelist":
             whitelist_idx += 1
-            label = f"{config.BOT_NAME} | Белый список #{whitelist_idx} | {item.latency_ms}ms"
+            label = f"{config.BOT_NAME} | Белый список #{whitelist_idx}"
         else:
             regular_idx += 1
-            label = f"{config.BOT_NAME} | VPN #{regular_idx} | {item.latency_ms}ms"
+            label = f"{config.BOT_NAME} | VPN #{regular_idx}"
         lines.append(brand_config(item.uri, label))
     return lines
 
@@ -82,20 +82,22 @@ async def close_session() -> None:
         _session = None
 
 
-async def _fetch_source(source_id: int) -> list[str]:
-    url = f"{config.GOIDA_RAW_BASE}/{source_id}.txt"
+async def _fetch_igareck_file(filename: str) -> list[str]:
+    url = f"{config.IGARECK_RAW_BASE}/{filename}"
     session = await _get_session()
     try:
         async with session.get(url, ssl=False) as resp:
             resp.raise_for_status()
             text = await resp.text()
-            return parse_configs(text)
+            configs = parse_igareck_configs(text)
+            logger.info("Loaded %s configs from %s", len(configs), filename)
+            return configs
     except Exception as exc:
-        logger.warning("Failed to fetch source %s: %s", source_id, exc)
+        logger.warning("Failed to fetch %s: %s", filename, exc)
         return []
 
 
-def _dedupe_configs(configs: list[str]) -> list[str]:
+def _dedupe_preserve_order(configs: list[str]) -> list[str]:
     seen_uri: set[str] = set()
     seen_hostport: set[str] = set()
     unique: list[str] = []
@@ -113,8 +115,6 @@ def _dedupe_configs(configs: list[str]) -> list[str]:
             seen_hostport.add(key)
 
         unique.append(uri)
-
-    unique.sort(key=quality_score, reverse=True)
     return unique
 
 
@@ -129,45 +129,65 @@ async def _probe_latency(host: str, port: int, uri: str) -> int | None:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             _reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(
-                    host,
-                    port,
-                    ssl=ctx,
-                    server_hostname=sni,
-                ),
+                asyncio.open_connection(host, port, ssl=ctx, server_hostname=sni),
                 timeout=config.HEALTH_CHECK_TIMEOUT,
             )
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
         else:
             _reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port),
                 timeout=config.HEALTH_CHECK_TIMEOUT,
             )
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
-
-        elapsed = int((time.perf_counter() - started) * 1000)
-        return max(elapsed, 1)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return max(int((time.perf_counter() - started) * 1000), 1)
     except Exception:
         return None
 
 
-async def _health_check_batch(
-    uris: list[str],
+async def _collect_from_sources(
+    sources: list[str],
     category: str,
     limit: int,
 ) -> list[WorkingConfig]:
+    raw: list[str] = []
+    used_sources: list[str] = []
+
+    for filename in sources:
+        configs = await _fetch_igareck_file(filename)
+        if configs:
+            used_sources.append(filename)
+            raw.extend(configs)
+        if len(_dedupe_preserve_order(raw)) >= limit:
+            break
+
+    unique = _dedupe_preserve_order(raw)[: config.MAX_HEALTH_CHECK_CANDIDATES]
+
+    if config.SKIP_HEALTH_CHECK:
+        result = []
+        for uri in unique[:limit]:
+            hostport = extract_host_port(uri)
+            if not hostport:
+                continue
+            host, port = hostport
+            result.append(
+                WorkingConfig(
+                    uri=uri,
+                    host=host,
+                    port=port,
+                    latency_ms=0,
+                    category=category,
+                    source=used_sources[0] if used_sources else "",
+                )
+            )
+        return result
+
     semaphore = asyncio.Semaphore(config.HEALTH_CHECK_CONCURRENCY)
     alive: list[WorkingConfig] = []
 
-    async def check_one(uri: str) -> WorkingConfig | None:
+    async def check(uri: str) -> WorkingConfig | None:
         hostport = extract_host_port(uri)
         if not hostport:
             return None
@@ -177,28 +197,22 @@ async def _health_check_batch(
         if latency is None:
             return None
         return WorkingConfig(
-            uri=uri,
-            host=host,
-            port=port,
-            latency_ms=latency,
-            category=category,
-            score=quality_score(uri),
+            uri=uri, host=host, port=port, latency_ms=latency, category=category
         )
 
-    tasks = [asyncio.create_task(check_one(uri)) for uri in uris]
+    tasks = [asyncio.create_task(check(uri)) for uri in unique]
     try:
         for task in asyncio.as_completed(tasks):
-            result = await task
-            if result:
-                alive.append(result)
-            if len(alive) >= limit * 5:
+            item = await task
+            if item:
+                alive.append(item)
+            if len(alive) >= limit:
                 break
     finally:
         for task in tasks:
             if not task.done():
                 task.cancel()
 
-    alive.sort(key=lambda item: (-item.score, item.latency_ms))
     return alive[:limit]
 
 
@@ -212,63 +226,21 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        logger.info("Refreshing TsuloVPN config pool (TLS/reality check)...")
+        logger.info("Refreshing pool from igareck/vpn-configs-for-russia...")
 
         try:
-            # Приоритет: российские и рекомендованные источники
-            priority_ids = [23, 24, 25, 1, 6, 22]
-            other_ids = [i for i in config.REGULAR_SOURCE_IDS if i not in priority_ids]
-
-            regular_raw: list[str] = []
-            for source_id in priority_ids + other_ids:
-                regular_raw.extend(await _fetch_source(source_id))
-
-            whitelist_raw = await _fetch_source(config.WHITELIST_SOURCE_ID)
-            regular_unique = _dedupe_configs(regular_raw)
-            whitelist_unique = _dedupe_configs(whitelist_raw)
-
-            logger.info(
-                "Candidates after quality filter: %s regular, %s whitelist",
-                len(regular_unique),
-                len(whitelist_unique),
-            )
-
-            regular_candidates = regular_unique[: config.MAX_HEALTH_CHECK_CANDIDATES]
-            whitelist_candidates = whitelist_unique[: config.MAX_HEALTH_CHECK_CANDIDATES]
-
             regular_alive, whitelist_alive = await asyncio.gather(
-                _health_check_batch(
-                    regular_candidates,
+                _collect_from_sources(
+                    config.REGULAR_SOURCES,
                     "regular",
                     config.TARGET_REGULAR_COUNT,
                 ),
-                _health_check_batch(
-                    whitelist_candidates,
+                _collect_from_sources(
+                    config.WHITELIST_SOURCES,
                     "whitelist",
                     config.TARGET_WHITELIST_COUNT,
                 ),
             )
-
-            # Дополнительный проход если мало живых
-            if len(regular_alive) < config.TARGET_REGULAR_COUNT:
-                used = {c.uri for c in regular_alive}
-                extra_pool = [u for u in regular_unique if u not in used]
-                extra = await _health_check_batch(
-                    extra_pool,
-                    "regular",
-                    config.TARGET_REGULAR_COUNT - len(regular_alive),
-                )
-                regular_alive.extend(extra)
-
-            if len(whitelist_alive) < config.TARGET_WHITELIST_COUNT:
-                used = {c.uri for c in whitelist_alive}
-                extra_pool = [u for u in whitelist_unique if u not in used]
-                extra = await _health_check_batch(
-                    extra_pool,
-                    "whitelist",
-                    config.TARGET_WHITELIST_COUNT - len(whitelist_alive),
-                )
-                whitelist_alive.extend(extra)
 
             combined = regular_alive[: config.TARGET_REGULAR_COUNT]
             combined.extend(whitelist_alive[: config.TARGET_WHITELIST_COUNT])
@@ -276,16 +248,18 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.configs = combined
             _pool.last_refresh_at = time.time()
             _pool.last_refresh_duration = time.perf_counter() - started
-            _pool.candidates_checked = len(regular_candidates) + len(whitelist_candidates)
-            _pool.candidates_alive = len(regular_alive) + len(whitelist_alive)
+            _pool.candidates_checked = len(regular_alive) + len(whitelist_alive)
+            _pool.candidates_alive = len(combined)
+            _pool.source_info = "igareck/vpn-configs-for-russia"
             _pool.last_error = None
 
             logger.info(
-                "Pool refreshed: %s passed TLS check (%s regular, %s whitelist) in %.1fs",
+                "Pool ready: %s configs (%s VPN + %s whitelist) in %.1fs [health_check=%s]",
                 len(combined),
-                min(len(regular_alive), config.TARGET_REGULAR_COUNT),
-                min(len(whitelist_alive), config.TARGET_WHITELIST_COUNT),
+                len(regular_alive),
+                len(whitelist_alive),
                 _pool.last_refresh_duration,
+                not config.SKIP_HEALTH_CHECK,
             )
         except Exception as exc:
             _pool.last_error = str(exc)

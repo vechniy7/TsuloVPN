@@ -15,8 +15,10 @@ services:
         value: TsuloVPN
       - key: SUBSCRIPTION_PUBLIC_URL
         sync: false
+      - key: SKIP_HEALTH_CHECK
+        value: "true"
       - key: POOL_REFRESH_INTERVAL
-        value: "600"
+        value: "3600"
       - key: TARGET_REGULAR_COUNT
         value: "25"
       - key: TARGET_WHITELIST_COUNT

@@ -16,25 +16,16 @@ PROTOCOL_PREFIXES = (
     "hy2://",
 )
 
-SUPPORTED_PREFIXES = ("vless://", "vmess://", "trojan://")
+SUPPORTED_PREFIXES = ("vless://", "vmess://", "trojan://", "ss://", "hysteria2://", "hy2://")
 
 INSECURE_PATTERN = re.compile(
     r"(?:[?&;]|3%[Bb])(allowinsecure|allow_insecure|insecure)=(?:1|true|yes)(?:[&;#]|$|(?=\s|$))",
     re.IGNORECASE,
 )
 
-SECURITY_PATTERN = re.compile(r"security=([^&;#]+)", re.IGNORECASE)
-SNI_PATTERN = re.compile(r"sni=([^&;#]+)", re.IGNORECASE)
-TYPE_PATTERN = re.compile(r"type=([^&;#]+)", re.IGNORECASE)
-
 
 def normalize_uri(uri: str) -> str:
-    """Исправляет &amp; и другие HTML-сущности в URI."""
-    uri = html.unescape(uri).strip()
-    if "#" in uri:
-        base, fragment = uri.split("#", 1)
-        return f"{base}#{fragment}"
-    return uri
+    return html.unescape(uri).strip()
 
 
 def try_decode_base64(data: str) -> str:
@@ -63,8 +54,7 @@ def _query_params(uri: str) -> dict[str, str]:
 
 
 def get_security(uri: str) -> str:
-    params = _query_params(uri)
-    return (params.get("security") or "").strip().lower()
+    return (_query_params(uri).get("security") or "").strip().lower()
 
 
 def get_sni(uri: str) -> str | None:
@@ -73,71 +63,22 @@ def get_sni(uri: str) -> str | None:
     return sni or None
 
 
-def get_transport(uri: str) -> str:
-    params = _query_params(uri)
-    return (params.get("type") or "tcp").strip().lower()
-
-
-def quality_score(uri: str) -> int:
-    """Чем выше — тем вероятнее рабочий конфиг."""
+def is_valid_config(uri: str) -> bool:
     uri_l = uri.lower()
     if not uri_l.startswith(SUPPORTED_PREFIXES):
-        return 0
-
-    score = 10
-    security = get_security(uri)
-    hostport = extract_host_port(uri)
-    port = hostport[1] if hostport else 0
-
-    if security == "reality":
-        score += 50
-        if "flow=xtls-rprx-vision" in uri_l:
-            score += 15
-        if get_sni(uri):
-            score += 10
-    elif security == "tls":
-        score += 35
-        if get_sni(uri):
-            score += 10
-    else:
-        return 0  # без tls/reality — отбрасываем
-
-    if port in (443, 8443, 2053, 2083, 2096):
-        score += 10
-    elif port == 80:
-        score -= 20
-
-    transport = get_transport(uri)
-    if transport in ("tcp", "ws", "grpc", "xhttp"):
-        score += 5
-    if transport == "raw":
-        score += 3
-
-    # Российские SNI для обхода белых списков
-    sni = (get_sni(uri) or "").lower()
-    if any(
-        x in sni
-        for x in (
-            "yandex",
-            "kinopoisk",
-            "vk.com",
-            "mail.ru",
-            "max.ru",
-            "avito",
-            "ozon",
-            "wildberries",
-        )
-    ):
-        score += 20
-
-    return score
+        return False
+    if INSECURE_PATTERN.search(urllib.parse.unquote(uri)):
+        return False
+    # vless/trojan/vmess должны иметь tls или reality (кроме ss/hy2)
+    if uri_l.startswith(("vless://", "trojan://", "vmess://")):
+        security = get_security(uri)
+        if security not in ("tls", "reality"):
+            return False
+    return True
 
 
-def is_quality_config(uri: str) -> bool:
-    return quality_score(uri) >= 40
-
-
-def parse_configs(data: str) -> list[str]:
+def parse_igareck_configs(data: str) -> list[str]:
+    """Парсит файлы igareck, сохраняя порядок (рейтинг после тестов в РФ)."""
     data = try_decode_base64(data)
     pattern = "|".join(p.replace("://", "") for p in PROTOCOL_PREFIXES)
     data = re.sub(rf"({pattern})://", r"\n\1://", data, flags=re.IGNORECASE)
@@ -147,19 +88,16 @@ def parse_configs(data: str) -> list[str]:
 
     for line in data.splitlines():
         line_stripped = normalize_uri(line.strip())
-        if not line_stripped.lower().startswith(SUPPORTED_PREFIXES):
+        if not line_stripped or line_stripped.startswith("#"):
             continue
-        if not is_quality_config(line_stripped):
+        if not is_valid_config(line_stripped):
             continue
         processed = urllib.parse.unquote(line_stripped)
-        if INSECURE_PATTERN.search(processed):
-            continue
         if processed in seen:
             continue
         seen.add(processed)
         result.append(processed)
 
-    result.sort(key=quality_score, reverse=True)
     return result
 
 

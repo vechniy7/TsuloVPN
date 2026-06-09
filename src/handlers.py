@@ -27,12 +27,11 @@ def _format_pool_stats() -> str:
         updated = "ещё не обновлялся"
 
     return (
-        f"**Рабочих конфигов:** `{len(pool.configs)}` / `{config.target_total_count}`\n"
-        f"**Обычные VPN:** `{regular}`\n"
+        f"**Источник:** `igareck/vpn-configs-for-russia`\n"
+        f"**Конфигов в подписке:** `{len(pool.configs)}` / `{config.target_total_count}`\n"
+        f"**Обычный VPN (чёрные списки):** `{regular}`\n"
         f"**Обход белых списков:** `{whitelist}`\n"
-        f"**Последнее обновление:** `{updated}`\n"
-        f"**Проверено кандидатов:** `{pool.candidates_checked}`\n"
-        f"**Живых найдено:** `{pool.candidates_alive}`"
+        f"**Обновлено:** `{updated}`"
     )
 
 
@@ -43,7 +42,7 @@ async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> No
 
     sub_url = config.subscription_url_for_token(user.subscription_token)
     text = (
-        f"**{config.BOT_NAME}** — бесплатные рабочие VPN-ключи\n\n"
+        f"**{config.BOT_NAME}** — VPN из igareck (проверены в РФ)\n\n"
         f"**Ваш ID:** `{user.telegram_id}`\n\n"
         f"{_format_pool_stats()}\n\n"
         "Нажмите **«Получить ключ»**, чтобы получить ссылку подписки для Hiddify / Happ / v2rayNG."
@@ -174,8 +173,9 @@ async def _send_help(target: Message) -> None:
         "2. В приложении: **Добавить подписку по URL**\n"
         "3. Включите **автообновление** подписки\n"
         "4. Выберите сервер с минимальным пингом\n\n"
-        "**Серверы с пометкой «Белый список»** — для обхода SNI/CIDR белых списков.\n"
-        "**Серверы «VPN #N»** — обычные бесплатные прокси.\n\n"
+        "**Источник:** igareck/vpn-configs-for-russia (тесты с сервера в РФ)\n\n"
+        "**VPN #N** — обычный интернет (`BLACK_VLESS_RUS_mobile`)\n"
+        "**Белый список #N** — обход белых списков (`Vless-Reality-White-Lists-Rus-Mobile`)\n\n"
         f"Подписка обновляется каждые ~{config.POOL_REFRESH_INTERVAL // 60} мин."
     )
     builder = InlineKeyboardBuilder()

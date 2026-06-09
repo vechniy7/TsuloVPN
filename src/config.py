@@ -10,29 +10,44 @@ class Config(BaseModel):
     ADMINS: list[int] = Field(default_factory=list)
     BOT_NAME: str = os.getenv("BOT_NAME", "TsuloVPN")
 
-    # Публичный URL подписок (должен быть HTTPS для Hiddify / Happ)
     SUBSCRIPTION_PUBLIC_URL: str = os.getenv("SUBSCRIPTION_PUBLIC_URL", "https://your-domain.com")
-    # Render.com передаёт PORT; локально по умолчанию 8080
     SUBSCRIPTION_PORT: int = Field(
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )
 
-    # Источники goida-vpn-configs (рекомендованные + обход белых списков)
-    GOIDA_RAW_BASE: str = os.getenv(
-        "GOIDA_RAW_BASE",
-        "https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror",
+    # igareck/vpn-configs-for-russia — конфиги проверяются на сервере в РФ
+    IGARECK_RAW_BASE: str = os.getenv(
+        "IGARECK_RAW_BASE",
+        "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main",
     )
-    REGULAR_SOURCE_IDS: list[int] = Field(default_factory=lambda: [1, 6, 22, 23, 24, 25])
-    WHITELIST_SOURCE_ID: int = int(os.getenv("WHITELIST_SOURCE_ID", "26"))
+
+    # Обычный VPN (чёрные списки) — mobile TOP-150, уже отфильтрованы автором
+    REGULAR_SOURCES: list[str] = Field(
+        default_factory=lambda: [
+            "BLACK_VLESS_RUS_mobile.txt",
+            "BLACK_VLESS_RUS.txt",
+        ]
+    )
+
+    # Обход белых списков — mobile TOP-150, проверены пользователем
+    WHITELIST_SOURCES: list[str] = Field(
+        default_factory=lambda: [
+            "Vless-Reality-White-Lists-Rus-Mobile.txt",
+            "Vless-Reality-White-Lists-Rus-Mobile-2.txt",
+            "WHITE-CIDR-RU-checked.txt",
+        ]
+    )
 
     TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "25"))
     TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "7"))
-    MAX_HEALTH_CHECK_CANDIDATES: int = int(os.getenv("MAX_HEALTH_CHECK_CANDIDATES", "600"))
 
-    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "600"))
-    HEALTH_CHECK_TIMEOUT: float = float(os.getenv("HEALTH_CHECK_TIMEOUT", "6.0"))
-    HEALTH_CHECK_CONCURRENCY: int = int(os.getenv("HEALTH_CHECK_CONCURRENCY", "60"))
-    FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "20"))
+    # igareck уже тестирует с РФ — доп. проверка с Render обычно не нужна
+    SKIP_HEALTH_CHECK: bool = os.getenv("SKIP_HEALTH_CHECK", "true").lower() == "true"
+    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "3600"))
+    HEALTH_CHECK_TIMEOUT: float = float(os.getenv("HEALTH_CHECK_TIMEOUT", "5.0"))
+    HEALTH_CHECK_CONCURRENCY: int = int(os.getenv("HEALTH_CHECK_CONCURRENCY", "40"))
+    MAX_HEALTH_CHECK_CANDIDATES: int = int(os.getenv("MAX_HEALTH_CHECK_CANDIDATES", "80"))
+    FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "25"))
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")
 

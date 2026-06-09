@@ -63,12 +63,15 @@ async def main() -> None:
     setup_handlers(dp)
     await setup_bot_commands(bot)
 
+    # Сбрасываем webhook и конфликтующие сессии (важно при redeploy на Render)
+    await bot.delete_webhook(drop_pending_updates=True)
+
     asyncio.create_task(start_refresh_loop())
     asyncio.create_task(run_subscription_server())
 
     logger.info("%s started (subscription port %s)", config.BOT_NAME, config.SUBSCRIPTION_PORT)
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, drop_pending_updates=True)
     finally:
         await close_session()
         await bot.session.close()
