@@ -167,7 +167,7 @@ def _split_config_lines(data: str) -> list[str]:
     return data.splitlines()
 
 
-def parse_igareck_configs(data: str) -> list[str]:
+def parse_vpn_configs(data: str) -> list[str]:
     """Парсит обычные VPN-конфиги (чёрные списки)."""
     result: list[str] = []
     seen: set[str] = set()

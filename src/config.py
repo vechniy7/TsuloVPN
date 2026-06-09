@@ -15,10 +15,10 @@ class Config(BaseModel):
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )
 
-    # igareck/vpn-configs-for-russia — конфиги проверяются на сервере в РФ
-    IGARECK_RAW_BASE: str = os.getenv(
-        "IGARECK_RAW_BASE",
-        "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main",
+    CONFIG_RAW_BASE: str = (
+        os.getenv("CONFIG_RAW_BASE")
+        or os.getenv("IGARECK_RAW_BASE")  # совместимость со старым деплоем
+        or "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main"
     )
 
     # Обычный VPN (чёрные списки) — mobile TOP-150, уже отфильтрованы автором
@@ -42,7 +42,6 @@ class Config(BaseModel):
     TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "20"))
     TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "15"))
 
-    # igareck уже тестирует с РФ — доп. проверка с Render обычно не нужна
     SKIP_HEALTH_CHECK: bool = os.getenv("SKIP_HEALTH_CHECK", "true").lower() == "true"
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "3600"))
     HEALTH_CHECK_TIMEOUT: float = float(os.getenv("HEALTH_CHECK_TIMEOUT", "5.0"))

@@ -12,7 +12,7 @@ from parser import (
     extract_host_port,
     get_security,
     get_sni,
-    parse_igareck_configs,
+    parse_vpn_configs,
     parse_whitelist_configs,
     whitelist_score,
 )
@@ -93,13 +93,13 @@ async def close_session() -> None:
 
 
 async def _fetch_regular_file(filename: str) -> list[str]:
-    url = f"{config.IGARECK_RAW_BASE}/{filename}"
+    url = f"{config.CONFIG_RAW_BASE}/{filename}"
     session = await _get_session()
     try:
         async with session.get(url, ssl=False) as resp:
             resp.raise_for_status()
             text = await resp.text()
-            configs = parse_igareck_configs(text)
+            configs = parse_vpn_configs(text)
             logger.info("Regular: %s configs from %s", len(configs), filename)
             return configs
     except Exception as exc:
@@ -108,7 +108,7 @@ async def _fetch_regular_file(filename: str) -> list[str]:
 
 
 async def _fetch_whitelist_file(filename: str) -> list[str]:
-    url = f"{config.IGARECK_RAW_BASE}/{filename}"
+    url = f"{config.CONFIG_RAW_BASE}/{filename}"
     session = await _get_session()
     try:
         async with session.get(url, ssl=False) as resp:
@@ -244,7 +244,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        logger.info("Refreshing pool from igareck (whitelist: RU SNI filter)...")
+        logger.info("Refreshing TsuloVPN config pool...")
 
         try:
             regular_alive, whitelist_alive = await asyncio.gather(
@@ -260,7 +260,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.last_refresh_duration = time.perf_counter() - started
             _pool.candidates_checked = len(regular_alive) + len(whitelist_alive)
             _pool.candidates_alive = len(combined)
-            _pool.source_info = "igareck/vpn-configs-for-russia"
+            _pool.source_info = "TsuloVPN"
             _pool.last_error = None
 
             wl_snis = [c.sni for c in whitelist_alive[:5]]

@@ -27,7 +27,6 @@ def _format_pool_stats() -> str:
         updated = "ещё не обновлялся"
 
     return (
-        f"**Источник:** `igareck/vpn-configs-for-russia`\n"
         f"**Конфигов в подписке:** `{len(pool.configs)}` / `{config.target_total_count}`\n"
         f"**Обычный VPN (чёрные списки):** `{regular}`\n"
         f"**Обход белых списков:** `{whitelist}`\n"
@@ -42,7 +41,7 @@ async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> No
 
     sub_url = config.subscription_url_for_token(user.subscription_token)
     text = (
-        f"**{config.BOT_NAME}** — VPN из igareck (проверены в РФ)\n\n"
+        f"**{config.BOT_NAME}** — бесплатные VPN-ключи\n\n"
         f"**Ваш ID:** `{user.telegram_id}`\n\n"
         f"{_format_pool_stats()}\n\n"
         "Нажмите **«Получить ключ»**, чтобы получить ссылку подписки для Hiddify / Happ / v2rayNG."
