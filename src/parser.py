@@ -308,6 +308,26 @@ def parse_bypass_subscription(data: str) -> list[str]:
     return _parse_bypass_candidates(data, min_score=40)
 
 
+def parse_bypass_subscription_all(data: str) -> list[str]:
+    """Все VPN-строки из подписки bypass-unsecure-all без фильтра по SNI."""
+    result: list[str] = []
+    seen: set[str] = set()
+
+    for line in _split_config_lines(data):
+        line_stripped = normalize_uri(line.strip())
+        if not line_stripped or line_stripped.startswith("#"):
+            continue
+        if not line_stripped.lower().startswith(SUPPORTED_PREFIXES):
+            continue
+        processed = urllib.parse.unquote(line_stripped)
+        if processed in seen:
+            continue
+        seen.add(processed)
+        result.append(processed)
+
+    return result
+
+
 def _parse_bypass_candidates(data: str, min_score: int) -> list[str]:
     candidates: list[str] = []
     seen: set[str] = set()

@@ -27,11 +27,13 @@ def _format_pool_stats() -> str:
         updated = "ещё не обновлялся"
 
     verified = pool.last_verify_alive or len(pool.configs)
+    total_hint = f"`{len(pool.configs)}`" if config.WHITELIST_INCLUDE_ALL else f"`{verified}` / `{config.target_total_count}`"
     return (
-        f"**Конфигов в подписке:** `{verified}` / `{config.target_total_count}`\n"
+        f"**Конфигов в подписке:** {total_hint}\n"
         f"**Обычный VPN (чёрные списки):** `{regular}`\n"
-        f"**Обход белых списков:** `{whitelist}`\n"
-        f"**Проверка при обновлении:** `{'вкл' if config.VERIFY_ON_SUBSCRIBE and not config.SKIP_HEALTH_CHECK else 'выкл'}`\n"
+        f"**Обход белых списков:** `{whitelist}`"
+        + (" (все из источника)\n" if config.WHITELIST_INCLUDE_ALL else "\n")
+        + f"**Проверка при обновлении:** `{'вкл' if config.VERIFY_ON_SUBSCRIBE and not config.SKIP_HEALTH_CHECK else 'выкл'}`\n"
         f"**Обновлено:** `{updated}`"
     )
 

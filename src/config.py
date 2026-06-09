@@ -29,11 +29,13 @@ class Config(BaseModel):
         ]
     )
 
-    # Обход белых списков — только bypass-all.txt
+    # Обход белых списков — bypass-unsecure-all.txt
     BYPASS_SOURCE_URL: str = os.getenv(
         "BYPASS_SOURCE_URL",
-        "https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/bypass/bypass-all.txt",
+        "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass-unsecure/bypass-unsecure-all.txt",
     )
+    # true = все конфиги из bypass-файла без лимита и без фильтра SNI
+    WHITELIST_INCLUDE_ALL: bool = os.getenv("WHITELIST_INCLUDE_ALL", "true").lower() == "true"
 
     TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "20"))
     TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "15"))
@@ -50,6 +52,8 @@ class Config(BaseModel):
     WHITELIST_PER_PRIORITY_SNI: int = int(os.getenv("WHITELIST_PER_PRIORITY_SNI", "3"))
 
     SKIP_HEALTH_CHECK: bool = os.getenv("SKIP_HEALTH_CHECK", "false").lower() == "true"
+    # БС: не проверять пинг на сервере — отдаём все из источника
+    WHITELIST_SKIP_HEALTH_CHECK: bool = os.getenv("WHITELIST_SKIP_HEALTH_CHECK", "true").lower() == "true"
     # Reality/grpc/ws не проходят TLS-проверку с датацентра — только TCP для БС
     WHITELIST_TCP_ONLY_CHECK: bool = os.getenv("WHITELIST_TCP_ONLY_CHECK", "true").lower() == "true"
     # Не отсекать БС при обновлении подписки в Happ (проверка только на телефоне)

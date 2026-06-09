@@ -15,6 +15,7 @@ from parser import (
     get_sni,
     get_transport,
     parse_bypass_subscription,
+    parse_bypass_subscription_all,
     parse_vpn_configs,
 )
 
@@ -134,8 +135,12 @@ async def _fetch_bypass_subscription() -> list[str]:
     text = await _fetch_text(config.BYPASS_SOURCE_URL)
     if not text:
         return []
-    configs = parse_bypass_subscription(text)
-    logger.info("Bypass subscription: %s whitelist candidates", len(configs))
+    if config.WHITELIST_INCLUDE_ALL:
+        configs = parse_bypass_subscription_all(text)
+        logger.info("Bypass subscription (all): %s configs", len(configs))
+    else:
+        configs = parse_bypass_subscription(text)
+        logger.info("Bypass subscription (filtered): %s configs", len(configs))
     return configs
 
 
@@ -289,6 +294,9 @@ async def _health_check_batch(
     if config.SKIP_HEALTH_CHECK:
         return items[:target], len(items)
 
+    if items and items[0].category == "whitelist" and config.WHITELIST_SKIP_HEALTH_CHECK:
+        return items[:target] if target else items, len(items)
+
     limit = max_candidates or config.MAX_HEALTH_CHECK_CANDIDATES
     candidates = items[:limit]
     sem = asyncio.Semaphore(config.HEALTH_CHECK_CONCURRENCY)
@@ -337,28 +345,24 @@ async def _collect_whitelist(limit: int) -> list[WorkingConfig]:
         logger.warning("Bypass source empty or unavailable: %s", config.BYPASS_SOURCE_URL)
         return []
 
-    unique = _prioritize_whitelist_configs(_dedupe_by_uri(raw))
+    if config.WHITELIST_INCLUDE_ALL:
+        unique = _dedupe_by_uri(raw)
+    else:
+        unique = _prioritize_whitelist_configs(_dedupe_by_uri(raw))
 
     logger.info(
-        "Whitelist from bypass-all: %s candidates (top SNI: %s)",
+        "Whitelist from bypass: %s configs",
         len(unique),
-        get_sni(unique[0]) if unique else "none",
     )
 
     items = _uris_to_working(unique, "whitelist", source="bypass")
+    effective_limit = len(items) if config.WHITELIST_INCLUDE_ALL else limit
     alive, checked = await _health_check_batch(
         items,
-        limit,
-        config.MAX_HEALTH_CHECK_CANDIDATES,
+        effective_limit,
+        len(items) if config.WHITELIST_INCLUDE_ALL else config.MAX_HEALTH_CHECK_CANDIDATES,
     )
-    logger.info("Whitelist health check: %s alive / %s checked", len(alive), checked)
-
-    if len(alive) < limit // 2 and not config.SKIP_HEALTH_CHECK:
-        logger.warning(
-            "Only %s whitelist servers passed check (wanted %s)",
-            len(alive),
-            limit,
-        )
+    logger.info("Whitelist pool: %s configs (%s checked)", len(alive), checked)
 
     return alive
 
@@ -456,7 +460,10 @@ async def refresh_pool(force: bool = False) -> PoolState:
             )
 
             combined = regular_alive[: config.TARGET_REGULAR_COUNT]
-            combined.extend(whitelist_alive[: config.TARGET_WHITELIST_COUNT])
+            if config.WHITELIST_INCLUDE_ALL:
+                combined.extend(whitelist_alive)
+            else:
+                combined.extend(whitelist_alive[: config.TARGET_WHITELIST_COUNT])
 
             _pool.configs = combined
             _pool.last_refresh_at = time.time()

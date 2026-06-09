@@ -16,7 +16,11 @@ services:
       - key: SUBSCRIPTION_PUBLIC_URL
         sync: false
       - key: BYPASS_SOURCE_URL
-        value: https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/bypass/bypass-all.txt
+        value: https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass-unsecure/bypass-unsecure-all.txt
+      - key: WHITELIST_INCLUDE_ALL
+        value: "true"
+      - key: WHITELIST_SKIP_HEALTH_CHECK
+        value: "true"
       - key: SKIP_HEALTH_CHECK
         value: "false"
       - key: VERIFY_ON_SUBSCRIBE
