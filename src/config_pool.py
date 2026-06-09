@@ -7,7 +7,15 @@ from dataclasses import dataclass, field
 import aiohttp
 
 from config import config
-from parser import brand_config, extract_host_port, get_security, get_sni, parse_igareck_configs
+from parser import (
+    brand_config,
+    extract_host_port,
+    get_security,
+    get_sni,
+    parse_igareck_configs,
+    parse_whitelist_configs,
+    whitelist_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +28,7 @@ class WorkingConfig:
     latency_ms: int
     category: str
     source: str = ""
+    sni: str = ""
 
 
 @dataclass
@@ -56,7 +65,8 @@ def get_working_subscription_lines() -> list[str]:
     for item in _pool.configs:
         if item.category == "whitelist":
             whitelist_idx += 1
-            label = f"{config.BOT_NAME} | Белый список #{whitelist_idx}"
+            sni_short = (item.sni or "BS").split(".")[0]
+            label = f"{config.BOT_NAME} | БС {sni_short} #{whitelist_idx}"
         else:
             regular_idx += 1
             label = f"{config.BOT_NAME} | VPN #{regular_idx}"
@@ -82,7 +92,7 @@ async def close_session() -> None:
         _session = None
 
 
-async def _fetch_igareck_file(filename: str) -> list[str]:
+async def _fetch_regular_file(filename: str) -> list[str]:
     url = f"{config.IGARECK_RAW_BASE}/{filename}"
     session = await _get_session()
     try:
@@ -90,7 +100,22 @@ async def _fetch_igareck_file(filename: str) -> list[str]:
             resp.raise_for_status()
             text = await resp.text()
             configs = parse_igareck_configs(text)
-            logger.info("Loaded %s configs from %s", len(configs), filename)
+            logger.info("Regular: %s configs from %s", len(configs), filename)
+            return configs
+    except Exception as exc:
+        logger.warning("Failed to fetch %s: %s", filename, exc)
+        return []
+
+
+async def _fetch_whitelist_file(filename: str) -> list[str]:
+    url = f"{config.IGARECK_RAW_BASE}/{filename}"
+    session = await _get_session()
+    try:
+        async with session.get(url, ssl=False) as resp:
+            resp.raise_for_status()
+            text = await resp.text()
+            configs = parse_whitelist_configs(text)
+            logger.info("Whitelist: %s RU-SNI configs from %s", len(configs), filename)
             return configs
     except Exception as exc:
         logger.warning("Failed to fetch %s: %s", filename, exc)
@@ -147,73 +172,66 @@ async def _probe_latency(host: str, port: int, uri: str) -> int | None:
         return None
 
 
-async def _collect_from_sources(
-    sources: list[str],
-    category: str,
-    limit: int,
-) -> list[WorkingConfig]:
+async def _collect_regular(limit: int) -> list[WorkingConfig]:
     raw: list[str] = []
-    used_sources: list[str] = []
-
-    for filename in sources:
-        configs = await _fetch_igareck_file(filename)
-        if configs:
-            used_sources.append(filename)
-            raw.extend(configs)
+    for filename in config.REGULAR_SOURCES:
+        raw.extend(await _fetch_regular_file(filename))
         if len(_dedupe_preserve_order(raw)) >= limit:
             break
 
-    unique = _dedupe_preserve_order(raw)[: config.MAX_HEALTH_CHECK_CANDIDATES]
-
-    if config.SKIP_HEALTH_CHECK:
-        result = []
-        for uri in unique[:limit]:
-            hostport = extract_host_port(uri)
-            if not hostport:
-                continue
-            host, port = hostport
-            result.append(
-                WorkingConfig(
-                    uri=uri,
-                    host=host,
-                    port=port,
-                    latency_ms=0,
-                    category=category,
-                    source=used_sources[0] if used_sources else "",
-                )
-            )
-        return result
-
-    semaphore = asyncio.Semaphore(config.HEALTH_CHECK_CONCURRENCY)
-    alive: list[WorkingConfig] = []
-
-    async def check(uri: str) -> WorkingConfig | None:
+    unique = _dedupe_preserve_order(raw)[:limit]
+    result = []
+    for uri in unique:
         hostport = extract_host_port(uri)
         if not hostport:
-            return None
+            continue
         host, port = hostport
-        async with semaphore:
-            latency = await _probe_latency(host, port, uri)
-        if latency is None:
-            return None
-        return WorkingConfig(
-            uri=uri, host=host, port=port, latency_ms=latency, category=category
+        result.append(
+            WorkingConfig(
+                uri=uri, host=host, port=port, latency_ms=0,
+                category="regular", sni=get_sni(uri) or "",
+            )
         )
+    return result
 
-    tasks = [asyncio.create_task(check(uri)) for uri in unique]
-    try:
-        for task in asyncio.as_completed(tasks):
-            item = await task
-            if item:
-                alive.append(item)
-            if len(alive) >= limit:
-                break
-    finally:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
 
-    return alive[:limit]
+async def _collect_whitelist(limit: int) -> list[WorkingConfig]:
+    """Собирает конфиги для обхода белых списков — только Reality + российский SNI."""
+    raw: list[str] = []
+
+    for filename in config.WHITELIST_SOURCES:
+        configs = await _fetch_whitelist_file(filename)
+        raw.extend(configs)
+        if len(_dedupe_preserve_order(raw)) >= limit * 2:
+            break
+
+    # Сортируем по качеству для мобильного интернета (Мегафон и др.)
+    unique = _dedupe_preserve_order(raw)
+    unique.sort(key=whitelist_score, reverse=True)
+
+    logger.info(
+        "Whitelist candidates with RU SNI: %s (top SNI: %s)",
+        len(unique),
+        get_sni(unique[0]) if unique else "none",
+    )
+
+    result = []
+    for uri in unique[:limit]:
+        hostport = extract_host_port(uri)
+        if not hostport:
+            continue
+        host, port = hostport
+        result.append(
+            WorkingConfig(
+                uri=uri,
+                host=host,
+                port=port,
+                latency_ms=0,
+                category="whitelist",
+                sni=get_sni(uri) or "",
+            )
+        )
+    return result
 
 
 async def refresh_pool(force: bool = False) -> PoolState:
@@ -226,20 +244,12 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        logger.info("Refreshing pool from igareck/vpn-configs-for-russia...")
+        logger.info("Refreshing pool from igareck (whitelist: RU SNI filter)...")
 
         try:
             regular_alive, whitelist_alive = await asyncio.gather(
-                _collect_from_sources(
-                    config.REGULAR_SOURCES,
-                    "regular",
-                    config.TARGET_REGULAR_COUNT,
-                ),
-                _collect_from_sources(
-                    config.WHITELIST_SOURCES,
-                    "whitelist",
-                    config.TARGET_WHITELIST_COUNT,
-                ),
+                _collect_regular(config.TARGET_REGULAR_COUNT),
+                _collect_whitelist(config.TARGET_WHITELIST_COUNT),
             )
 
             combined = regular_alive[: config.TARGET_REGULAR_COUNT]
@@ -253,13 +263,14 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.source_info = "igareck/vpn-configs-for-russia"
             _pool.last_error = None
 
+            wl_snis = [c.sni for c in whitelist_alive[:5]]
             logger.info(
-                "Pool ready: %s configs (%s VPN + %s whitelist) in %.1fs [health_check=%s]",
+                "Pool ready: %s (%s VPN + %s whitelist) in %.1fs | top WL SNI: %s",
                 len(combined),
                 len(regular_alive),
                 len(whitelist_alive),
                 _pool.last_refresh_duration,
-                not config.SKIP_HEALTH_CHECK,
+                ", ".join(wl_snis) if wl_snis else "none",
             )
         except Exception as exc:
             _pool.last_error = str(exc)

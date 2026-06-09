@@ -29,17 +29,18 @@ class Config(BaseModel):
         ]
     )
 
-    # Обход белых списков — mobile TOP-150, проверены пользователем
+    # Обход белых списков — приоритет файлам с российским SNI (VK, Yandex, X5)
     WHITELIST_SOURCES: list[str] = Field(
         default_factory=lambda: [
+            "WHITE-CIDR-RU-checked.txt",
+            "WHITE-SNI-RU-all.txt",
             "Vless-Reality-White-Lists-Rus-Mobile.txt",
             "Vless-Reality-White-Lists-Rus-Mobile-2.txt",
-            "WHITE-CIDR-RU-checked.txt",
         ]
     )
 
-    TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "25"))
-    TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "7"))
+    TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "20"))
+    TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "15"))
 
     # igareck уже тестирует с РФ — доп. проверка с Render обычно не нужна
     SKIP_HEALTH_CHECK: bool = os.getenv("SKIP_HEALTH_CHECK", "true").lower() == "true"
