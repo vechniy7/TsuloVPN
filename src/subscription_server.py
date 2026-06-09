@@ -1,3 +1,4 @@
+import base64
 import logging
 import time
 from datetime import datetime, timezone
@@ -35,7 +36,9 @@ async def subscription(token: str):
         raise HTTPException(status_code=503, detail="No working configs available yet")
 
     pool = get_pool_state()
-    body = "\n".join(lines)
+    plain = "\n".join(lines)
+    # Стандартный формат подписки v2ray — base64 (Hiddify / Happ / v2rayNG)
+    body = base64.b64encode(plain.encode("utf-8")).decode("ascii")
 
     headers = {
         "Content-Type": "text/plain; charset=utf-8",

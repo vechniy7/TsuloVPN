@@ -1,13 +1,14 @@
 import asyncio
 import logging
 import random
+import ssl
 import time
 from dataclasses import dataclass, field
 
 import aiohttp
 
 from config import config
-from parser import brand_config, extract_host_port, parse_configs
+from parser import brand_config, extract_host_port, get_security, get_sni, parse_configs, quality_score
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,8 @@ class WorkingConfig:
     host: str
     port: int
     latency_ms: int
-    category: str  # regular | whitelist
+    category: str
+    score: int = 0
 
 
 @dataclass
@@ -111,21 +113,46 @@ def _dedupe_configs(configs: list[str]) -> list[str]:
             seen_hostport.add(key)
 
         unique.append(uri)
+
+    unique.sort(key=quality_score, reverse=True)
     return unique
 
 
-async def _tcp_latency(host: str, port: int) -> int | None:
+async def _probe_latency(host: str, port: int, uri: str) -> int | None:
     started = time.perf_counter()
+    security = get_security(uri)
+    sni = get_sni(uri) or host
+
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port),
-            timeout=config.HEALTH_CHECK_TIMEOUT,
-        )
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except Exception:
-            pass
+        if security in ("tls", "reality"):
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            _reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(
+                    host,
+                    port,
+                    ssl=ctx,
+                    server_hostname=sni,
+                ),
+                timeout=config.HEALTH_CHECK_TIMEOUT,
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+        else:
+            _reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=config.HEALTH_CHECK_TIMEOUT,
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
         elapsed = int((time.perf_counter() - started) * 1000)
         return max(elapsed, 1)
     except Exception:
@@ -146,23 +173,32 @@ async def _health_check_batch(
             return None
         host, port = hostport
         async with semaphore:
-            latency = await _tcp_latency(host, port)
+            latency = await _probe_latency(host, port, uri)
         if latency is None:
             return None
-        return WorkingConfig(uri=uri, host=host, port=port, latency_ms=latency, category=category)
+        return WorkingConfig(
+            uri=uri,
+            host=host,
+            port=port,
+            latency_ms=latency,
+            category=category,
+            score=quality_score(uri),
+        )
 
     tasks = [asyncio.create_task(check_one(uri)) for uri in uris]
-    for task in asyncio.as_completed(tasks):
-        result = await task
-        if result:
-            alive.append(result)
-        if len(alive) >= limit * 3:
-            for pending in tasks:
-                if not pending.done():
-                    pending.cancel()
-            break
+    try:
+        for task in asyncio.as_completed(tasks):
+            result = await task
+            if result:
+                alive.append(result)
+            if len(alive) >= limit * 5:
+                break
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
 
-    alive.sort(key=lambda item: item.latency_ms)
+    alive.sort(key=lambda item: (-item.score, item.latency_ms))
     return alive[:limit]
 
 
@@ -176,19 +212,26 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        logger.info("Refreshing TsuloVPN config pool...")
+        logger.info("Refreshing TsuloVPN config pool (TLS/reality check)...")
 
         try:
+            # Приоритет: российские и рекомендованные источники
+            priority_ids = [23, 24, 25, 1, 6, 22]
+            other_ids = [i for i in config.REGULAR_SOURCE_IDS if i not in priority_ids]
+
             regular_raw: list[str] = []
-            for source_id in config.REGULAR_SOURCE_IDS:
+            for source_id in priority_ids + other_ids:
                 regular_raw.extend(await _fetch_source(source_id))
 
             whitelist_raw = await _fetch_source(config.WHITELIST_SOURCE_ID)
             regular_unique = _dedupe_configs(regular_raw)
             whitelist_unique = _dedupe_configs(whitelist_raw)
 
-            random.shuffle(regular_unique)
-            random.shuffle(whitelist_unique)
+            logger.info(
+                "Candidates after quality filter: %s regular, %s whitelist",
+                len(regular_unique),
+                len(whitelist_unique),
+            )
 
             regular_candidates = regular_unique[: config.MAX_HEALTH_CHECK_CANDIDATES]
             whitelist_candidates = whitelist_unique[: config.MAX_HEALTH_CHECK_CANDIDATES]
@@ -206,21 +249,29 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 ),
             )
 
+            # Дополнительный проход если мало живых
             if len(regular_alive) < config.TARGET_REGULAR_COUNT:
-                extra_needed = config.TARGET_REGULAR_COUNT - len(regular_alive)
-                extra_pool = [u for u in regular_candidates if u not in {c.uri for c in regular_alive}]
-                extra_alive = await _health_check_batch(extra_pool, "regular", extra_needed)
-                regular_alive.extend(extra_alive)
+                used = {c.uri for c in regular_alive}
+                extra_pool = [u for u in regular_unique if u not in used]
+                extra = await _health_check_batch(
+                    extra_pool,
+                    "regular",
+                    config.TARGET_REGULAR_COUNT - len(regular_alive),
+                )
+                regular_alive.extend(extra)
 
             if len(whitelist_alive) < config.TARGET_WHITELIST_COUNT:
-                extra_needed = config.TARGET_WHITELIST_COUNT - len(whitelist_alive)
-                extra_pool = [u for u in whitelist_candidates if u not in {c.uri for c in whitelist_alive}]
-                extra_alive = await _health_check_batch(extra_pool, "whitelist", extra_needed)
-                whitelist_alive.extend(extra_alive)
+                used = {c.uri for c in whitelist_alive}
+                extra_pool = [u for u in whitelist_unique if u not in used]
+                extra = await _health_check_batch(
+                    extra_pool,
+                    "whitelist",
+                    config.TARGET_WHITELIST_COUNT - len(whitelist_alive),
+                )
+                whitelist_alive.extend(extra)
 
             combined = regular_alive[: config.TARGET_REGULAR_COUNT]
             combined.extend(whitelist_alive[: config.TARGET_WHITELIST_COUNT])
-            combined.sort(key=lambda item: (item.category != "regular", item.latency_ms))
 
             _pool.configs = combined
             _pool.last_refresh_at = time.time()
@@ -230,7 +281,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.last_error = None
 
             logger.info(
-                "Pool refreshed: %s working (%s regular, %s whitelist) in %.1fs",
+                "Pool refreshed: %s passed TLS check (%s regular, %s whitelist) in %.1fs",
                 len(combined),
                 min(len(regular_alive), config.TARGET_REGULAR_COUNT),
                 min(len(whitelist_alive), config.TARGET_WHITELIST_COUNT),

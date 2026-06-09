@@ -27,12 +27,12 @@ class Config(BaseModel):
 
     TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "25"))
     TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "7"))
-    MAX_HEALTH_CHECK_CANDIDATES: int = int(os.getenv("MAX_HEALTH_CHECK_CANDIDATES", "400"))
+    MAX_HEALTH_CHECK_CANDIDATES: int = int(os.getenv("MAX_HEALTH_CHECK_CANDIDATES", "600"))
 
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "600"))
-    HEALTH_CHECK_TIMEOUT: float = float(os.getenv("HEALTH_CHECK_TIMEOUT", "4.0"))
-    HEALTH_CHECK_CONCURRENCY: int = int(os.getenv("HEALTH_CHECK_CONCURRENCY", "80"))
-    FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "15"))
+    HEALTH_CHECK_TIMEOUT: float = float(os.getenv("HEALTH_CHECK_TIMEOUT", "6.0"))
+    HEALTH_CHECK_CONCURRENCY: int = int(os.getenv("HEALTH_CHECK_CONCURRENCY", "60"))
+    FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "20"))
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")
 
