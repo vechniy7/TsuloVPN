@@ -48,7 +48,24 @@ class Config(BaseModel):
     TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "20"))
     TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "15"))
 
+    # SNI/паттерны, которые чаще всего работают на мобильном БС (Мегафон и др.)
+    WHITELIST_PRIORITY_SNIS: list[str] = Field(
+        default_factory=lambda: [
+            "loadtest.dev.urent.ru",
+            "sfera.x5.ru",
+            "www.vk.com",
+            "top707762634.mwscdn.ru",
+        ]
+    )
+    WHITELIST_PER_PRIORITY_SNI: int = int(os.getenv("WHITELIST_PER_PRIORITY_SNI", "3"))
+
     SKIP_HEALTH_CHECK: bool = os.getenv("SKIP_HEALTH_CHECK", "false").lower() == "true"
+    # Reality/grpc/ws не проходят TLS-проверку с датацентра — только TCP для БС
+    WHITELIST_TCP_ONLY_CHECK: bool = os.getenv("WHITELIST_TCP_ONLY_CHECK", "true").lower() == "true"
+    # Не отсекать БС при обновлении подписки в Happ (проверка только на телефоне)
+    WHITELIST_SKIP_VERIFY_ON_SUBSCRIBE: bool = (
+        os.getenv("WHITELIST_SKIP_VERIFY_ON_SUBSCRIBE", "true").lower() == "true"
+    )
     VERIFY_ON_SUBSCRIBE: bool = os.getenv("VERIFY_ON_SUBSCRIBE", "true").lower() == "true"
     VERIFY_CACHE_TTL: int = int(os.getenv("VERIFY_CACHE_TTL", "90"))
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "3600"))

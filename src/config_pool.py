@@ -13,6 +13,7 @@ from parser import (
     extract_host_port,
     get_security,
     get_sni,
+    get_transport,
     parse_bypass_subscription,
     parse_vpn_configs,
     parse_whitelist_configs,
@@ -65,7 +66,11 @@ def get_pool_state() -> PoolState:
 def _config_to_line(item: WorkingConfig, regular_idx: int, whitelist_idx: int) -> str:
     if item.category == "whitelist":
         sni_short = (item.sni or "BS").split(".")[0]
-        label = f"{config.BOT_NAME} | БС {sni_short} #{whitelist_idx}"
+        transport = get_transport(item.uri)
+        if transport in ("grpc", "ws"):
+            label = f"{config.BOT_NAME} | БС {sni_short} {transport} #{whitelist_idx}"
+        else:
+            label = f"{config.BOT_NAME} | БС {sni_short} #{whitelist_idx}"
     else:
         label = f"{config.BOT_NAME} | VPN #{regular_idx}"
     return brand_config(item.uri, label)
@@ -145,7 +150,19 @@ async def _fetch_bypass_subscription() -> list[str]:
     return configs
 
 
-def _dedupe_preserve_order(configs: list[str]) -> list[str]:
+def _dedupe_by_uri(configs: list[str]) -> list[str]:
+    seen_uri: set[str] = set()
+    unique: list[str] = []
+    for uri in configs:
+        if uri in seen_uri:
+            continue
+        seen_uri.add(uri)
+        unique.append(uri)
+    return unique
+
+
+def _dedupe_regular(configs: list[str]) -> list[str]:
+    """Обычный VPN: один сервер (host:port) — один конфиг."""
     seen_uri: set[str] = set()
     seen_hostport: set[str] = set()
     unique: list[str] = []
@@ -164,6 +181,57 @@ def _dedupe_preserve_order(configs: list[str]) -> list[str]:
 
         unique.append(uri)
     return unique
+
+
+def _matches_priority_sni(sni: str, priority_sni: str) -> bool:
+    sni_l = sni.lower()
+    psni_l = priority_sni.lower()
+    return sni_l == psni_l or psni_l in sni_l
+
+
+def _prioritize_whitelist_configs(configs: list[str]) -> list[str]:
+    """Сначала проверенные SNI (urent, x5, vk, mwscdn), потом остальные."""
+    buckets: dict[str, list[str]] = {sni: [] for sni in config.WHITELIST_PRIORITY_SNIS}
+    rest: list[str] = []
+    seen: set[str] = set()
+
+    for uri in configs:
+        if uri in seen:
+            continue
+        seen.add(uri)
+        sni = get_sni(uri) or ""
+        placed = False
+        for priority_sni in config.WHITELIST_PRIORITY_SNIS:
+            if _matches_priority_sni(sni, priority_sni):
+                buckets[priority_sni].append(uri)
+                placed = True
+                break
+        if not placed:
+            rest.append(uri)
+
+    ordered: list[str] = []
+    for priority_sni in config.WHITELIST_PRIORITY_SNIS:
+        bucket = sorted(buckets[priority_sni], key=bypass_whitelist_score, reverse=True)
+        for uri in bucket[: config.WHITELIST_PER_PRIORITY_SNI]:
+            ordered.append(uri)
+
+    rest.sort(key=bypass_whitelist_score, reverse=True)
+    for uri in rest:
+        if uri not in ordered:
+            ordered.append(uri)
+    return ordered
+
+
+def _whitelist_needs_tcp_only(uri: str) -> bool:
+    if not config.WHITELIST_TCP_ONLY_CHECK:
+        return False
+    security = get_security(uri)
+    transport = get_transport(uri)
+    if security == "reality":
+        return True
+    if transport in ("grpc", "ws", "xhttp"):
+        return True
+    return False
 
 
 def _uris_to_working(configs: list[str], category: str, source: str = "") -> list[WorkingConfig]:
@@ -187,13 +255,18 @@ def _uris_to_working(configs: list[str], category: str, source: str = "") -> lis
     return result
 
 
-async def _probe_latency(host: str, port: int, uri: str) -> int | None:
+async def _probe_latency(host: str, port: int, uri: str, *, tcp_only: bool = False) -> int | None:
     started = time.perf_counter()
     security = get_security(uri)
     sni = get_sni(uri) or host
 
     try:
-        if security in ("tls", "reality") or uri.lower().startswith("trojan://"):
+        if tcp_only:
+            _reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=config.HEALTH_CHECK_TIMEOUT,
+            )
+        elif security in ("tls", "reality") or uri.lower().startswith("trojan://"):
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
@@ -233,7 +306,10 @@ async def _health_check_batch(
 
     async def probe(item: WorkingConfig) -> WorkingConfig | None:
         async with sem:
-            latency = await _probe_latency(item.host, item.port, item.uri)
+            tcp_only = item.category == "whitelist" and _whitelist_needs_tcp_only(item.uri)
+            latency = await _probe_latency(
+                item.host, item.port, item.uri, tcp_only=tcp_only,
+            )
             if latency is None:
                 return None
             return WorkingConfig(
@@ -256,10 +332,10 @@ async def _collect_regular(limit: int) -> list[WorkingConfig]:
     raw: list[str] = []
     for filename in config.REGULAR_SOURCES:
         raw.extend(await _fetch_regular_file(filename))
-        if len(_dedupe_preserve_order(raw)) >= limit * 3:
+        if len(_dedupe_regular(raw)) >= limit * 3:
             break
 
-    unique = _dedupe_preserve_order(raw)
+    unique = _dedupe_regular(raw)
     items = _uris_to_working(unique, "regular")
     alive, checked = await _health_check_batch(items, limit, limit * 3)
     logger.info("Regular health check: %s alive / %s checked", len(alive), checked)
@@ -272,14 +348,13 @@ async def _collect_whitelist(limit: int) -> list[WorkingConfig]:
     bypass_configs = await _fetch_bypass_subscription()
     raw.extend(bypass_configs)
 
-    if len(_dedupe_preserve_order(raw)) < limit:
+    if len(_dedupe_by_uri(raw)) < limit:
         for filename in config.WHITELIST_SOURCES:
             raw.extend(await _fetch_whitelist_file(filename))
-            if len(_dedupe_preserve_order(raw)) >= limit * 4:
+            if len(_dedupe_by_uri(raw)) >= limit * 4:
                 break
 
-    unique = _dedupe_preserve_order(raw)
-    unique.sort(key=bypass_whitelist_score, reverse=True)
+    unique = _prioritize_whitelist_configs(_dedupe_by_uri(raw))
 
     logger.info(
         "Whitelist candidates: %s (top SNI: %s)",
@@ -317,6 +392,9 @@ async def verify_pool_for_subscription() -> list[WorkingConfig]:
         sem = asyncio.Semaphore(config.HEALTH_CHECK_CONCURRENCY)
 
         async def verify_item(item: WorkingConfig) -> WorkingConfig | None:
+            if item.category == "whitelist" and config.WHITELIST_SKIP_VERIFY_ON_SUBSCRIBE:
+                return item
+
             cached = _verify_cache.get(item.uri)
             if cached and now - cached[0] < config.VERIFY_CACHE_TTL:
                 if cached[1] is None:
@@ -332,7 +410,10 @@ async def verify_pool_for_subscription() -> list[WorkingConfig]:
                 )
 
             async with sem:
-                latency = await _probe_latency(item.host, item.port, item.uri)
+                tcp_only = item.category == "whitelist" and _whitelist_needs_tcp_only(item.uri)
+                latency = await _probe_latency(
+                    item.host, item.port, item.uri, tcp_only=tcp_only,
+                )
 
             _verify_cache[item.uri] = (now, latency)
             if latency is None:

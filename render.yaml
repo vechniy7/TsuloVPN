@@ -19,6 +19,12 @@ services:
         value: "false"
       - key: VERIFY_ON_SUBSCRIBE
         value: "true"
+      - key: WHITELIST_TCP_ONLY_CHECK
+        value: "true"
+      - key: WHITELIST_SKIP_VERIFY_ON_SUBSCRIBE
+        value: "true"
+      - key: WHITELIST_PER_PRIORITY_SNI
+        value: "3"
       - key: POOL_REFRESH_INTERVAL
         value: "3600"
       - key: TARGET_REGULAR_COUNT

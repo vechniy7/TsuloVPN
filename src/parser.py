@@ -113,6 +113,10 @@ def get_security(uri: str) -> str:
     return ""
 
 
+def get_transport(uri: str) -> str:
+    return (_query_params(uri).get("type") or "tcp").strip().lower()
+
+
 def get_sni(uri: str) -> str | None:
     params = _query_params(uri)
     sni = (params.get("sni") or params.get("host") or "").strip()
@@ -248,26 +252,48 @@ def is_bypass_whitelist_config(uri: str) -> bool:
 def bypass_whitelist_score(uri: str) -> int:
     score = whitelist_score(uri)
     fragment = get_fragment(uri)
+    security = get_security(uri)
+    transport = get_transport(uri)
+    sni_l = (get_sni(uri) or "").lower()
+
+    # Проверенные на мобильном БС SNI — максимальный приоритет
+    if "loadtest.dev.urent.ru" in sni_l:
+        score += 200
+    if "sfera.x5.ru" in sni_l:
+        score += 200
+    if sni_l == "www.vk.com" or sni_l.endswith(".vk.com"):
+        score += 180
+    if "top707762634.mwscdn.ru" in sni_l or "mwscdn.ru" in sni_l:
+        score += 200
+
+    # grpc-Reality и ws-TLS — типичные рабочие обходы
+    if transport == "grpc" and security == "reality":
+        score += 80
+    if transport == "ws" and security == "tls":
+        score += 80
 
     if "[bl]" in fragment:
-        score += 90
+        score += 30
     if "white list" in fragment:
-        score += 80
+        score += 25
     if "*cidr*" in fragment or "[*cidr*]" in fragment:
-        score += 60
-    if "обход" in fragment:
         score += 40
+    if "обход" in fragment:
+        score += 35
 
-    sni_l = (get_sni(uri) or "").lower()
-    if "ads.x5.ru" in sni_l or "cdp.x5.ru" in sni_l or "sfera.x5.ru" in sni_l:
+    if "ads.x5.ru" in sni_l or "cdp.x5.ru" in sni_l:
         score += 45
     if "storage.yandex.net" in sni_l:
         score += 40
-    if "ngenix" in sni_l or "mwscdn" in sni_l:
+    if "ngenix" in sni_l:
         score += 35
 
     if uri.lower().startswith("trojan://") and is_bypass_label(uri):
         score += 25
+
+    # dendibase и прочие — ниже приоритет без российского CDN SNI
+    if "dendibase" in sni_l or "dendiboss" in sni_l:
+        score -= 50
 
     return score
 
