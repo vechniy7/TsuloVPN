@@ -1,3 +1,4 @@
+import html
 import io
 import logging
 from datetime import datetime, timezone
@@ -183,7 +184,7 @@ async def _send_help(target: Message) -> None:
         "только сайты из «белого списка» (Яндекс, VK, X5) — обычный VPN не подключится. "
         "Конфиги «БС» маскируют трафик под разрешённые сайты.\n\n"
         "**VPN #N** — обычный интернет (WiFi / без блокировок)\n"
-        "**БС xxx #N** — обход белых списков на мобильном (SNI: yandex, vk, x5)\n\n"
+        "**📱 БС · …** — обход белых списков на мобильном\n\n"
         "На мобильном интернете подключайтесь **только к серверам «БС»**.\n"
         "После добавления подписки нажмите **обновить** в Happ — "
         "в списке останутся только серверы, прошедшие проверку.\n"
@@ -205,15 +206,40 @@ async def get_key_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "user_refresh")
 async def user_refresh_callback(callback: CallbackQuery) -> None:
-    await callback.answer("Проверяю серверы...")
+    await callback.answer()
+    text = (
+        "**Обновить список серверов?**\n\n"
+        "Будет загружен свежий список VPN и обходов белых списков.\n\n"
+        "⏳ **Ожидание: 1–2 минуты.** Не закрывайте бота до завершения.\n\n"
+        "После обновления нажмите «Обновить» в Happ или добавьте подписку заново.\n\n"
+        "Продолжить?"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Да", callback_data="user_refresh_confirm")
+    builder.button(text="❌ Нет", callback_data="user_refresh_cancel")
+    builder.adjust(2)
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+
+@router.callback_query(F.data == "user_refresh_cancel")
+async def user_refresh_cancel_callback(callback: CallbackQuery, bot: Bot) -> None:
+    await callback.answer("Отменено")
+    await show_menu(bot, callback.from_user.id, callback.message.message_id)
+
+
+@router.callback_query(F.data == "user_refresh_confirm")
+async def user_refresh_confirm_callback(callback: CallbackQuery) -> None:
+    await callback.answer("Обновляю список...")
     await callback.message.edit_text(
-        "⏳ Скачиваю свежие обходы и проверяю пинг. Это займёт 1–3 минуты...",
+        "⏳ Скачиваю свежие обходы и обновляю список серверов.\n"
+        "Это займёт **1–2 минуты** — пожалуйста, подождите...",
+        parse_mode="Markdown",
     )
     await refresh_pool(force=True)
     text = (
-        "✅ **Список проверен**\n\n"
+        "✅ **Список обновлён**\n\n"
         f"{_format_pool_stats()}\n\n"
-        "Теперь **обновите подписку в Happ** — в списке появятся только живые серверы."
+        "Теперь **обновите подписку в Happ** — появятся новые серверы."
     )
     builder = InlineKeyboardBuilder()
     builder.button(text="🔑 Получить ключ", callback_data="get_key")
@@ -298,16 +324,22 @@ async def admin_users_callback(callback: CallbackQuery) -> None:
 
     await callback.answer()
     users = await get_all_users()
-    lines = [f"**Пользователи ({len(users)}):**\n"]
+    lines = [f"<b>Пользователи ({len(users)}):</b>\n"]
     for user in users[:30]:
         username = f"@{user.username}" if user.username else "—"
-        lines.append(f"• `{user.telegram_id}` {user.full_name} ({username})")
+        safe_name = html.escape(user.full_name or "—")
+        safe_username = html.escape(username)
+        lines.append(f"• <code>{user.telegram_id}</code> {safe_name} ({safe_username})")
     if len(users) > 30:
         lines.append(f"\n... и ещё {len(users) - 30}")
 
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ Назад", callback_data="admin_menu")
-    await callback.message.edit_text("\n".join(lines), reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(
+        "\n".join(lines),
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data == "back_to_menu")

@@ -376,6 +376,53 @@ def extract_host_port(uri: str) -> tuple[str, int] | None:
     return None
 
 
+def sni_display_name(sni: str) -> str:
+    """Короткое читаемое имя SNI для подписи в Happ."""
+    if not sni:
+        return "BS"
+    sni_l = sni.lower()
+    if "mwscdn" in sni_l:
+        return "mwscdn"
+    if "urent" in sni_l:
+        return "urent"
+    if "sfera.x5" in sni_l or sni_l.endswith("x5.ru"):
+        return "x5"
+    if "ads.x5" in sni_l or "cdp.x5" in sni_l:
+        return "x5"
+    if "vk.com" in sni_l or "vk-cdnvideo" in sni_l or sni_l.endswith(".vk.ru"):
+        return "VK"
+    if "yandex" in sni_l:
+        return "Yandex"
+    if "ngenix" in sni_l:
+        return "ngenix"
+    if "max.ru" in sni_l:
+        return "MAX"
+    if "rutube" in sni_l:
+        return "Rutube"
+    if "storage.yandex" in sni_l:
+        return "Yandex"
+
+    parts = [p for p in sni.split(".") if p]
+    if len(parts) >= 2:
+        return parts[-2][:16]
+    return parts[0][:16] if parts else "BS"
+
+
+def build_server_label(category: str, sni: str, transport: str, index: int) -> str:
+    """Подпись сервера в Happ / Hiddify."""
+    if category == "whitelist":
+        sni_name = sni_display_name(sni)
+        transport_icons = {
+            "grpc": "⚡ gRPC",
+            "ws": "🌐 WS",
+            "xhttp": "🔗 XHTTP",
+            "tcp": "🔷 TCP",
+        }
+        transport_label = transport_icons.get(transport, "🔷 TCP")
+        return f"📱 БС · {sni_name} · {transport_label} · #{index}"
+    return f"🌍 VPN · Сервер #{index}"
+
+
 def brand_config(uri: str, label: str) -> str:
     base = uri.split("#", 1)[0]
     return f"{base}#{urllib.parse.quote(label, safe='')}"

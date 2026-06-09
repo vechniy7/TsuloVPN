@@ -40,11 +40,12 @@ async def subscription(token: str):
     # Стандартный формат подписки v2ray — base64 (Hiddify / Happ / v2rayNG)
     body = base64.b64encode(plain.encode("utf-8")).decode("ascii")
 
+    profile_title = f"🔐 {config.BOT_NAME}"
     headers = {
         "Content-Type": "text/plain; charset=utf-8",
         "Profile-Update-Interval": "1",
         "Profile-Title": (
-            f"base64:{base64.b64encode(config.BOT_NAME.encode()).decode()}"
+            f"base64:{base64.b64encode(profile_title.encode()).decode()}"
         ),
         "Subscription-Userinfo": (
             f"upload=0; download=0; total=0; expire={int(time.time()) + 31536000}"

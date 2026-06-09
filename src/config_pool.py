@@ -9,6 +9,7 @@ import aiohttp
 from config import config
 from parser import (
     brand_config,
+    build_server_label,
     bypass_whitelist_score,
     extract_host_port,
     get_security,
@@ -65,14 +66,14 @@ def get_pool_state() -> PoolState:
 
 def _config_to_line(item: WorkingConfig, regular_idx: int, whitelist_idx: int) -> str:
     if item.category == "whitelist":
-        sni_short = (item.sni or "BS").split(".")[0]
-        transport = get_transport(item.uri)
-        if transport in ("grpc", "ws"):
-            label = f"{config.BOT_NAME} | БС {sni_short} {transport} #{whitelist_idx}"
-        else:
-            label = f"{config.BOT_NAME} | БС {sni_short} #{whitelist_idx}"
+        label = build_server_label(
+            "whitelist",
+            item.sni,
+            get_transport(item.uri),
+            whitelist_idx,
+        )
     else:
-        label = f"{config.BOT_NAME} | VPN #{regular_idx}"
+        label = build_server_label("regular", "", "tcp", regular_idx)
     return brand_config(item.uri, label)
 
 
