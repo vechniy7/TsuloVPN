@@ -66,14 +66,9 @@ def get_pool_state() -> PoolState:
 
 def _config_to_line(item: WorkingConfig, regular_idx: int, whitelist_idx: int) -> str:
     if item.category == "whitelist":
-        label = build_server_label(
-            "whitelist",
-            item.sni,
-            get_transport(item.uri),
-            whitelist_idx,
-        )
+        label = build_server_label("whitelist", item.uri, whitelist_idx)
     else:
-        label = build_server_label("regular", "", "tcp", regular_idx)
+        label = build_server_label("regular", item.uri, regular_idx)
     return brand_config(item.uri, label)
 
 
