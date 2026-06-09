@@ -31,7 +31,7 @@ async def subscription(token: str):
     if not user:
         raise HTTPException(status_code=404, detail="Subscription not found")
 
-    lines = get_working_subscription_lines()
+    lines = await get_working_subscription_lines()
     if not lines:
         raise HTTPException(status_code=503, detail="No working configs available yet")
 
@@ -52,6 +52,10 @@ async def subscription(token: str):
         "Content-Disposition": f'inline; filename="{config.BOT_NAME}.txt"',
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "X-TsuloVPN-Configs": str(len(lines)),
+        "X-TsuloVPN-Verified-At": datetime.fromtimestamp(
+            pool.last_verify_at or pool.last_refresh_at or time.time(),
+            tz=timezone.utc,
+        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "X-TsuloVPN-Updated": datetime.fromtimestamp(
             pool.last_refresh_at or time.time(),
             tz=timezone.utc,

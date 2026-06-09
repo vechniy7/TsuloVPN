@@ -29,7 +29,13 @@ class Config(BaseModel):
         ]
     )
 
-    # Обход белых списков — приоритет файлам с российским SNI (VK, Yandex, X5)
+    # Обход белых списков — агрегированная подписка (проверенные обходы)
+    BYPASS_SOURCE_URL: str = os.getenv(
+        "BYPASS_SOURCE_URL",
+        "https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/bypass/bypass-all.txt",
+    )
+
+    # Запасной источник, если в основном мало живых серверов после проверки
     WHITELIST_SOURCES: list[str] = Field(
         default_factory=lambda: [
             "WHITE-CIDR-RU-checked.txt",
@@ -42,11 +48,13 @@ class Config(BaseModel):
     TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "20"))
     TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "15"))
 
-    SKIP_HEALTH_CHECK: bool = os.getenv("SKIP_HEALTH_CHECK", "true").lower() == "true"
+    SKIP_HEALTH_CHECK: bool = os.getenv("SKIP_HEALTH_CHECK", "false").lower() == "true"
+    VERIFY_ON_SUBSCRIBE: bool = os.getenv("VERIFY_ON_SUBSCRIBE", "true").lower() == "true"
+    VERIFY_CACHE_TTL: int = int(os.getenv("VERIFY_CACHE_TTL", "90"))
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "3600"))
-    HEALTH_CHECK_TIMEOUT: float = float(os.getenv("HEALTH_CHECK_TIMEOUT", "5.0"))
-    HEALTH_CHECK_CONCURRENCY: int = int(os.getenv("HEALTH_CHECK_CONCURRENCY", "40"))
-    MAX_HEALTH_CHECK_CANDIDATES: int = int(os.getenv("MAX_HEALTH_CHECK_CANDIDATES", "80"))
+    HEALTH_CHECK_TIMEOUT: float = float(os.getenv("HEALTH_CHECK_TIMEOUT", "4.0"))
+    HEALTH_CHECK_CONCURRENCY: int = int(os.getenv("HEALTH_CHECK_CONCURRENCY", "30"))
+    MAX_HEALTH_CHECK_CANDIDATES: int = int(os.getenv("MAX_HEALTH_CHECK_CANDIDATES", "120"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "25"))
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")

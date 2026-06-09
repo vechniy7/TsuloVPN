@@ -26,10 +26,12 @@ def _format_pool_stats() -> str:
     else:
         updated = "ещё не обновлялся"
 
+    verified = pool.last_verify_alive or len(pool.configs)
     return (
-        f"**Конфигов в подписке:** `{len(pool.configs)}` / `{config.target_total_count}`\n"
+        f"**Конфигов в подписке:** `{verified}` / `{config.target_total_count}`\n"
         f"**Обычный VPN (чёрные списки):** `{regular}`\n"
         f"**Обход белых списков:** `{whitelist}`\n"
+        f"**Проверка при обновлении:** `{'вкл' if config.VERIFY_ON_SUBSCRIBE and not config.SKIP_HEALTH_CHECK else 'выкл'}`\n"
         f"**Обновлено:** `{updated}`"
     )
 
@@ -49,6 +51,7 @@ async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> No
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🔑 Получить ключ", callback_data="get_key")
+    builder.button(text="🔄 Проверить серверы", callback_data="user_refresh")
     builder.button(text="📊 Статус серверов", callback_data="pool_status")
     builder.button(text="ℹ️ Как подключить", callback_data="help")
     if user.is_admin or chat_id in config.ADMINS:
@@ -101,7 +104,8 @@ async def send_subscription_key(target: Message, user: User) -> None:
         "1. Скопируйте ссылку или отсканируйте QR\n"
         "2. В Hiddify / Happ: **Новый профиль → Добавить по ссылке**\n"
         "3. Включите автообновление подписки в приложении\n\n"
-        "При обновлении нерабочие серверы автоматически заменяются на рабочие."
+        "При каждом обновлении подписки в Happ мёртвые серверы отсекаются — "
+        "остаются только те, что отвечают на проверку."
     )
 
     builder = InlineKeyboardBuilder()
@@ -179,7 +183,9 @@ async def _send_help(target: Message) -> None:
         "**VPN #N** — обычный интернет (WiFi / без блокировок)\n"
         "**БС xxx #N** — обход белых списков на мобильном (SNI: yandex, vk, x5)\n\n"
         "На мобильном интернете подключайтесь **только к серверам «БС»**.\n"
-        f"Подписка обновляется каждые ~{config.POOL_REFRESH_INTERVAL // 60} мин."
+        "После добавления подписки нажмите **обновить** в Happ — "
+        "в списке останутся только серверы, прошедшие проверку.\n"
+        f"Полное обновление пула — каждые ~{config.POOL_REFRESH_INTERVAL // 60} мин."
     )
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ В меню", callback_data="back_to_menu")
@@ -193,6 +199,25 @@ async def get_key_callback(callback: CallbackQuery) -> None:
     if not user:
         return
     await send_subscription_key(callback.message, user)
+
+
+@router.callback_query(F.data == "user_refresh")
+async def user_refresh_callback(callback: CallbackQuery) -> None:
+    await callback.answer("Проверяю серверы...")
+    await callback.message.edit_text(
+        "⏳ Скачиваю свежие обходы и проверяю пинг. Это займёт 1–3 минуты...",
+    )
+    await refresh_pool(force=True)
+    text = (
+        "✅ **Список проверен**\n\n"
+        f"{_format_pool_stats()}\n\n"
+        "Теперь **обновите подписку в Happ** — в списке появятся только живые серверы."
+    )
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔑 Получить ключ", callback_data="get_key")
+    builder.button(text="⬅️ В меню", callback_data="back_to_menu")
+    builder.adjust(1)
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
 
 @router.callback_query(F.data == "pool_status")

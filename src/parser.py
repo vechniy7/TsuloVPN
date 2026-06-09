@@ -26,6 +26,8 @@ INSECURE_PATTERN = re.compile(
 # SNI домены из белых списков операторов (Мегафон, МТС, Билайн и др.)
 RU_WHITELIST_SNI_KEYWORDS = (
     "yandex",
+    "yandexcloud",
+    "yandex.net",
     "vk.com",
     "vk.ru",
     "max.ru",
@@ -46,6 +48,19 @@ RU_WHITELIST_SNI_KEYWORDS = (
     "urent",
     "wb.ru",
     "gosuslugi",
+    "ngenix",
+    "mwscdn",
+    "dendiboss",
+    "dendibase",
+)
+
+BYPASS_LABEL_MARKERS = (
+    "[bl]",
+    "white list",
+    "whitelist",
+    "обход",
+    "*cidr*",
+    "cidr]",
 )
 
 # SNI которые НЕ работают на мобильном интернете с белыми списками
@@ -90,13 +105,29 @@ def _query_params(uri: str) -> dict[str, str]:
 
 
 def get_security(uri: str) -> str:
-    return (_query_params(uri).get("security") or "").strip().lower()
+    security = (_query_params(uri).get("security") or "").strip().lower()
+    if security:
+        return security
+    if uri.lower().startswith("trojan://"):
+        return "tls"
+    return ""
 
 
 def get_sni(uri: str) -> str | None:
     params = _query_params(uri)
     sni = (params.get("sni") or params.get("host") or "").strip()
     return sni or None
+
+
+def get_fragment(uri: str) -> str:
+    if "#" not in uri:
+        return ""
+    return urllib.parse.unquote(uri.split("#", 1)[1]).lower()
+
+
+def is_bypass_label(uri: str) -> bool:
+    fragment = get_fragment(uri)
+    return any(marker in fragment for marker in BYPASS_LABEL_MARKERS)
 
 
 def is_ru_whitelist_sni(sni: str | None) -> bool:
@@ -187,8 +218,71 @@ def parse_vpn_configs(data: str) -> list[str]:
     return result
 
 
+def is_bypass_whitelist_config(uri: str) -> bool:
+    """Конфиг подходит для обхода белых списков (расширенные правила)."""
+    uri_l = uri.lower()
+    if not uri_l.startswith(("vless://", "trojan://")):
+        return False
+    if INSECURE_PATTERN.search(urllib.parse.unquote(uri)):
+        return False
+
+    security = get_security(uri)
+    sni = (get_sni(uri) or "").lower()
+
+    if uri_l.startswith("vless://"):
+        if security == "reality" and is_ru_whitelist_sni(get_sni(uri)):
+            return True
+        if security == "tls" and sni and is_ru_whitelist_sni(get_sni(uri)):
+            return True
+
+    if uri_l.startswith("trojan://") and security in ("tls", "reality", ""):
+        if is_bypass_label(uri) or is_ru_whitelist_sni(get_sni(uri)):
+            return True
+
+    if is_bypass_label(uri) and security in ("tls", "reality"):
+        return True
+
+    return is_whitelist_config(uri)
+
+
+def bypass_whitelist_score(uri: str) -> int:
+    score = whitelist_score(uri)
+    fragment = get_fragment(uri)
+
+    if "[bl]" in fragment:
+        score += 90
+    if "white list" in fragment:
+        score += 80
+    if "*cidr*" in fragment or "[*cidr*]" in fragment:
+        score += 60
+    if "обход" in fragment:
+        score += 40
+
+    sni_l = (get_sni(uri) or "").lower()
+    if "ads.x5.ru" in sni_l or "cdp.x5.ru" in sni_l or "sfera.x5.ru" in sni_l:
+        score += 45
+    if "storage.yandex.net" in sni_l:
+        score += 40
+    if "ngenix" in sni_l or "mwscdn" in sni_l:
+        score += 35
+
+    if uri.lower().startswith("trojan://") and is_bypass_label(uri):
+        score += 25
+
+    return score
+
+
 def parse_whitelist_configs(data: str) -> list[str]:
-    """Парсит конфиги для обхода белых списков — только Reality + российский SNI."""
+    """Парсит конфиги для обхода белых списков — Reality/TLS + российский SNI."""
+    return _parse_bypass_candidates(data, min_score=50)
+
+
+def parse_bypass_subscription(data: str) -> list[str]:
+    """Парсит агрегированную подписку обходов (bypass-all и аналоги)."""
+    return _parse_bypass_candidates(data, min_score=40)
+
+
+def _parse_bypass_candidates(data: str, min_score: int) -> list[str]:
     candidates: list[str] = []
     seen: set[str] = set()
 
@@ -196,17 +290,17 @@ def parse_whitelist_configs(data: str) -> list[str]:
         line_stripped = normalize_uri(line.strip())
         if not line_stripped or line_stripped.startswith("#"):
             continue
-        if not line_stripped.lower().startswith("vless://"):
-            continue
         processed = urllib.parse.unquote(line_stripped)
-        if not is_whitelist_config(processed):
+        if not is_bypass_whitelist_config(processed):
+            continue
+        if bypass_whitelist_score(processed) < min_score:
             continue
         if processed in seen:
             continue
         seen.add(processed)
         candidates.append(processed)
 
-    candidates.sort(key=whitelist_score, reverse=True)
+    candidates.sort(key=bypass_whitelist_score, reverse=True)
     return candidates
 
 

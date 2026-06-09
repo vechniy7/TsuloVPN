@@ -16,12 +16,14 @@ services:
       - key: SUBSCRIPTION_PUBLIC_URL
         sync: false
       - key: SKIP_HEALTH_CHECK
+        value: "false"
+      - key: VERIFY_ON_SUBSCRIBE
         value: "true"
       - key: POOL_REFRESH_INTERVAL
         value: "3600"
       - key: TARGET_REGULAR_COUNT
-        value: "25"
+        value: "20"
       - key: TARGET_WHITELIST_COUNT
-        value: "7"
+        value: "15"
       - key: PYTHON_VERSION
         value: "3.12.8"
