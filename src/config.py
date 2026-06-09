@@ -29,20 +29,10 @@ class Config(BaseModel):
         ]
     )
 
-    # Обход белых списков — агрегированная подписка (проверенные обходы)
+    # Обход белых списков — только bypass-all.txt
     BYPASS_SOURCE_URL: str = os.getenv(
         "BYPASS_SOURCE_URL",
         "https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/bypass/bypass-all.txt",
-    )
-
-    # Запасной источник, если в основном мало живых серверов после проверки
-    WHITELIST_SOURCES: list[str] = Field(
-        default_factory=lambda: [
-            "WHITE-CIDR-RU-checked.txt",
-            "WHITE-SNI-RU-all.txt",
-            "Vless-Reality-White-Lists-Rus-Mobile.txt",
-            "Vless-Reality-White-Lists-Rus-Mobile-2.txt",
-        ]
     )
 
     TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "20"))

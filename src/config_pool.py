@@ -16,7 +16,6 @@ from parser import (
     get_transport,
     parse_bypass_subscription,
     parse_vpn_configs,
-    parse_whitelist_configs,
 )
 
 logger = logging.getLogger(__name__)
@@ -128,16 +127,6 @@ async def _fetch_regular_file(filename: str) -> list[str]:
         return []
     configs = parse_vpn_configs(text)
     logger.info("Regular: %s configs from %s", len(configs), filename)
-    return configs
-
-
-async def _fetch_whitelist_file(filename: str) -> list[str]:
-    url = f"{config.CONFIG_RAW_BASE}/{filename}"
-    text = await _fetch_text(url)
-    if not text:
-        return []
-    configs = parse_whitelist_configs(text)
-    logger.info("Whitelist fallback: %s configs from %s", len(configs), filename)
     return configs
 
 
@@ -343,21 +332,15 @@ async def _collect_regular(limit: int) -> list[WorkingConfig]:
 
 
 async def _collect_whitelist(limit: int) -> list[WorkingConfig]:
-    raw: list[str] = []
-
-    bypass_configs = await _fetch_bypass_subscription()
-    raw.extend(bypass_configs)
-
-    if len(_dedupe_by_uri(raw)) < limit:
-        for filename in config.WHITELIST_SOURCES:
-            raw.extend(await _fetch_whitelist_file(filename))
-            if len(_dedupe_by_uri(raw)) >= limit * 4:
-                break
+    raw = await _fetch_bypass_subscription()
+    if not raw:
+        logger.warning("Bypass source empty or unavailable: %s", config.BYPASS_SOURCE_URL)
+        return []
 
     unique = _prioritize_whitelist_configs(_dedupe_by_uri(raw))
 
     logger.info(
-        "Whitelist candidates: %s (top SNI: %s)",
+        "Whitelist from bypass-all: %s candidates (top SNI: %s)",
         len(unique),
         get_sni(unique[0]) if unique else "none",
     )

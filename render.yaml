@@ -15,6 +15,8 @@ services:
         value: TsuloVPN
       - key: SUBSCRIPTION_PUBLIC_URL
         sync: false
+      - key: BYPASS_SOURCE_URL
+        value: https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/bypass/bypass-all.txt
       - key: SKIP_HEALTH_CHECK
         value: "false"
       - key: VERIFY_ON_SUBSCRIBE
