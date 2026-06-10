@@ -123,6 +123,7 @@ async def _collect_uris(urls: list[str], limit: int) -> list[str]:
             result.append(uri)
             if len(result) >= limit:
                 break
+        logger.info("Collected %s/%s valid configs from %s", len(result), limit, url.split("/")[-1])
     return result
 
 
@@ -143,12 +144,18 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        logger.info("Refreshing config pool...")
+        logger.info(
+            "Refreshing config pool (target: %s VPN + %s whitelist, sources: %s/%s)...",
+            config.POOL_VPN_LIMIT,
+            config.POOL_BYPASS_LIMIT,
+            len(config.REGULAR_SOURCE_URLS),
+            len(config.WHITELIST_SOURCE_URLS),
+        )
 
         try:
             regular_uris, whitelist_uris = await asyncio.gather(
-                _collect_uris(config.REGULAR_SOURCE_URLS, config.TARGET_REGULAR_COUNT),
-                _collect_uris(config.WHITELIST_SOURCE_URLS, config.TARGET_WHITELIST_COUNT),
+                _collect_uris(config.REGULAR_SOURCE_URLS, config.POOL_VPN_LIMIT),
+                _collect_uris(config.WHITELIST_SOURCE_URLS, config.POOL_BYPASS_LIMIT),
             )
 
             regular = _to_pool_configs(regular_uris, "regular")

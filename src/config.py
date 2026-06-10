@@ -34,8 +34,8 @@ class Config(BaseModel):
         ]
     )
 
-    TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "100"))
-    TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "300"))
+    POOL_VPN_LIMIT: int = int(os.getenv("POOL_VPN_LIMIT", "100"))
+    POOL_BYPASS_LIMIT: int = int(os.getenv("POOL_BYPASS_LIMIT", "300"))
 
     # Автообновление пула при изменении источников (секунды)
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "1800"))
@@ -52,8 +52,16 @@ class Config(BaseModel):
         return value or []
 
     @property
+    def target_regular_count(self) -> int:
+        return self.POOL_VPN_LIMIT
+
+    @property
+    def target_whitelist_count(self) -> int:
+        return self.POOL_BYPASS_LIMIT
+
+    @property
     def target_total_count(self) -> int:
-        return self.TARGET_REGULAR_COUNT + self.TARGET_WHITELIST_COUNT
+        return self.POOL_VPN_LIMIT + self.POOL_BYPASS_LIMIT
 
     def subscription_url_for_token(self, token: str) -> str:
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")

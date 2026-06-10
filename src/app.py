@@ -69,7 +69,13 @@ async def main() -> None:
     asyncio.create_task(start_refresh_loop())
     asyncio.create_task(run_subscription_server())
 
-    logger.info("%s started (subscription port %s)", config.BOT_NAME, config.SUBSCRIPTION_PORT)
+    logger.info(
+        "%s started (port %s, pool target %s VPN + %s whitelist)",
+        config.BOT_NAME,
+        config.SUBSCRIPTION_PORT,
+        config.POOL_VPN_LIMIT,
+        config.POOL_BYPASS_LIMIT,
+    )
     try:
         await dp.start_polling(bot, drop_pending_updates=True)
     finally:

@@ -15,9 +15,9 @@ services:
         value: TsuloVPN
       - key: SUBSCRIPTION_PUBLIC_URL
         sync: false
-      - key: TARGET_REGULAR_COUNT
+      - key: POOL_VPN_LIMIT
         value: "100"
-      - key: TARGET_WHITELIST_COUNT
+      - key: POOL_BYPASS_LIMIT
         value: "300"
       - key: POOL_REFRESH_INTERVAL
         value: "1800"
