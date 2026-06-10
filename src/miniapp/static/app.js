@@ -166,7 +166,9 @@
     try {
       data = await apiGet("/miniapp/api/configs");
     } catch (e) {
-      $("error-text").textContent = e.message || "Не удалось загрузить конфиги";
+      const msg = e.message || "Не удалось связаться с сервером";
+      $("error-text").textContent =
+        msg + ". Скорее всего нет интернета — сначала подключите любой обход в Happ.";
       showStep(stepError);
       return;
     }

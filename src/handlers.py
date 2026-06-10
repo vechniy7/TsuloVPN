@@ -10,6 +10,7 @@ from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, CallbackQuery, Message, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bypass_source import assign_bootstrap_bypass, is_probed_bypass
 from config import config
 from config_pool import get_pool_state, refresh_pool
 from database import (
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-def _miniapp_keyboard(button_text: str = "🔑 Подобрать обход"):
+def _miniapp_keyboard(button_text: str = "📱 Уточнить на мобильном"):
     builder = InlineKeyboardBuilder()
     builder.button(
         text=button_text,
@@ -61,26 +62,28 @@ async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> No
         return
 
     personal_count = len(get_personal_bypass_uris(user))
-    personal_hint = (
-        f"\n**Ваш персональный обход:** `{personal_count}` серверов\n"
-        if personal_count
-        else "\n**Персональный обход:** ещё не подобран\n"
-    )
+    if personal_count:
+        kind = "с мобильного" if is_probed_bypass(user) else "стартовый"
+        personal_hint = f"\n**Ваш ключ:** `{personal_count}` обходов ({kind})\n"
+    else:
+        personal_hint = "\n**Ключ:** ещё не получен\n"
 
     text = (
-        f"**{config.BOT_NAME}** — бесплатные VPN-ключи\n\n"
+        f"**{config.BOT_NAME}** — обход белых списков\n\n"
         f"**Ваш ID:** `{user.telegram_id}`\n"
         f"{personal_hint}\n"
         f"{_format_pool_stats()}\n\n"
-        "Нажмите **«Получить ключ»** — откроется подбор обходов с вашего телефона.\n"
-        "На мобильном интернете (без Wi‑Fi) подберём до **7** рабочих обходов."
+        "**«Получить ключ»** — сразу **7 стартовых обходов** для Happ "
+        "(получите на Wi‑Fi с VPN, затем пробуйте на мобильном).\n\n"
+        "**«Уточнить на мобильном»** — когда уже есть интернет через Happ, "
+        "подберём до **7** обходов с проверкой с вашего телефона."
     )
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🔑 Получить ключ", callback_data="get_key")
     if personal_count:
         builder.button(text="📋 Мой ключ Happ", callback_data="show_personal_key")
-        builder.button(text="🔄 Подобрать новый обход", callback_data="retest_bypass")
+    builder.button(text="📱 Уточнить на мобильном", callback_data="refine_bypass")
     builder.button(text="🔄 Проверить серверы", callback_data="user_refresh")
     builder.button(text="📊 Статус серверов", callback_data="pool_status")
     builder.button(text="ℹ️ Как подключить", callback_data="help")
@@ -101,18 +104,32 @@ async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> No
         await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup, parse_mode="Markdown")
 
 
-async def send_personal_key_message(target: Message, user: User, *, is_update: bool = False) -> None:
+async def deliver_bootstrap_key(target: Message, user: User) -> None:
+    """Выдаёт или обновляет стартовый набор из 7 обходов."""
+    await assign_bootstrap_bypass(user.telegram_id)
+    user = await get_user(user.telegram_id)
+    if not user:
+        return
+    await send_personal_key_message(target, user, is_bootstrap=True)
+
+
+async def send_personal_key_message(
+    target: Message,
+    user: User,
+    *,
+    is_update: bool = False,
+    is_bootstrap: bool = False,
+) -> None:
     uris = get_personal_bypass_uris(user)
     if not uris:
         await target.answer(
-            "У вас ещё нет персонального ключа.\n"
-            "Нажмите **«Получить ключ»** и пройдите подбор обходов.",
-            reply_markup=_miniapp_keyboard(),
+            "Не удалось загрузить обходы. Попробуйте через минуту.",
             parse_mode="Markdown",
         )
         return
 
     sub_url = config.personal_subscription_url_for_token(user.subscription_token)
+    probed = is_probed_bypass(user) and not is_bootstrap
 
     qr = qrcode.QRCode(version=1, box_size=8, border=4)
     qr.add_data(sub_url)
@@ -124,24 +141,35 @@ async def send_personal_key_message(target: Message, user: User, *, is_update: b
     buffer.seek(0)
     photo = BufferedInputFile(buffer.getvalue(), filename="tsulovpn-personal-qr.png")
 
-    title = "обновлён" if is_update else "готов"
+    if probed:
+        title = "обновлён" if is_update else "готов"
+        desc = (
+            f"В подписке **{len(uris)}** обходов — проверены **с вашего телефона** "
+            f"на мобильном интернете."
+        )
+    else:
+        title = "стартовый"
+        desc = (
+            f"В подписке **{len(uris)}** стартовых обходов (лучшие из базы).\n\n"
+            "**Сейчас вы на Wi‑Fi?** Добавьте ссылку в Happ **с включённым VPN** "
+            "(иначе Telegram и подписка могут не открыться).\n\n"
+            "Затем на **мобильном** (без Wi‑Fi) перебирайте серверы «Обход» "
+            "или нажмите **«Уточнить на мобильном»** в боте."
+        )
+
     caption = (
-        f"**{config.BOT_NAME}** — персональный ключ {title}\n\n"
+        f"**{config.BOT_NAME}** — ключ {title}\n\n"
         f"🔗 **Ссылка для Happ / Hiddify:**\n`{sub_url}`\n\n"
-        f"В подписке **{len(uris)}** обходов — только те, что прошли проверку "
-        f"**с вашего телефона** на мобильном интернете.\n\n"
+        f"{desc}\n\n"
         "**Как использовать:**\n"
         "1. Скопируйте ссылку или отсканируйте QR\n"
         "2. В Happ: **Новый профиль → Добавить по ссылке**\n"
-        "3. Подключайтесь к серверам **«Обход»** на мобильном интернете\n\n"
-        "Если перестали работать — нажмите **«Подобрать новый обход»**."
+        "3. На мобильном интернете — серверы **TsuloVPN · Обход #N**"
     )
 
     builder = InlineKeyboardBuilder()
-    builder.button(
-        text="🔄 Подобрать новый обход",
-        web_app=WebAppInfo(url=config.miniapp_url),
-    )
+    builder.button(text="📱 Уточнить на мобильном", callback_data="refine_bypass")
+    builder.button(text="🔑 Обновить стартовый ключ", callback_data="refresh_bootstrap")
     builder.button(text="⬅️ В меню", callback_data="back_to_menu")
     builder.adjust(1)
 
@@ -153,29 +181,23 @@ async def send_personal_key_message(target: Message, user: User, *, is_update: b
     )
 
 
-async def prompt_miniapp(target: Message, *, retest: bool = False) -> None:
-    if retest:
-        intro = (
-            "**Подобрать новый обход**\n\n"
-            "Старый список будет заменён новым после проверки.\n\n"
-        )
-    else:
-        intro = (
-            "**Получить ключ**\n\n"
-            "Откроется подбор обходов с **вашего телефона**.\n\n"
-        )
-
+async def prompt_miniapp(target: Message) -> None:
     text = (
-        f"{intro}"
-        "**Важно:**\n"
-        "1. Отключите **Wi‑Fi**, включите **мобильный интернет**\n"
-        "2. Нажмите кнопку ниже — откроется Mini App\n"
-        "3. Подтвердите отключение Wi‑Fi и дождитесь проверки (1–2 мин)\n"
-        "4. Будет подобрано до **7** рабочих обходов для вашего оператора\n\n"
+        "**Уточнить обход на мобильном**\n\n"
+        "⚠️ **Сначала** получите стартовый ключ и подключите **любой** обход в Happ — "
+        "иначе интернета не будет и проверка не запустится.\n\n"
+        "**Порядок:**\n"
+        "1. Wi‑Fi + VPN → **«Получить ключ»** → добавить в Happ\n"
+        "2. Мобильный интернет (Wi‑Fi выкл.) → подключить обход в Happ\n"
+        "3. Когда интернет есть → откройте Mini App ниже\n"
+        "4. Дождитесь проверки (1–2 мин, до **7** обходов)\n\n"
         "⏳ Не закрывайте Mini App до завершения."
     )
-    btn = "🔄 Начать подбор" if retest else "📱 Открыть подбор обхода"
-    await target.answer(text, reply_markup=_miniapp_keyboard(btn), parse_mode="Markdown")
+    await target.answer(
+        text,
+        reply_markup=_miniapp_keyboard("📱 Открыть проверку"),
+        parse_mode="Markdown",
+    )
 
 
 @router.message(Command("start"))
@@ -191,7 +213,7 @@ async def start_cmd(message: Message, bot: Bot) -> None:
         )
         await message.answer(
             f"Добро пожаловать в **{config.BOT_NAME}**!\n\n"
-            "Подберём персональные обходы белых списков прямо с вашего телефона.",
+            "Стартовый ключ для Happ — сразу. Уточнение под ваш оператор — с телефона.",
             parse_mode="Markdown",
         )
 
@@ -212,7 +234,7 @@ async def key_cmd(message: Message) -> None:
     if not user:
         await message.answer("Сначала нажмите /start")
         return
-    await prompt_miniapp(message)
+    await deliver_bootstrap_key(message, user)
 
 
 @router.message(Command("help"))
@@ -233,7 +255,7 @@ async def web_app_data_handler(message: Message) -> None:
     if data.get("ok"):
         count = data.get("count", len(get_personal_bypass_uris(user)))
         await message.answer(
-            f"✅ Подбор завершён! Найдено **{count}** рабочих обходов.",
+            f"✅ Уточнение завершено! Найдено **{count}** обходов с вашего телефона.",
             parse_mode="Markdown",
         )
         await send_personal_key_message(message, user, is_update=True)
@@ -244,19 +266,19 @@ async def web_app_data_handler(message: Message) -> None:
 async def _send_help(target: Message) -> None:
     text = (
         f"**Как подключить {config.BOT_NAME}**\n\n"
-        "**Шаг 1 — Подбор обхода (Mini App):**\n"
-        "1. Отключите Wi‑Fi, включите мобильный интернет\n"
-        "2. Нажмите **«Получить ключ»** → откроется Mini App\n"
-        "3. Дождитесь проверки (1–2 мин, до 7 обходов)\n\n"
-        "**Шаг 2 — Happ / Hiddify:**\n"
-        "1. Скопируйте персональную ссылку из бота\n"
-        "2. **Добавить подписку по URL**\n"
-        "3. Подключайтесь к **TsuloVPN · Обход #N**\n\n"
-        "**Зачем обход белых списков?**\n"
-        "На мобильном интернете (Мегафон, МТС) при блокировках работают "
-        "только сайты из «белого списка». Персональный ключ содержит только "
-        "обходы, проверенные **с вашего телефона**.\n\n"
-        "Если обходы перестали работать — **«Подобрать новый обход»**."
+        "**Шаг 1 — Стартовый ключ (Wi‑Fi + VPN):**\n"
+        "1. Включите VPN (для Telegram в РФ)\n"
+        "2. **«Получить ключ»** → 7 стартовых обходов\n"
+        "3. Добавьте ссылку в Happ / Hiddify\n\n"
+        "**Шаг 2 — Мобильный интернет:**\n"
+        "1. Отключите Wi‑Fi, включите мобильные данные\n"
+        "2. В Happ перебирайте **TsuloVPN · Обход #1…#7**\n\n"
+        "**Шаг 3 — Уточнение (опционально):**\n"
+        "Когда любой обход уже даёт интернет → "
+        "**«Уточнить на мобильном»** → Mini App подберёт до 7 лучших "
+        "именно для вашего оператора.\n\n"
+        "Если обходы перестали работать — **«Обновить стартовый ключ»** "
+        "или **«Уточнить на мобильном»**."
     )
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ В меню", callback_data="back_to_menu")
@@ -265,15 +287,32 @@ async def _send_help(target: Message) -> None:
 
 @router.callback_query(F.data == "get_key")
 async def get_key_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
+    await callback.answer("Готовлю ключ...")
     user = await get_user(callback.from_user.id)
     if not user:
         return
     if callback.message.photo:
         await callback.message.delete()
-        await prompt_miniapp(callback.message)
-    else:
-        await prompt_miniapp(callback.message)
+    await deliver_bootstrap_key(callback.message, user)
+
+
+@router.callback_query(F.data == "refresh_bootstrap")
+async def refresh_bootstrap_callback(callback: CallbackQuery) -> None:
+    await callback.answer("Обновляю стартовый ключ...")
+    user = await get_user(callback.from_user.id)
+    if not user:
+        return
+    if callback.message.photo:
+        await callback.message.delete()
+    await deliver_bootstrap_key(callback.message, user)
+
+
+@router.callback_query(F.data == "refine_bypass")
+async def refine_bypass_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message.photo:
+        await callback.message.delete()
+    await prompt_miniapp(callback.message)
 
 
 @router.callback_query(F.data == "show_personal_key")
@@ -285,14 +324,6 @@ async def show_personal_key_callback(callback: CallbackQuery) -> None:
     if callback.message.photo:
         await callback.message.delete()
     await send_personal_key_message(callback.message, user)
-
-
-@router.callback_query(F.data == "retest_bypass")
-async def retest_bypass_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
-    if callback.message.photo:
-        await callback.message.delete()
-    await prompt_miniapp(callback.message, retest=True)
 
 
 @router.callback_query(F.data == "user_refresh")

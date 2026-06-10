@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>TsuloVPN — подбор обхода</title>
+  <title>TsuloVPN — уточнение обхода</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/miniapp/static/style.css" />
 </head>
@@ -11,20 +11,25 @@
   <div class="app">
     <header class="header">
       <div class="logo">🔐 TsuloVPN</div>
-      <div class="subtitle">Персональный подбор обхода</div>
+      <div class="subtitle">Уточнение обхода на мобильном</div>
     </header>
 
     <section id="step-wifi" class="card">
-      <div class="icon">📶</div>
-      <h1>Отключите Wi‑Fi</h1>
+      <div class="icon">📱</div>
+      <h1>Сначала нужен интернет</h1>
       <p>
-        Для поиска обхода под <strong>вашего оператора</strong> нужен
-        <strong>мобильный интернет</strong> (Мегафон, МТС, Билайн и др.).
+        В России Telegram и этот тест <strong>не работают без обхода</strong>.
+        Сначала получите <strong>базовый ключ</strong> в боте (кнопка «Получить ключ»)
+        и добавьте его в Happ <strong>на Wi‑Fi с VPN</strong>.
       </p>
       <p class="hint">
-        Включите мобильные данные и отключите Wi‑Fi, затем нажмите кнопку ниже.
+        <strong>Дальше на мобильном:</strong><br>
+        1. Отключите Wi‑Fi, включите мобильный интернет<br>
+        2. В Happ подключитесь к <strong>любому</strong> обходу из списка<br>
+        3. Когда интернет заработал — вернитесь сюда и нажмите кнопку ниже
       </p>
-      <button id="btn-wifi-off" class="btn btn-primary">✅ Отключил Wi‑Fi</button>
+      <p class="warn">Без работающего обхода в Happ проверка не запустится.</p>
+      <button id="btn-wifi-off" class="btn btn-primary">✅ Интернет есть, начать проверку</button>
     </section>
 
     <section id="step-probe" class="card hidden">
@@ -45,15 +50,19 @@
     <section id="step-done" class="card hidden">
       <div class="icon">✅</div>
       <h1>Готово!</h1>
-      <p id="done-text">Персональный ключ создан.</p>
-      <p class="hint">Вернитесь в чат с ботом — ссылка для Happ уже отправлена.</p>
+      <p id="done-text">Персональный ключ обновлён.</p>
+      <p class="hint">Вернитесь в чат с ботом — новая ссылка для Happ уже отправлена.</p>
       <button id="btn-close" class="btn btn-primary">Закрыть</button>
     </section>
 
     <section id="step-error" class="card hidden">
       <div class="icon">⚠️</div>
-      <h1>Ошибка</h1>
+      <h1>Нет связи</h1>
       <p id="error-text"></p>
+      <p class="hint" id="error-hint">
+        Закройте Mini App → в боте нажмите «Получить ключ» на Wi‑Fi с VPN →
+        добавьте ссылку в Happ → подключите любой обход на мобильном → попробуйте снова.
+      </p>
       <button id="btn-retry" class="btn btn-secondary">Попробовать снова</button>
     </section>
   </div>
