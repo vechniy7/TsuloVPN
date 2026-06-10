@@ -46,17 +46,6 @@ def get_pool_state() -> PoolState:
     return _pool
 
 
-def _dedupe_uris(uris: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for uri in uris:
-        if uri in seen:
-            continue
-        seen.add(uri)
-        out.append(uri)
-    return out
-
-
 def _config_to_line(item: PoolConfig, regular_idx: int, whitelist_idx: int) -> str:
     if item.category == "whitelist":
         label = build_server_label("whitelist", item.uri, whitelist_idx)
@@ -114,32 +103,34 @@ async def _fetch_url(url: str) -> tuple[str, str | None]:
         return url, None
 
 
-async def _fetch_sources(urls: list[str]) -> list[str]:
-    sem = asyncio.Semaphore(config.FETCH_CONCURRENCY)
-
-    async def limited(url: str) -> tuple[str, str | None]:
-        async with sem:
-            return await _fetch_url(url)
-
-    results = await asyncio.gather(*(limited(u) for u in urls))
-    merged: list[str] = []
-    for url, text in results:
+async def _collect_uris(urls: list[str], limit: int) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for url in urls:
+        if len(result) >= limit:
+            break
+        _, text = await _fetch_url(url)
         if not text:
             continue
         parsed = parse_subscription_lines(text)
         logger.info("Loaded %s configs from %s", len(parsed), url.split("/")[-1])
-        merged.extend(parsed)
-    return merged
-
-
-def _to_pool_configs(uris: list[str], category: str, limit: int) -> list[PoolConfig]:
-    unique = _dedupe_uris(uris)[:limit]
-    result: list[PoolConfig] = []
-    for uri in unique:
-        if not extract_host_port(uri):
-            continue
-        result.append(PoolConfig(uri=uri, category=category, sni=get_sni(uri) or ""))
+        for uri in parsed:
+            if uri in seen:
+                continue
+            if not extract_host_port(uri):
+                continue
+            seen.add(uri)
+            result.append(uri)
+            if len(result) >= limit:
+                break
     return result
+
+
+def _to_pool_configs(uris: list[str], category: str) -> list[PoolConfig]:
+    return [
+        PoolConfig(uri=uri, category=category, sni=get_sni(uri) or "")
+        for uri in uris
+    ]
 
 
 async def refresh_pool(force: bool = False) -> PoolState:
@@ -155,21 +146,20 @@ async def refresh_pool(force: bool = False) -> PoolState:
         logger.info("Refreshing config pool...")
 
         try:
-            regular_raw, whitelist_raw = await asyncio.gather(
-                _fetch_sources(config.REGULAR_SOURCE_URLS),
-                _fetch_sources(config.WHITELIST_SOURCE_URLS),
+            regular_uris, whitelist_uris = await asyncio.gather(
+                _collect_uris(config.REGULAR_SOURCE_URLS, config.TARGET_REGULAR_COUNT),
+                _collect_uris(config.WHITELIST_SOURCE_URLS, config.TARGET_WHITELIST_COUNT),
             )
 
-            regular = _to_pool_configs(regular_raw, "regular", config.TARGET_REGULAR_COUNT)
-            whitelist = _to_pool_configs(whitelist_raw, "whitelist", config.TARGET_WHITELIST_COUNT)
+            regular = _to_pool_configs(regular_uris, "regular")
+            whitelist = _to_pool_configs(whitelist_uris, "whitelist")
             combined = regular + whitelist
 
             fingerprint = f"{len(regular)}:{len(whitelist)}:{hash(tuple(c.uri for c in combined[:20]))}"
 
             global _cached_lines, _lines_fingerprint
-            if fingerprint != _lines_fingerprint or not _cached_lines:
-                _cached_lines = _build_lines(combined)
-                _lines_fingerprint = fingerprint
+            _cached_lines = _build_lines(combined)
+            _lines_fingerprint = fingerprint
 
             _pool.configs = combined
             _pool.regular_count = len(regular)

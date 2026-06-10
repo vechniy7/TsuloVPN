@@ -34,8 +34,8 @@ class Config(BaseModel):
         ]
     )
 
-    TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "250"))
-    TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "250"))
+    TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "100"))
+    TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "300"))
 
     # Автообновление пула при изменении источников (секунды)
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "1800"))
