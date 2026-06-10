@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>TsuloVPN — подбор обхода</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/miniapp/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="logo">🔐 TsuloVPN</div>
+      <div class="subtitle">Персональный подбор обхода</div>
+    </header>
+
+    <section id="step-wifi" class="card">
+      <div class="icon">📶</div>
+      <h1>Отключите Wi‑Fi</h1>
+      <p>
+        Для поиска обхода под <strong>вашего оператора</strong> нужен
+        <strong>мобильный интернет</strong> (Мегафон, МТС, Билайн и др.).
+      </p>
+      <p class="hint">
+        Включите мобильные данные и отключите Wi‑Fi, затем нажмите кнопку ниже.
+      </p>
+      <button id="btn-wifi-off" class="btn btn-primary">✅ Отключил Wi‑Fi</button>
+    </section>
+
+    <section id="step-probe" class="card hidden">
+      <div class="icon pulse">⏳</div>
+      <h1>Проверка обходов</h1>
+      <p class="warn">Не выходите из приложения. Ожидайте 1–2 минуты.</p>
+      <div class="progress-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+      <div class="stats">
+        <div><span id="stat-found">0</span> / <span id="stat-target">7</span> найдено</div>
+        <div><span id="stat-checked">0</span> / <span id="stat-total">0</span> проверено</div>
+      </div>
+      <p id="probe-status" class="status">Загрузка списка...</p>
+      <ul id="found-list" class="found-list"></ul>
+    </section>
+
+    <section id="step-done" class="card hidden">
+      <div class="icon">✅</div>
+      <h1>Готово!</h1>
+      <p id="done-text">Персональный ключ создан.</p>
+      <p class="hint">Вернитесь в чат с ботом — ссылка для Happ уже отправлена.</p>
+      <button id="btn-close" class="btn btn-primary">Закрыть</button>
+    </section>
+
+    <section id="step-error" class="card hidden">
+      <div class="icon">⚠️</div>
+      <h1>Ошибка</h1>
+      <p id="error-text"></p>
+      <button id="btn-retry" class="btn btn-secondary">Попробовать снова</button>
+    </section>
+  </div>
+  <script src="/miniapp/static/app.js"></script>
+</body>
+</html>

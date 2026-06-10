@@ -70,6 +70,11 @@ class Config(BaseModel):
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")
 
+    # Mini App — персональный подбор обходов с телефона пользователя
+    PERSONAL_BYPASS_TARGET: int = int(os.getenv("PERSONAL_BYPASS_TARGET", "7"))
+    MINIAPP_PROBE_TIMEOUT_MS: int = int(os.getenv("MINIAPP_PROBE_TIMEOUT_MS", "5000"))
+    MINIAPP_PROBE_CONCURRENCY: int = int(os.getenv("MINIAPP_PROBE_CONCURRENCY", "8"))
+
     @field_validator("ADMINS", mode="before")
     @classmethod
     def parse_admins(cls, value):
@@ -84,6 +89,14 @@ class Config(BaseModel):
     def subscription_url_for_token(self, token: str) -> str:
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
         return f"{base}/sub/{token}"
+
+    def personal_subscription_url_for_token(self, token: str) -> str:
+        base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
+        return f"{base}/sub/{token}/personal"
+
+    @property
+    def miniapp_url(self) -> str:
+        return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/miniapp/"
 
 
 config = Config(ADMINS=os.getenv("ADMINS", ""))

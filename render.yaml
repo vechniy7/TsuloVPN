@@ -37,5 +37,7 @@ services:
         value: "20"
       - key: TARGET_WHITELIST_COUNT
         value: "15"
+      - key: PERSONAL_BYPASS_TARGET
+        value: "7"
       - key: PYTHON_VERSION
         value: "3.12.8"
