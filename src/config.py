@@ -42,7 +42,7 @@ class Config(BaseModel):
     # Автообновление пула при изменении источников (секунды)
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "1800"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
-    FETCH_CONCURRENCY: int = int(os.getenv("FETCH_CONCURRENCY", "6"))
+    FETCH_CONCURRENCY: int = int(os.getenv("FETCH_CONCURRENCY", "2"))
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")
 

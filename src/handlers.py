@@ -60,7 +60,7 @@ async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> No
 
 async def send_subscription_key(target: Message, user: User) -> None:
     pool = get_pool_state()
-    if not pool.configs:
+    if not pool.is_ready:
         await target.answer("⏳ Загружаю конфиги, подождите минуту и нажмите снова.")
         return
 

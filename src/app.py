@@ -66,8 +66,8 @@ async def main() -> None:
     # Сбрасываем webhook и конфликтующие сессии (важно при redeploy на Render)
     await bot.delete_webhook(drop_pending_updates=True)
 
-    asyncio.create_task(start_refresh_loop())
     asyncio.create_task(run_subscription_server())
+    asyncio.create_task(start_refresh_loop())
 
     logger.info("%s started (subscription port %s)", config.BOT_NAME, config.SUBSCRIPTION_PORT)
     try:
