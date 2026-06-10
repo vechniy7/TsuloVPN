@@ -16,12 +16,10 @@ services:
       - key: SUBSCRIPTION_PUBLIC_URL
         sync: false
       - key: TARGET_REGULAR_COUNT
-        value: "500"
+        value: "250"
       - key: TARGET_WHITELIST_COUNT
-        value: "500"
+        value: "250"
       - key: POOL_REFRESH_INTERVAL
         value: "1800"
-      - key: FETCH_CONCURRENCY
-        value: "1"
       - key: PYTHON_VERSION
         value: "3.12.8"

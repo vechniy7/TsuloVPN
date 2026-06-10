@@ -18,31 +18,29 @@ class Config(BaseModel):
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )
 
-    # Обход белых списков — только эти источники
+    # Обход белых списков
     WHITELIST_SOURCE_URLS: list[str] = Field(
         default_factory=lambda: [
-            f"{RJSXRD_RAW}/githubmirror/bypass/raw/bypass-all-raw.txt",
+            f"{RJSXRD_RAW}/githubmirror/bypass/bypass-all.txt",
             f"{IGARECK_RAW}/WHITE-CIDR-RU-all.txt",
-            f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile-2.txt",
             f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile.txt",
         ]
     )
 
-    # Обычный VPN (чёрные списки)
+    # Обычный VPN
     REGULAR_SOURCE_URLS: list[str] = Field(
         default_factory=lambda: [
-            f"{RJSXRD_RAW}/githubmirror/default/all-secure-1.txt",
-            f"{IGARECK_RAW}/BLACK_VLESS_RUS.txt",
+            f"{IGARECK_RAW}/BLACK_VLESS_RUS_mobile.txt",
         ]
     )
 
-    TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "500"))
-    TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "500"))
+    TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "250"))
+    TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "250"))
 
     # Автообновление пула при изменении источников (секунды)
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "1800"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
-    FETCH_CONCURRENCY: int = int(os.getenv("FETCH_CONCURRENCY", "2"))
+    FETCH_CONCURRENCY: int = int(os.getenv("FETCH_CONCURRENCY", "6"))
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")
 
