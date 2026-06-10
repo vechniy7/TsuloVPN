@@ -3,69 +3,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>TsuloVPN — уточнение обхода</title>
+  <title>TsuloVPN</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/miniapp/static/style.css" />
 </head>
 <body>
   <div class="app">
-    <header class="header">
-      <div class="logo">🔐 TsuloVPN</div>
-      <div class="subtitle">Уточнение обхода на мобильном</div>
-    </header>
+    <div class="hero">
+      <div class="logo">🔐</div>
+      <h1>TsuloVPN</h1>
+      <p class="tagline">VPN и обход белых списков</p>
+    </div>
 
-    <section id="step-wifi" class="card">
-      <div class="icon">📱</div>
-      <h1>Сначала нужен интернет</h1>
-      <p>
-        В России Telegram и этот тест <strong>не работают без обхода</strong>.
-        Сначала получите <strong>базовый ключ</strong> в боте (кнопка «Получить ключ»)
-        и добавьте его в Happ <strong>на Wi‑Fi с VPN</strong>.
-      </p>
-      <p class="hint">
-        <strong>Дальше на мобильном:</strong><br>
-        1. Отключите Wi‑Fi, включите мобильный интернет<br>
-        2. В Happ подключитесь к <strong>любому</strong> обходу из списка<br>
-        3. Когда интернет заработал — вернитесь сюда и нажмите кнопку ниже
-      </p>
-      <p class="warn">Без работающего обхода в Happ проверка не запустится.</p>
-      <button id="btn-wifi-off" class="btn btn-primary">✅ Интернет есть, начать проверку</button>
-    </section>
-
-    <section id="step-probe" class="card hidden">
-      <div class="icon pulse">⏳</div>
-      <h1>Проверка обходов</h1>
-      <p class="warn">Не выходите из приложения. Ожидайте 1–2 минуты.</p>
-      <div class="progress-wrap">
-        <div class="progress-bar" id="progress-bar"></div>
+    <div class="card">
+      <h2>Что в подписке</h2>
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="stat-num">500</span>
+          <span class="stat-label">VPN серверов</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num">500</span>
+          <span class="stat-label">Обходов БС</span>
+        </div>
       </div>
-      <div class="stats">
-        <div><span id="stat-found">0</span> / <span id="stat-target">7</span> найдено</div>
-        <div><span id="stat-checked">0</span> / <span id="stat-total">0</span> проверено</div>
-      </div>
-      <p id="probe-status" class="status">Загрузка списка...</p>
-      <ul id="found-list" class="found-list"></ul>
-    </section>
+      <p class="muted">Списки обновляются автоматически при изменении источников.</p>
+    </div>
 
-    <section id="step-done" class="card hidden">
-      <div class="icon">✅</div>
-      <h1>Готово!</h1>
-      <p id="done-text">Персональный ключ обновлён.</p>
-      <p class="hint">Вернитесь в чат с ботом — новая ссылка для Happ уже отправлена.</p>
-      <button id="btn-close" class="btn btn-primary">Закрыть</button>
-    </section>
+    <div class="card">
+      <h2>Как подключить</h2>
+      <ol class="steps">
+        <li>Получите ключ в боте — кнопка <strong>«Получить ключ»</strong></li>
+        <li>Откройте <strong>Happ</strong> или <strong>Hiddify</strong></li>
+        <li>Добавьте подписку по ссылке или QR</li>
+        <li>Включите автообновление профиля</li>
+      </ol>
+    </div>
 
-    <section id="step-error" class="card hidden">
-      <div class="icon">⚠️</div>
-      <h1>Нет связи</h1>
-      <p id="error-text"></p>
-      <p class="hint" id="error-hint">
-        Закройте Mini App → в боте нажмите «Получить ключ» на Wi‑Fi с VPN →
-        добавьте ссылку в Happ → подключите любой обход на мобильном → попробуйте снова.
-      </p>
-      <button id="btn-retry" class="btn btn-secondary">Попробовать снова</button>
-    </section>
+    <div class="card">
+      <h2>На мобильном (белые списки)</h2>
+      <p>Используйте серверы <strong>«Обход»</strong> — они для Мегафон, МТС и др.</p>
+      <p class="muted">Обычные <strong>«Сервер»</strong> — для Wi‑Fi и полного интернета.</p>
+    </div>
+
+    <button id="btn-close" class="btn">Закрыть</button>
   </div>
-  <script src="/miniapp/static/app.js"></script>
+  <script>
+    const tg = window.Telegram?.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
+    document.getElementById("btn-close").onclick = () => tg?.close();
+  </script>
 </body>
 </html>

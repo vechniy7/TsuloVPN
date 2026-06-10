@@ -4,6 +4,9 @@ from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
+IGARECK_RAW = "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main"
+RJSXRD_RAW = "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main"
+
 
 class Config(BaseModel):
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
@@ -15,65 +18,33 @@ class Config(BaseModel):
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )
 
-    CONFIG_RAW_BASE: str = (
-        os.getenv("CONFIG_RAW_BASE")
-        or os.getenv("IGARECK_RAW_BASE")  # совместимость со старым деплоем
-        or "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main"
-    )
-
-    # Обычный VPN (чёрные списки) — mobile TOP-150, уже отфильтрованы автором
-    REGULAR_SOURCES: list[str] = Field(
+    # Обход белых списков — только эти источники
+    WHITELIST_SOURCE_URLS: list[str] = Field(
         default_factory=lambda: [
-            "BLACK_VLESS_RUS_mobile.txt",
-            "BLACK_VLESS_RUS.txt",
+            f"{RJSXRD_RAW}/githubmirror/bypass/raw/bypass-all-raw.txt",
+            f"{IGARECK_RAW}/WHITE-CIDR-RU-all.txt",
+            f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile-2.txt",
+            f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile.txt",
         ]
     )
 
-    # Обход белых списков — bypass-unsecure-all.txt
-    BYPASS_SOURCE_URL: str = os.getenv(
-        "BYPASS_SOURCE_URL",
-        "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass-unsecure/bypass-unsecure-all.txt",
-    )
-    # true = все конфиги из bypass-файла без лимита и без фильтра SNI
-    WHITELIST_INCLUDE_ALL: bool = os.getenv("WHITELIST_INCLUDE_ALL", "true").lower() == "true"
-
-    TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "20"))
-    TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "15"))
-
-    # SNI/паттерны, которые чаще всего работают на мобильном БС (Мегафон и др.)
-    WHITELIST_PRIORITY_SNIS: list[str] = Field(
+    # Обычный VPN (чёрные списки)
+    REGULAR_SOURCE_URLS: list[str] = Field(
         default_factory=lambda: [
-            "loadtest.dev.urent.ru",
-            "sfera.x5.ru",
-            "www.vk.com",
-            "top707762634.mwscdn.ru",
+            f"{RJSXRD_RAW}/githubmirror/default/all-secure-1.txt",
+            f"{IGARECK_RAW}/BLACK_VLESS_RUS.txt",
         ]
     )
-    WHITELIST_PER_PRIORITY_SNI: int = int(os.getenv("WHITELIST_PER_PRIORITY_SNI", "3"))
 
-    SKIP_HEALTH_CHECK: bool = os.getenv("SKIP_HEALTH_CHECK", "false").lower() == "true"
-    # БС: не проверять пинг на сервере — отдаём все из источника
-    WHITELIST_SKIP_HEALTH_CHECK: bool = os.getenv("WHITELIST_SKIP_HEALTH_CHECK", "true").lower() == "true"
-    # Reality/grpc/ws не проходят TLS-проверку с датацентра — только TCP для БС
-    WHITELIST_TCP_ONLY_CHECK: bool = os.getenv("WHITELIST_TCP_ONLY_CHECK", "true").lower() == "true"
-    # Не отсекать БС при обновлении подписки в Happ (проверка только на телефоне)
-    WHITELIST_SKIP_VERIFY_ON_SUBSCRIBE: bool = (
-        os.getenv("WHITELIST_SKIP_VERIFY_ON_SUBSCRIBE", "true").lower() == "true"
-    )
-    VERIFY_ON_SUBSCRIBE: bool = os.getenv("VERIFY_ON_SUBSCRIBE", "true").lower() == "true"
-    VERIFY_CACHE_TTL: int = int(os.getenv("VERIFY_CACHE_TTL", "90"))
-    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "3600"))
-    HEALTH_CHECK_TIMEOUT: float = float(os.getenv("HEALTH_CHECK_TIMEOUT", "4.0"))
-    HEALTH_CHECK_CONCURRENCY: int = int(os.getenv("HEALTH_CHECK_CONCURRENCY", "30"))
-    MAX_HEALTH_CHECK_CANDIDATES: int = int(os.getenv("MAX_HEALTH_CHECK_CANDIDATES", "120"))
-    FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "25"))
+    TARGET_REGULAR_COUNT: int = int(os.getenv("TARGET_REGULAR_COUNT", "500"))
+    TARGET_WHITELIST_COUNT: int = int(os.getenv("TARGET_WHITELIST_COUNT", "500"))
+
+    # Автообновление пула при изменении источников (секунды)
+    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "1800"))
+    FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
+    FETCH_CONCURRENCY: int = int(os.getenv("FETCH_CONCURRENCY", "6"))
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")
-
-    # Mini App — персональный подбор обходов с телефона пользователя
-    PERSONAL_BYPASS_TARGET: int = int(os.getenv("PERSONAL_BYPASS_TARGET", "7"))
-    MINIAPP_PROBE_TIMEOUT_MS: int = int(os.getenv("MINIAPP_PROBE_TIMEOUT_MS", "5000"))
-    MINIAPP_PROBE_CONCURRENCY: int = int(os.getenv("MINIAPP_PROBE_CONCURRENCY", "8"))
 
     @field_validator("ADMINS", mode="before")
     @classmethod
@@ -89,10 +60,6 @@ class Config(BaseModel):
     def subscription_url_for_token(self, token: str) -> str:
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
         return f"{base}/sub/{token}"
-
-    def personal_subscription_url_for_token(self, token: str) -> str:
-        base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
-        return f"{base}/sub/{token}/personal"
 
     @property
     def miniapp_url(self) -> str:

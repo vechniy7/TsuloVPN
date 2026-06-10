@@ -15,29 +15,11 @@ services:
         value: TsuloVPN
       - key: SUBSCRIPTION_PUBLIC_URL
         sync: false
-      - key: BYPASS_SOURCE_URL
-        value: https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass-unsecure/bypass-unsecure-all.txt
-      - key: WHITELIST_INCLUDE_ALL
-        value: "true"
-      - key: WHITELIST_SKIP_HEALTH_CHECK
-        value: "true"
-      - key: SKIP_HEALTH_CHECK
-        value: "false"
-      - key: VERIFY_ON_SUBSCRIBE
-        value: "true"
-      - key: WHITELIST_TCP_ONLY_CHECK
-        value: "true"
-      - key: WHITELIST_SKIP_VERIFY_ON_SUBSCRIBE
-        value: "true"
-      - key: WHITELIST_PER_PRIORITY_SNI
-        value: "3"
-      - key: POOL_REFRESH_INTERVAL
-        value: "3600"
       - key: TARGET_REGULAR_COUNT
-        value: "20"
+        value: "500"
       - key: TARGET_WHITELIST_COUNT
-        value: "15"
-      - key: PERSONAL_BYPASS_TARGET
-        value: "7"
+        value: "500"
+      - key: POOL_REFRESH_INTERVAL
+        value: "1800"
       - key: PYTHON_VERSION
         value: "3.12.8"

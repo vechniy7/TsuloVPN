@@ -308,8 +308,8 @@ def parse_bypass_subscription(data: str) -> list[str]:
     return _parse_bypass_candidates(data, min_score=40)
 
 
-def parse_bypass_subscription_all(data: str) -> list[str]:
-    """Все VPN-строки из подписки bypass-unsecure-all без фильтра по SNI."""
+def parse_subscription_lines(data: str) -> list[str]:
+    """Все поддерживаемые конфиги из файла подписки (без фильтра SNI)."""
     result: list[str] = []
     seen: set[str] = set()
 
@@ -319,13 +319,19 @@ def parse_bypass_subscription_all(data: str) -> list[str]:
             continue
         if not line_stripped.lower().startswith(SUPPORTED_PREFIXES):
             continue
-        processed = urllib.parse.unquote(line_stripped)
+        if INSECURE_PATTERN.search(urllib.parse.unquote(line_stripped)):
+            continue
+        processed = html.unescape(urllib.parse.unquote(line_stripped))
         if processed in seen:
             continue
         seen.add(processed)
         result.append(processed)
 
     return result
+
+
+def parse_bypass_subscription_all(data: str) -> list[str]:
+    return parse_subscription_lines(data)
 
 
 def _parse_bypass_candidates(data: str, min_score: int) -> list[str]:
