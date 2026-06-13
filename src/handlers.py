@@ -42,10 +42,10 @@ async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> No
     text = (
         f"**{config.BOT_NAME}**\n"
         f"━━━━━━━━━━━━━━━━━━\n\n"
-        f"🌍 VPN: `{pool.regular_count}`  ·  📱 Обход: `{pool.whitelist_count}`\n"
+        f"📱 Обход: `{pool.subscription_count}` в ключе · `{pool.source_total}` в источнике\n"
         f"🔄 Обновлено: `{updated}` UTC\n\n"
-        f"Одна подписка для **Happ / Hiddify**.\n"
-        f"Списки обновляются автоматически."
+        f"Подписка для **Happ / Hiddify**.\n"
+        f"Конфиги синхронизируются с igareck автоматически."
     )
 
     markup = _menu_keyboard(user, chat_id).as_markup()
@@ -79,10 +79,10 @@ async def send_subscription_key(target: Message, user: User) -> None:
     caption = (
         f"**{config.BOT_NAME}** — ваша подписка\n\n"
         f"`{sub_url}`\n\n"
-        f"🌍 VPN: **{pool.regular_count}**  ·  📱 Обход: **{pool.whitelist_count}**\n\n"
+        f"📱 Серверов в ключе: **{pool.subscription_count}**\n"
+        f"📦 В источнике: **{pool.source_total}** конфигов\n\n"
         f"**Happ / Hiddify** → добавить по ссылке → автообновление **вкл**\n\n"
-        f"• **Сервер #N** — обычный VPN\n"
-        f"• **Обход #N** — белые списки (мобильный)"
+        f"Серверы **Обход #N** — для мобильного интернета (белые списки)."
     )
 
     builder = InlineKeyboardBuilder()
@@ -132,10 +132,9 @@ async def _send_help(target: Message) -> None:
         "**1.** Получите ключ в боте\n"
         "**2.** Happ → **+** → подписка по URL\n"
         "**3.** Включите **автообновление**\n\n"
-        "**Wi‑Fi / полный интернет** → серверы **Сервер**\n"
-        "**Мобильный (белые списки)** → серверы **Обход**\n\n"
-        "Подписка обновляется автоматически — новые конфиги "
-        "появятся после обновления в Happ."
+        "**Мобильный интернет (белые списки)** → серверы **Обход #N**\n\n"
+        "Подписка обновляется автоматически — при обновлении "
+        "источника igareck конфиги заменятся в Happ."
     )
     builder = InlineKeyboardBuilder()
     builder.button(text="🔑 Получить ключ", callback_data="get_key")
@@ -176,7 +175,7 @@ async def admin_menu_callback(callback: CallbackQuery) -> None:
     text = (
         f"**Админ · {config.BOT_NAME}**\n\n"
         f"👥 Пользователей: `{await get_user_count()}`\n"
-        f"🌍 VPN: `{pool.regular_count}`  ·  📱 Обход: `{pool.whitelist_count}`"
+        f"📱 В ключе: `{pool.subscription_count}` · в источнике: `{pool.source_total}`"
     )
     builder = InlineKeyboardBuilder()
     builder.button(text="🔄 Обновить конфиги", callback_data="admin_refresh")
@@ -197,7 +196,7 @@ async def admin_refresh_callback(callback: CallbackQuery) -> None:
     pool = get_pool_state()
     text = (
         f"✅ Готово\n\n"
-        f"🌍 VPN: `{pool.regular_count}`  ·  📱 Обход: `{pool.whitelist_count}`"
+        f"📱 В ключе: `{pool.subscription_count}` · в источнике: `{pool.source_total}`"
     )
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ Админ", callback_data="admin_menu")

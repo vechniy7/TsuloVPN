@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field, field_validator
 load_dotenv()
 
 IGARECK_RAW = "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main"
-RJSXRD_RAW = "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main"
 
 
 class Config(BaseModel):
@@ -18,29 +17,17 @@ class Config(BaseModel):
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )
 
-    # Обход белых списков
-    WHITELIST_SOURCE_URLS: list[str] = Field(
-        default_factory=lambda: [
-            f"{RJSXRD_RAW}/githubmirror/bypass/bypass-all.txt",
-            f"{IGARECK_RAW}/WHITE-CIDR-RU-all.txt",
-            f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile.txt",
-        ]
+    CONFIG_SOURCE_URL: str = os.getenv(
+        "CONFIG_SOURCE_URL",
+        f"{IGARECK_RAW}/WHITE-CIDR-RU-checked.txt",
     )
 
-    # Обычный VPN
-    REGULAR_SOURCE_URLS: list[str] = Field(
-        default_factory=lambda: [
-            f"{IGARECK_RAW}/BLACK_VLESS_RUS_mobile.txt",
-        ]
-    )
+    # Сколько конфигов в подписке пользователя (или меньше, если в источнике меньше)
+    SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "35"))
 
-    POOL_VPN_LIMIT: int = int(os.getenv("POOL_VPN_LIMIT", "100"))
-    POOL_BYPASS_LIMIT: int = int(os.getenv("POOL_BYPASS_LIMIT", "300"))
-
-    # Автообновление пула при изменении источников (секунды)
-    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "1800"))
+    # Как часто проверять обновления на GitHub (секунды)
+    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "300"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
-    FETCH_CONCURRENCY: int = int(os.getenv("FETCH_CONCURRENCY", "6"))
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")
 
@@ -50,18 +37,6 @@ class Config(BaseModel):
         if isinstance(value, str):
             return [int(admin) for admin in value.split(",") if admin.strip()]
         return value or []
-
-    @property
-    def target_regular_count(self) -> int:
-        return self.POOL_VPN_LIMIT
-
-    @property
-    def target_whitelist_count(self) -> int:
-        return self.POOL_BYPASS_LIMIT
-
-    @property
-    def target_total_count(self) -> int:
-        return self.POOL_VPN_LIMIT + self.POOL_BYPASS_LIMIT
 
     def subscription_url_for_token(self, token: str) -> str:
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")

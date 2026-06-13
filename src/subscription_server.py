@@ -21,11 +21,11 @@ async def health():
     pool = get_pool_state()
     return {
         "status": "ok",
-        "configs": len(pool.configs),
-        "regular": pool.regular_count,
-        "whitelist": pool.whitelist_count,
+        "source_total": pool.source_total,
+        "subscription_count": pool.subscription_count,
         "last_refresh_at": pool.last_refresh_at,
         "is_refreshing": pool.is_refreshing,
+        "source": config.CONFIG_SOURCE_URL.split("/")[-1],
     }
 
 
@@ -54,8 +54,7 @@ async def subscription(token: str):
         "Content-Disposition": f'inline; filename="{config.BOT_NAME}.txt"',
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "X-TsuloVPN-Configs": str(len(lines)),
-        "X-TsuloVPN-Regular": str(pool.regular_count),
-        "X-TsuloVPN-Whitelist": str(pool.whitelist_count),
+        "X-TsuloVPN-Source-Total": str(pool.source_total),
         "X-TsuloVPN-Updated": datetime.fromtimestamp(
             pool.last_refresh_at or time.time(),
             tz=timezone.utc,

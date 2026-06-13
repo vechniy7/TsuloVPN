@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -6,7 +7,7 @@ from dataclasses import dataclass, field
 import aiohttp
 
 from config import config
-from parser import brand_config, build_server_label, extract_host_port, get_sni, parse_subscription_lines
+from parser import brand_config, build_server_label, extract_host_port, parse_subscription_lines
 
 logger = logging.getLogger(__name__)
 
@@ -17,69 +18,50 @@ CHROME_UA = (
 
 
 @dataclass
-class PoolConfig:
-    uri: str
-    category: str
-    sni: str = ""
-
-
-@dataclass
 class PoolState:
-    configs: list[PoolConfig] = field(default_factory=list)
-    regular_count: int = 0
-    whitelist_count: int = 0
+    configs: list[str] = field(default_factory=list)
+    source_total: int = 0
+    subscription_count: int = 0
     last_refresh_at: float = 0.0
     last_refresh_duration: float = 0.0
     last_error: str | None = None
     is_refreshing: bool = False
-    sources_fingerprint: str = ""
+    content_fingerprint: str = ""
 
 
 _pool = PoolState()
 _refresh_lock = asyncio.Lock()
 _session: aiohttp.ClientSession | None = None
 _cached_lines: list[str] = []
-_lines_fingerprint: str = ""
 
 
 def get_pool_state() -> PoolState:
     return _pool
 
 
-def _config_to_line(item: PoolConfig, regular_idx: int, whitelist_idx: int) -> str:
-    if item.category == "whitelist":
-        label = build_server_label("whitelist", item.uri, whitelist_idx)
-    else:
-        label = build_server_label("regular", item.uri, regular_idx)
-    return brand_config(item.uri, label)
+def get_subscription_lines() -> list[str]:
+    return _cached_lines
 
 
-def _build_lines(configs: list[PoolConfig]) -> list[str]:
+def _build_lines(uris: list[str]) -> list[str]:
     lines: list[str] = []
-    regular_idx = 0
-    whitelist_idx = 0
-    for item in configs:
-        if item.category == "whitelist":
-            whitelist_idx += 1
-            lines.append(_config_to_line(item, regular_idx, whitelist_idx))
-        else:
-            regular_idx += 1
-            lines.append(_config_to_line(item, regular_idx, whitelist_idx))
+    for idx, uri in enumerate(uris, start=1):
+        label = build_server_label("whitelist", uri, idx)
+        lines.append(brand_config(uri, label))
     return lines
 
 
-def get_subscription_lines() -> list[str]:
-    return _cached_lines
+def _content_fingerprint(text: str, uris: list[str]) -> str:
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return f"{len(uris)}:{digest[:16]}"
 
 
 async def _get_session() -> aiohttp.ClientSession:
     global _session
     if _session is None or _session.closed:
         timeout = aiohttp.ClientTimeout(total=config.FETCH_TIMEOUT)
-        connector = aiohttp.TCPConnector(limit=config.FETCH_CONCURRENCY, ttl_dns_cache=300)
         _session = aiohttp.ClientSession(
             timeout=timeout,
-            connector=connector,
             headers={"User-Agent": CHROME_UA},
         )
     return _session
@@ -92,46 +74,29 @@ async def close_session() -> None:
         _session = None
 
 
-async def _fetch_url(url: str) -> tuple[str, str | None]:
+async def _fetch_source() -> tuple[str | None, list[str]]:
     session = await _get_session()
     try:
-        async with session.get(url, ssl=False) as resp:
+        async with session.get(config.CONFIG_SOURCE_URL, ssl=False) as resp:
             resp.raise_for_status()
-            return url, await resp.text()
+            text = await resp.text()
     except Exception as exc:
-        logger.warning("Fetch failed %s: %s", url, exc)
-        return url, None
+        logger.warning("Fetch failed %s: %s", config.CONFIG_SOURCE_URL, exc)
+        return None, []
 
+    parsed = parse_subscription_lines(text)
+    uris: list[str] = []
+    for uri in parsed:
+        if extract_host_port(uri):
+            uris.append(uri)
 
-async def _collect_uris(urls: list[str], limit: int) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for url in urls:
-        if len(result) >= limit:
-            break
-        _, text = await _fetch_url(url)
-        if not text:
-            continue
-        parsed = parse_subscription_lines(text)
-        logger.info("Loaded %s configs from %s", len(parsed), url.split("/")[-1])
-        for uri in parsed:
-            if uri in seen:
-                continue
-            if not extract_host_port(uri):
-                continue
-            seen.add(uri)
-            result.append(uri)
-            if len(result) >= limit:
-                break
-        logger.info("Collected %s/%s valid configs from %s", len(result), limit, url.split("/")[-1])
-    return result
-
-
-def _to_pool_configs(uris: list[str], category: str) -> list[PoolConfig]:
-    return [
-        PoolConfig(uri=uri, category=category, sni=get_sni(uri) or "")
-        for uri in uris
-    ]
+    logger.info(
+        "Loaded %s configs from %s (%s valid)",
+        len(parsed),
+        config.CONFIG_SOURCE_URL.split("/")[-1],
+        len(uris),
+    )
+    return text, uris
 
 
 async def refresh_pool(force: bool = False) -> PoolState:
@@ -144,43 +109,39 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        logger.info(
-            "Refreshing config pool (target: %s VPN + %s whitelist, sources: %s/%s)...",
-            config.POOL_VPN_LIMIT,
-            config.POOL_BYPASS_LIMIT,
-            len(config.REGULAR_SOURCE_URLS),
-            len(config.WHITELIST_SOURCE_URLS),
-        )
+        logger.info("Checking config source: %s", config.CONFIG_SOURCE_URL)
 
         try:
-            regular_uris, whitelist_uris = await asyncio.gather(
-                _collect_uris(config.REGULAR_SOURCE_URLS, config.POOL_VPN_LIMIT),
-                _collect_uris(config.WHITELIST_SOURCE_URLS, config.POOL_BYPASS_LIMIT),
-            )
+            text, uris = await _fetch_source()
+            if text is None:
+                _pool.last_error = "Failed to fetch config source"
+                return _pool
 
-            regular = _to_pool_configs(regular_uris, "regular")
-            whitelist = _to_pool_configs(whitelist_uris, "whitelist")
-            combined = regular + whitelist
+            fingerprint = _content_fingerprint(text, uris)
+            global _cached_lines
 
-            fingerprint = f"{len(regular)}:{len(whitelist)}:{hash(tuple(c.uri for c in combined[:20]))}"
+            if fingerprint == _pool.content_fingerprint and _cached_lines and not force:
+                logger.info("Config source unchanged (%s configs)", len(uris))
+                _pool.last_refresh_at = time.time()
+                _pool.last_error = None
+                return _pool
 
-            global _cached_lines, _lines_fingerprint
-            _cached_lines = _build_lines(combined)
-            _lines_fingerprint = fingerprint
+            limit = min(config.SUBSCRIPTION_CONFIG_LIMIT, len(uris))
+            subscription_uris = uris[:limit]
 
-            _pool.configs = combined
-            _pool.regular_count = len(regular)
-            _pool.whitelist_count = len(whitelist)
+            _pool.configs = uris
+            _pool.source_total = len(uris)
+            _pool.subscription_count = limit
+            _pool.content_fingerprint = fingerprint
+            _cached_lines = _build_lines(subscription_uris)
             _pool.last_refresh_at = time.time()
             _pool.last_refresh_duration = time.perf_counter() - started
-            _pool.sources_fingerprint = fingerprint
             _pool.last_error = None
 
             logger.info(
-                "Pool ready: %s total (%s VPN + %s whitelist) in %.1fs",
-                len(combined),
-                len(regular),
-                len(whitelist),
+                "Pool updated: %s in source, %s in user subscriptions (%.1fs)",
+                len(uris),
+                limit,
                 _pool.last_refresh_duration,
             )
         except Exception as exc:
@@ -197,6 +158,6 @@ async def start_refresh_loop() -> None:
     while True:
         await asyncio.sleep(config.POOL_REFRESH_INTERVAL)
         try:
-            await refresh_pool(force=True)
+            await refresh_pool(force=False)
         except Exception as exc:
             logger.error("Background refresh error: %s", exc)
