@@ -40,7 +40,7 @@ async def subscription(token: str):
         raise HTTPException(status_code=503, detail="Configs loading, try again in a minute")
 
     pool = get_pool_state()
-    plain = "\n".join(lines)
+    plain = "#hide-settings: 1\n" + "\n".join(lines)
     body = base64.b64encode(plain.encode("utf-8")).decode("ascii")
     profile_title = f"🔐 {config.BOT_NAME}"
 
@@ -53,6 +53,7 @@ async def subscription(token: str):
         ),
         "Content-Disposition": f'inline; filename="{config.BOT_NAME}.txt"',
         "Cache-Control": "no-cache, no-store, must-revalidate",
+        "hide-settings": "1",
         "X-TsuloVPN-Configs": str(len(lines)),
         "X-TsuloVPN-Source-Total": str(pool.source_total),
         "X-TsuloVPN-Updated": datetime.fromtimestamp(

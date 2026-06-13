@@ -12,6 +12,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import config
 from config_pool import get_pool_state, refresh_pool
 from database import User, create_user, get_all_users, get_user, get_user_count
+from happ_crypto import encrypt_subscription_url
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -65,9 +66,10 @@ async def send_subscription_key(target: Message, user: User) -> None:
         return
 
     sub_url = config.subscription_url_for_token(user.subscription_token)
+    import_url = await encrypt_subscription_url(sub_url)
 
     qr = qrcode.QRCode(version=1, box_size=8, border=2)
-    qr.add_data(sub_url)
+    qr.add_data(import_url)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
 
@@ -76,13 +78,14 @@ async def send_subscription_key(target: Message, user: User) -> None:
     buffer.seek(0)
     photo = BufferedInputFile(buffer.getvalue(), filename="tsulovpn-qr.png")
 
+    link_hint = "зашифрованная ссылка Happ" if import_url.startswith("happ://") else "ссылка подписки"
     caption = (
         f"**{config.BOT_NAME}** — ваша подписка\n\n"
-        f"`{sub_url}`\n\n"
+        f"`{import_url}`\n\n"
         f"📱 Серверов в ключе: **{pool.subscription_count}**\n"
         f"📦 В источнике: **{pool.source_total}** конфигов\n\n"
-        f"**Happ / Hiddify** → добавить по ссылке → автообновление **вкл**\n\n"
-        f"Серверы **Обход #N** — для мобильного интернета (белые списки)."
+        f"**Happ** → **+** → вставить {link_hint} → автообновление **вкл**\n\n"
+        f"Копирование отдельных конфигов отключено."
     )
 
     builder = InlineKeyboardBuilder()

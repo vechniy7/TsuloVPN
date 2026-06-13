@@ -19,5 +19,7 @@ services:
         value: "35"
       - key: POOL_REFRESH_INTERVAL
         value: "300"
+      - key: HAPP_ENCRYPT_SUBSCRIPTION
+        value: "true"
       - key: PYTHON_VERSION
         value: "3.12.8"

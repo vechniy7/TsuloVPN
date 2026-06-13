@@ -29,6 +29,13 @@ class Config(BaseModel):
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "300"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
 
+    # Шифровать ссылку подписки через Happ API (happ://crypt5/...)
+    HAPP_ENCRYPT_SUBSCRIPTION: bool = os.getenv("HAPP_ENCRYPT_SUBSCRIPTION", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")
 
     @field_validator("ADMINS", mode="before")
