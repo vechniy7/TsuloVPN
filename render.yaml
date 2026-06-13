@@ -15,6 +15,10 @@ services:
         value: TsuloVPN
       - key: SUBSCRIPTION_PUBLIC_URL
         sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
       - key: SUBSCRIPTION_CONFIG_LIMIT
         value: "35"
       - key: POOL_REFRESH_INTERVAL

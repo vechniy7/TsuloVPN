@@ -1,87 +1,94 @@
+import asyncio
 import json
 import logging
-import os
 import uuid
-from datetime import datetime
-
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, create_engine, func, text
-from sqlalchemy.orm import declarative_base, sessionmaker
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 
 from config import config
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DEFAULT_DB_PATH = os.path.join(_PROJECT_ROOT, "tsulovpn.db")
-
 logger = logging.getLogger(__name__)
 
-Base = declarative_base()
+PREFIX = "tsulovpn"
+USERS_SET = f"{PREFIX}:users"
+
+_redis = None
 
 
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True)
-    telegram_id = Column(Integer, unique=True, nullable=False, index=True)
-    full_name = Column(String)
-    username = Column(String)
-    subscription_token = Column(String, unique=True, nullable=False, index=True)
-    registration_date = Column(DateTime, default=datetime.utcnow)
-    is_admin = Column(Boolean, default=False)
-    personal_bypass_uris = Column(Text, default="[]")
-    personal_bypass_latencies = Column(Text, default="[]")
-    personal_bypass_updated_at = Column(DateTime, nullable=True)
+@dataclass
+class User:
+    telegram_id: int
+    full_name: str | None
+    username: str | None
+    subscription_token: str
+    registration_date: str
+    is_admin: bool = False
 
 
-def _resolve_database_url() -> str:
-    url = config.DATABASE_URL
-    if url == "sqlite:///tsulovpn.db":
-        return f"sqlite:///{_DEFAULT_DB_PATH}"
-    return url
+def _user_key(telegram_id: int) -> str:
+    return f"{PREFIX}:user:{telegram_id}"
 
 
-engine = create_engine(_resolve_database_url(), echo=False)
-Session = sessionmaker(bind=engine)
-
-
-def _migrate_users_table() -> None:
-    """Добавляет колонки персонального обхода в существующую SQLite БД."""
-    if not config.DATABASE_URL.startswith("sqlite"):
-        return
-    migrations = [
-        ("personal_bypass_uris", "TEXT DEFAULT '[]'"),
-        ("personal_bypass_latencies", "TEXT DEFAULT '[]'"),
-        ("personal_bypass_updated_at", "DATETIME"),
-    ]
-    with engine.connect() as conn:
-        existing = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()
-        }
-        for column, col_type in migrations:
-            if column not in existing:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN {column} {col_type}"))
-                logger.info("Migration: added users.%s", column)
-        conn.commit()
-
-
-async def init_db() -> None:
-    Base.metadata.create_all(engine)
-    _migrate_users_table()
-    logger.info("Database initialized")
+def _token_key(token: str) -> str:
+    return f"{PREFIX}:token:{token}"
 
 
 def _new_token() -> str:
     return uuid.uuid4().hex
 
 
+def _get_redis():
+    global _redis
+    if _redis is None:
+        if not config.use_upstash:
+            raise RuntimeError("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required")
+        from upstash_redis import Redis
+
+        _redis = Redis(url=config.UPSTASH_REDIS_REST_URL, token=config.UPSTASH_REDIS_REST_TOKEN)
+    return _redis
+
+
+async def _run(func):
+    return await asyncio.to_thread(func)
+
+
+def _parse_user(raw: str | bytes | None) -> User | None:
+    if not raw:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode()
+    data = json.loads(raw)
+    return User(**data)
+
+
+async def init_db() -> None:
+    if not config.use_upstash:
+        logger.error("Upstash Redis is not configured — users will not persist!")
+        return
+
+    def _ping():
+        _get_redis().ping()
+
+    await _run(_ping)
+    logger.info("Upstash Redis connected")
+
+
 async def get_user(telegram_id: int) -> User | None:
-    with Session() as session:
-        return session.query(User).filter_by(telegram_id=telegram_id).first()
+    def _get():
+        return _parse_user(_get_redis().get(_user_key(telegram_id)))
+
+    return await _run(_get)
 
 
 async def get_user_by_token(token: str) -> User | None:
-    with Session() as session:
-        return session.query(User).filter_by(subscription_token=token).first()
+    def _get():
+        redis = _get_redis()
+        telegram_id = redis.get(_token_key(token))
+        if not telegram_id:
+            return None
+        return _parse_user(redis.get(_user_key(int(telegram_id))))
+
+    return await _run(_get)
 
 
 async def create_user(
@@ -90,58 +97,65 @@ async def create_user(
     username: str | None = None,
     is_admin: bool = False,
 ) -> User:
-    with Session() as session:
-        user = User(
-            telegram_id=telegram_id,
-            full_name=full_name,
-            username=username,
-            subscription_token=_new_token(),
-            is_admin=is_admin,
-        )
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-        logger.info("New user: %s", telegram_id)
-        return user
+    existing = await get_user(telegram_id)
+    if existing:
+        return existing
+
+    user = User(
+        telegram_id=telegram_id,
+        full_name=full_name,
+        username=username,
+        subscription_token=_new_token(),
+        registration_date=datetime.now(timezone.utc).isoformat(),
+        is_admin=is_admin,
+    )
+
+    def _save():
+        redis = _get_redis()
+        payload = json.dumps(asdict(user), ensure_ascii=False)
+        redis.set(_user_key(telegram_id), payload)
+        redis.set(_token_key(user.subscription_token), str(telegram_id))
+        redis.sadd(USERS_SET, str(telegram_id))
+
+    await _run(_save)
+    logger.info("New user: %s (token %s…)", telegram_id, user.subscription_token[:8])
+    return user
 
 
-async def save_personal_bypass(
-    telegram_id: int,
-    uris: list[str],
-    latencies: list[int],
-) -> User | None:
-    with Session() as session:
-        user = session.query(User).filter_by(telegram_id=telegram_id).first()
-        if not user:
-            return None
-        user.personal_bypass_uris = json.dumps(uris, ensure_ascii=False)
-        user.personal_bypass_latencies = json.dumps(latencies)
-        user.personal_bypass_updated_at = datetime.utcnow()
-        session.commit()
-        session.refresh(user)
-        logger.info("Saved %s personal bypass configs for user %s", len(uris), telegram_id)
-        return user
+async def update_admins_status() -> None:
+    if not config.use_upstash:
+        return
 
+    def _update():
+        redis = _get_redis()
+        admin_ids = set(config.ADMINS)
+        for tid_raw in redis.smembers(USERS_SET):
+            telegram_id = int(tid_raw)
+            user = _parse_user(redis.get(_user_key(telegram_id)))
+            if not user:
+                continue
+            user.is_admin = telegram_id in admin_ids
+            redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
 
-def get_personal_bypass_uris(user: User) -> list[str]:
-    if not user.personal_bypass_uris:
-        return []
-    try:
-        data = json.loads(user.personal_bypass_uris)
-        return data if isinstance(data, list) else []
-    except json.JSONDecodeError:
-        return []
-
-
-def has_personal_bypass(user: User) -> bool:
-    return len(get_personal_bypass_uris(user)) > 0
+    await _run(_update)
 
 
 async def get_all_users() -> list[User]:
-    with Session() as session:
-        return session.query(User).order_by(User.registration_date.desc()).all()
+    def _all():
+        redis = _get_redis()
+        users: list[User] = []
+        for tid_raw in redis.smembers(USERS_SET):
+            user = _parse_user(redis.get(_user_key(int(tid_raw))))
+            if user:
+                users.append(user)
+        users.sort(key=lambda item: item.registration_date, reverse=True)
+        return users
+
+    return await _run(_all)
 
 
 async def get_user_count() -> int:
-    with Session() as session:
-        return session.query(func.count(User.id)).scalar() or 0
+    def _count():
+        return int(_get_redis().scard(USERS_SET) or 0)
+
+    return await _run(_count)

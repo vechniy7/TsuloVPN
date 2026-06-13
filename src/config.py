@@ -36,7 +36,12 @@ class Config(BaseModel):
         "yes",
     )
 
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///tsulovpn.db")
+    UPSTASH_REDIS_REST_URL: str = os.getenv("UPSTASH_REDIS_REST_URL", "")
+    UPSTASH_REDIS_REST_TOKEN: str = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
+
+    @property
+    def use_upstash(self) -> bool:
+        return bool(self.UPSTASH_REDIS_REST_URL and self.UPSTASH_REDIS_REST_TOKEN)
 
     @field_validator("ADMINS", mode="before")
     @classmethod
@@ -48,10 +53,6 @@ class Config(BaseModel):
     def subscription_url_for_token(self, token: str) -> str:
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
         return f"{base}/sub/{token}"
-
-    @property
-    def miniapp_url(self) -> str:
-        return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/miniapp/"
 
 
 config = Config(ADMINS=os.getenv("ADMINS", ""))
