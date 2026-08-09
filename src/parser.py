@@ -300,6 +300,73 @@ def bypass_whitelist_score(uri: str) -> int:
     return score
 
 
+def speed_score(uri: str) -> int:
+    """Приоритет для более быстрых/качественных конфигов в ключе."""
+    uri_l = uri.lower()
+    score = bypass_whitelist_score(uri)
+    transport = get_transport(uri)
+    security = get_security(uri)
+    hostport = extract_host_port(uri)
+    fragment = get_fragment(uri)
+
+    # Hysteria2 обычно даёт лучший throughput
+    if uri_l.startswith(("hysteria2://", "hy2://")):
+        score += 120
+
+    # Vision + TCP Reality — лучший баланс скорости и совместимости
+    if "flow=xtls-rprx-vision" in uri_l and transport in ("tcp", "raw", ""):
+        score += 90
+    elif transport in ("tcp", "raw", ""):
+        score += 40
+
+    # gRPC/WS чаще медленнее для обычного трафика
+    if transport == "grpc":
+        score -= 35
+    if transport == "ws":
+        score -= 20
+
+    if security == "reality":
+        score += 25
+
+    if hostport:
+        port = hostport[1]
+        if port == 443:
+            score += 20
+        elif port in (8443, 7443, 5443):
+            score += 10
+        elif port == 80:
+            score -= 40
+
+    # Один хост с кучей одинаковых SNI-вариантов — не бустим по fragment-стране
+    if "anycast" in fragment:
+        score += 15
+    if "russia" in fragment or "🇫🇮" in fragment or "estonia" in fragment:
+        score += 10
+
+    return score
+
+
+def rank_configs_for_speed(uris: list[str]) -> list[str]:
+    """Один лучший конфиг на host:port, затем сортировка по speed_score."""
+    best_by_host: dict[str, tuple[int, str]] = {}
+    no_host: list[tuple[int, str]] = []
+
+    for uri in uris:
+        hostport = extract_host_port(uri)
+        scored = speed_score(uri)
+        if not hostport:
+            no_host.append((scored, uri))
+            continue
+        key = f"{hostport[0].lower()}:{hostport[1]}"
+        prev = best_by_host.get(key)
+        if prev is None or scored > prev[0]:
+            best_by_host[key] = (scored, uri)
+
+    ranked = list(best_by_host.values()) + no_host
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [uri for _, uri in ranked]
+
+
 def parse_whitelist_configs(data: str) -> list[str]:
     """Парсит конфиги для обхода белых списков — Reality/TLS + российский SNI."""
     return _parse_bypass_candidates(data, min_score=50)

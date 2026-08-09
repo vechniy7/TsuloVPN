@@ -7,7 +7,13 @@ from dataclasses import dataclass, field
 import aiohttp
 
 from config import config
-from parser import brand_config, build_server_label, extract_host_port, parse_subscription_lines
+from parser import (
+    brand_config,
+    build_server_label,
+    extract_host_port,
+    parse_subscription_lines,
+    rank_configs_for_speed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,8 +168,8 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
             primary_text = primary_text or ""
             fill_text = fill_text or ""
-            primary_uris = primary_uris or []
-            fill_uris = fill_uris or []
+            primary_uris = rank_configs_for_speed(primary_uris or [])
+            fill_uris = rank_configs_for_speed(fill_uris or [])
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
             subscription_uris, primary_used, fill_used = _merge_up_to_limit(

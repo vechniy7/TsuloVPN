@@ -24,8 +24,10 @@ HAPP_BODY_DIRECTIVES = (
     "#subscription-autoconnect: 1",
     "#subscription-autoconnect-type: lowestdelay",
     "#subscription-ping-onopen-enabled: 1",
-    "#ping-type: proxy",
+    "#ping-type: tcp",
     "#subscriptions-sort-type: ping",
+    "#check-url-via-proxy: https://www.gstatic.com/generate_204",
+    "#fragmentation-enable: 0",
 )
 
 
@@ -88,8 +90,10 @@ async def subscription(token: str):
         "subscription-autoconnect": "1",
         "subscription-autoconnect-type": "lowestdelay",
         "subscription-ping-onopen-enabled": "1",
-        "ping-type": "proxy",
+        "ping-type": "tcp",
         "subscriptions-sort-type": "ping",
+        "check-url-via-proxy": "https://www.gstatic.com/generate_204",
+        "fragmentation-enable": "0",
         "X-TsuloVPN-Configs": str(served),
         "X-TsuloVPN-Source-Total": str(pool.source_total),
         "X-TsuloVPN-Updated": datetime.fromtimestamp(
