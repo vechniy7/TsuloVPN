@@ -7,6 +7,7 @@ import uvicorn
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand
 
+from bot_notify import set_bot
 from config import config
 from config_pool import close_session, start_refresh_loop
 from database import init_db, update_admins_status
@@ -21,8 +22,8 @@ logger = logging.getLogger(__name__)
 async def setup_bot_commands(bot: Bot) -> None:
     commands = [
         BotCommand(command="start", description="Главная"),
-        BotCommand(command="key", description="Мой ключ"),
-        BotCommand(command="help", description="Инструкция"),
+        BotCommand(command="key", description="Мой доступ"),
+        BotCommand(command="help", description="Справка"),
     ]
     await bot.set_my_commands(commands)
 
@@ -52,6 +53,7 @@ async def main() -> None:
     await update_admins_status()
 
     bot = Bot(token=config.BOT_TOKEN)
+    set_bot(bot)
     dp = Dispatcher()
     setup_handlers(dp)
     await setup_bot_commands(bot)
@@ -62,9 +64,10 @@ async def main() -> None:
     asyncio.create_task(run_subscription_server())
 
     logger.info(
-        "%s started (Upstash, %s configs per key)",
+        "%s started (Upstash, %s configs per key%s)",
         config.BOT_NAME,
         config.SUBSCRIPTION_CONFIG_LIMIT,
+        ", Cardlink ON" if config.use_cardlink else "",
     )
     try:
         await dp.start_polling(bot, drop_pending_updates=True)

@@ -21,9 +21,14 @@ class Config(BaseModel):
         "CONFIG_SOURCE_URL",
         f"{IGARECK_RAW}/WHITE-CIDR-RU-checked.txt",
     )
+    # Дополнение, если в основном источнике меньше лимита
+    CONFIG_FILL_SOURCE_URL: str = os.getenv(
+        "CONFIG_FILL_SOURCE_URL",
+        f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile.txt",
+    )
 
-    # Сколько конфигов в подписке пользователя (или меньше, если в источнике меньше)
-    SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "35"))
+    # Сколько конфигов в подписке (ровно столько, если источники позволяют)
+    SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "45"))
 
     # Как часто проверять обновления на GitHub (секунды)
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "300"))
@@ -36,12 +41,28 @@ class Config(BaseModel):
         "yes",
     )
 
+    # Оплата: Cardlink или ЮKassa — включите PAYMENTS_ENFORCE=true
+    PAYMENTS_ENFORCE: bool = os.getenv("PAYMENTS_ENFORCE", "false").lower() in ("1", "true", "yes")
+
+    CARDLINK_API_TOKEN: str = os.getenv("CARDLINK_API_TOKEN", "")
+    CARDLINK_SHOP_ID: str = os.getenv("CARDLINK_SHOP_ID", "")
+    # SBP или BANK_CARD — пусто = клиент выбирает сам
+    CARDLINK_PAYMENT_METHOD: str = os.getenv("CARDLINK_PAYMENT_METHOD", "")
+
     UPSTASH_REDIS_REST_URL: str = os.getenv("UPSTASH_REDIS_REST_URL", "")
     UPSTASH_REDIS_REST_TOKEN: str = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 
     @property
     def use_upstash(self) -> bool:
         return bool(self.UPSTASH_REDIS_REST_URL and self.UPSTASH_REDIS_REST_TOKEN)
+
+    @property
+    def use_cardlink(self) -> bool:
+        return bool(self.CARDLINK_API_TOKEN and self.CARDLINK_SHOP_ID)
+
+    @property
+    def payments_active(self) -> bool:
+        return self.PAYMENTS_ENFORCE or self.use_cardlink
 
     @field_validator("ADMINS", mode="before")
     @classmethod

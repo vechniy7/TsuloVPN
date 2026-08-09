@@ -4,6 +4,8 @@ import json
 import re
 import urllib.parse
 
+from config import config
+
 PROTOCOL_PREFIXES = (
     "vmess://",
     "vless://",
@@ -396,11 +398,9 @@ def extract_country_flag(uri: str) -> str:
 
 
 def build_server_label(category: str, uri: str, index: int) -> str:
-    """Подпись сервера в Happ — флаг страны в начале, затем TsuloVPN."""
+    """Подпись сервера в подписке — флаг страны и номер."""
     flag = extract_country_flag(uri) or "🌐"
-    if category == "whitelist":
-        return f"{flag} TsuloVPN · Обход #{index}"
-    return f"{flag} TsuloVPN · Сервер #{index}"
+    return f"{flag} {config.BOT_NAME} · Сервер #{index}"
 
 
 def brand_config(uri: str, label: str) -> str:

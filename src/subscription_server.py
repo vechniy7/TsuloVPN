@@ -9,11 +9,14 @@ from config import config
 from config_pool import get_pool_state, get_subscription_lines
 from database import get_user_by_token
 from miniapp_routes import router as miniapp_router
+from cardlink_routes import router as cardlink_router
+from payments import is_subscription_active
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="TsuloVPN Subscription Server", docs_url=None, redoc_url=None)
 app.include_router(miniapp_router)
+app.include_router(cardlink_router)
 
 
 @app.get("/health")
@@ -22,10 +25,14 @@ async def health():
     return {
         "status": "ok",
         "source_total": pool.source_total,
+        "primary_count": pool.primary_count,
+        "fill_count": pool.fill_count,
         "subscription_count": pool.subscription_count,
+        "limit": config.SUBSCRIPTION_CONFIG_LIMIT,
         "last_refresh_at": pool.last_refresh_at,
         "is_refreshing": pool.is_refreshing,
         "source": config.CONFIG_SOURCE_URL.split("/")[-1],
+        "fill_source": config.CONFIG_FILL_SOURCE_URL.split("/")[-1],
     }
 
 
@@ -34,6 +41,9 @@ async def subscription(token: str):
     user = await get_user_by_token(token)
     if not user:
         raise HTTPException(status_code=404, detail="Subscription not found")
+
+    if config.payments_active and not user.is_admin and not is_subscription_active(user):
+        raise HTTPException(status_code=403, detail="Subscription expired")
 
     lines = get_subscription_lines()
     if not lines:

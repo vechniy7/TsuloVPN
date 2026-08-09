@@ -20,10 +20,20 @@ services:
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
       - key: SUBSCRIPTION_CONFIG_LIMIT
-        value: "35"
+        value: "45"
+      - key: CONFIG_FILL_SOURCE_URL
+        value: "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile.txt"
       - key: POOL_REFRESH_INTERVAL
         value: "300"
       - key: HAPP_ENCRYPT_SUBSCRIPTION
         value: "true"
+      - key: CARDLINK_API_TOKEN
+        sync: false
+      - key: CARDLINK_SHOP_ID
+        sync: false
+      - key: CARDLINK_PAYMENT_METHOD
+        value: SBP
+      - key: PAYMENTS_ENFORCE
+        value: "false"
       - key: PYTHON_VERSION
         value: "3.12.8"

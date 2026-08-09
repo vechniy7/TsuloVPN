@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 PREFIX = "tsulovpn"
 USERS_SET = f"{PREFIX}:users"
+ORDERS_PREFIX = f"{PREFIX}:order"
 
 _redis = None
 
@@ -23,6 +24,19 @@ class User:
     subscription_token: str
     registration_date: str
     is_admin: bool = False
+    expires_at: str | None = None
+    plan: str | None = None
+
+
+@dataclass
+class PaymentOrder:
+    order_id: str
+    telegram_id: int
+    plan_id: str
+    amount: int
+    bill_id: str | None
+    status: str
+    created_at: str
 
 
 def _user_key(telegram_id: int) -> str:
@@ -31,6 +45,14 @@ def _user_key(telegram_id: int) -> str:
 
 def _token_key(token: str) -> str:
     return f"{PREFIX}:token:{token}"
+
+
+def _order_key(order_id: str) -> str:
+    return f"{ORDERS_PREFIX}:{order_id}"
+
+
+def _bill_order_key(bill_id: str) -> str:
+    return f"{ORDERS_PREFIX}:bill:{bill_id}"
 
 
 def _new_token() -> str:
@@ -58,6 +80,8 @@ def _parse_user(raw: str | bytes | None) -> User | None:
     if isinstance(raw, bytes):
         raw = raw.decode()
     data = json.loads(raw)
+    data.setdefault("expires_at", None)
+    data.setdefault("plan", None)
     return User(**data)
 
 
@@ -89,6 +113,15 @@ async def get_user_by_token(token: str) -> User | None:
         return _parse_user(redis.get(_user_key(int(telegram_id))))
 
     return await _run(_get)
+
+
+async def save_user(user: User) -> User:
+    def _save():
+        redis = _get_redis()
+        redis.set(_user_key(user.telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+
+    await _run(_save)
+    return user
 
 
 async def create_user(
@@ -159,3 +192,53 @@ async def get_user_count() -> int:
         return int(_get_redis().scard(USERS_SET) or 0)
 
     return await _run(_count)
+
+
+def _parse_order(raw: str | bytes | None) -> PaymentOrder | None:
+    if not raw:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode()
+    return PaymentOrder(**json.loads(raw))
+
+
+async def save_payment_order(order: PaymentOrder) -> PaymentOrder:
+    def _save():
+        redis = _get_redis()
+        payload = json.dumps(asdict(order), ensure_ascii=False)
+        redis.set(_order_key(order.order_id), payload)
+        if order.bill_id:
+            redis.set(_bill_order_key(order.bill_id), order.order_id)
+
+    await _run(_save)
+    return order
+
+
+async def get_payment_order(order_id: str) -> PaymentOrder | None:
+    def _get():
+        return _parse_order(_get_redis().get(_order_key(order_id)))
+
+    return await _run(_get)
+
+
+async def get_payment_order_by_bill(bill_id: str) -> PaymentOrder | None:
+    def _get():
+        redis = _get_redis()
+        order_id = redis.get(_bill_order_key(bill_id))
+        if not order_id:
+            return None
+        if isinstance(order_id, bytes):
+            order_id = order_id.decode()
+        return _parse_order(redis.get(_order_key(order_id)))
+
+    return await _run(_get)
+
+
+async def mark_payment_order_paid(order_id: str) -> PaymentOrder | None:
+    order = await get_payment_order(order_id)
+    if not order:
+        return None
+    if order.status == "paid":
+        return order
+    order.status = "paid"
+    return await save_payment_order(order)

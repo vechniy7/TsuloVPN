@@ -21,6 +21,8 @@ CHROME_UA = (
 class PoolState:
     configs: list[str] = field(default_factory=list)
     source_total: int = 0
+    primary_count: int = 0
+    fill_count: int = 0
     subscription_count: int = 0
     last_refresh_at: float = 0.0
     last_refresh_duration: float = 0.0
@@ -51,9 +53,15 @@ def _build_lines(uris: list[str]) -> list[str]:
     return lines
 
 
-def _content_fingerprint(text: str, uris: list[str]) -> str:
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+def _content_fingerprint(primary_text: str, fill_text: str, uris: list[str]) -> str:
+    digest = hashlib.sha256((primary_text + "\n" + fill_text).encode("utf-8")).hexdigest()
     return f"{len(uris)}:{digest[:16]}"
+
+
+def _config_identity(uri: str) -> str:
+    """Identity for dedup: host:port + protocol + uuid/user without fragment."""
+    base = uri.split("#", 1)[0].strip().lower()
+    return base
 
 
 async def _get_session() -> aiohttp.ClientSession:
@@ -74,14 +82,14 @@ async def close_session() -> None:
         _session = None
 
 
-async def _fetch_source() -> tuple[str | None, list[str]]:
+async def _fetch_url(url: str) -> tuple[str | None, list[str]]:
     session = await _get_session()
     try:
-        async with session.get(config.CONFIG_SOURCE_URL, ssl=False) as resp:
+        async with session.get(url, ssl=False) as resp:
             resp.raise_for_status()
             text = await resp.text()
     except Exception as exc:
-        logger.warning("Fetch failed %s: %s", config.CONFIG_SOURCE_URL, exc)
+        logger.warning("Fetch failed %s: %s", url, exc)
         return None, []
 
     parsed = parse_subscription_lines(text)
@@ -93,10 +101,39 @@ async def _fetch_source() -> tuple[str | None, list[str]]:
     logger.info(
         "Loaded %s configs from %s (%s valid)",
         len(parsed),
-        config.CONFIG_SOURCE_URL.split("/")[-1],
+        url.split("/")[-1],
         len(uris),
     )
     return text, uris
+
+
+def _merge_up_to_limit(primary: list[str], fill: list[str], limit: int) -> tuple[list[str], int, int]:
+    """Primary first, then fill from secondary without duplicates. Cap at limit."""
+    result: list[str] = []
+    seen: set[str] = set()
+
+    for uri in primary:
+        if len(result) >= limit:
+            break
+        key = _config_identity(uri)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(uri)
+
+    primary_used = len(result)
+
+    for uri in fill:
+        if len(result) >= limit:
+            break
+        key = _config_identity(uri)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(uri)
+
+    fill_used = len(result) - primary_used
+    return result, primary_used, fill_used
 
 
 async def refresh_pool(force: bool = False) -> PoolState:
@@ -109,29 +146,49 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        logger.info("Checking config source: %s", config.CONFIG_SOURCE_URL)
+        logger.info(
+            "Checking sources: primary=%s fill=%s",
+            config.CONFIG_SOURCE_URL.split("/")[-1],
+            config.CONFIG_FILL_SOURCE_URL.split("/")[-1],
+        )
 
         try:
-            text, uris = await _fetch_source()
-            if text is None:
-                _pool.last_error = "Failed to fetch config source"
+            primary_text, primary_uris = await _fetch_url(config.CONFIG_SOURCE_URL)
+            fill_text, fill_uris = await _fetch_url(config.CONFIG_FILL_SOURCE_URL)
+
+            if primary_text is None and fill_text is None:
+                _pool.last_error = "Failed to fetch both config sources"
                 return _pool
 
-            fingerprint = _content_fingerprint(text, uris)
+            primary_text = primary_text or ""
+            fill_text = fill_text or ""
+            primary_uris = primary_uris or []
+            fill_uris = fill_uris or []
+
+            limit = config.SUBSCRIPTION_CONFIG_LIMIT
+            subscription_uris, primary_used, fill_used = _merge_up_to_limit(
+                primary_uris, fill_uris, limit
+            )
+
+            fingerprint = _content_fingerprint(primary_text, fill_text, subscription_uris)
             global _cached_lines
 
             if fingerprint == _pool.content_fingerprint and _cached_lines and not force:
-                logger.info("Config source unchanged (%s configs)", len(uris))
+                logger.info(
+                    "Config sources unchanged (%s in key: %s primary + %s fill)",
+                    len(subscription_uris),
+                    primary_used,
+                    fill_used,
+                )
                 _pool.last_refresh_at = time.time()
                 _pool.last_error = None
                 return _pool
 
-            limit = min(config.SUBSCRIPTION_CONFIG_LIMIT, len(uris))
-            subscription_uris = uris[:limit]
-
-            _pool.configs = uris
-            _pool.source_total = len(uris)
-            _pool.subscription_count = limit
+            _pool.configs = subscription_uris
+            _pool.source_total = len(primary_uris) + len(fill_uris)
+            _pool.primary_count = primary_used
+            _pool.fill_count = fill_used
+            _pool.subscription_count = len(subscription_uris)
             _pool.content_fingerprint = fingerprint
             _cached_lines = _build_lines(subscription_uris)
             _pool.last_refresh_at = time.time()
@@ -139,11 +196,21 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.last_error = None
 
             logger.info(
-                "Pool updated: %s in source, %s in user subscriptions (%.1fs)",
-                len(uris),
-                limit,
+                "Pool updated: %s in key (%s from primary, %s from fill), "
+                "sources %s+%s (%.1fs)",
+                len(subscription_uris),
+                primary_used,
+                fill_used,
+                len(primary_uris),
+                len(fill_uris),
                 _pool.last_refresh_duration,
             )
+            if len(subscription_uris) < limit:
+                logger.warning(
+                    "Subscription has only %s configs (wanted %s)",
+                    len(subscription_uris),
+                    limit,
+                )
         except Exception as exc:
             _pool.last_error = str(exc)
             logger.exception("Pool refresh failed: %s", exc)
