@@ -10,6 +10,7 @@ from config_pool import get_pool_state, get_subscription_lines
 from database import get_user_by_token
 from miniapp_routes import router as miniapp_router
 from cardlink_routes import router as cardlink_router
+from parser import brand_config
 from payments import is_subscription_active
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,25 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="TsuloVPN Subscription Server", docs_url=None, redoc_url=None)
 app.include_router(miniapp_router)
 app.include_router(cardlink_router)
+
+HAPP_BODY_DIRECTIVES = (
+    "#hide-settings: 1",
+    "#subscription-autoconnect: 1",
+    "#subscription-autoconnect-type: lowestdelay",
+    "#subscription-ping-onopen-enabled: 1",
+    "#ping-type: proxy",
+    "#subscriptions-sort-type: ping",
+)
+
+
+def _build_subscription_plain(lines: list[str]) -> str:
+    """45 working servers + leading АВТО-ВЫБОР (copy of first URI)."""
+    out_lines = list(HAPP_BODY_DIRECTIVES)
+    if lines:
+        auto_uri = brand_config(lines[0], f"⚡ {config.BOT_NAME} · АВТО-ВЫБОР")
+        out_lines.append(auto_uri)
+    out_lines.extend(lines)
+    return "\n".join(out_lines)
 
 
 @app.get("/health")
@@ -50,9 +70,10 @@ async def subscription(token: str):
         raise HTTPException(status_code=503, detail="Configs loading, try again in a minute")
 
     pool = get_pool_state()
-    plain = "#hide-settings: 1\n" + "\n".join(lines)
+    plain = _build_subscription_plain(lines)
     body = base64.b64encode(plain.encode("utf-8")).decode("ascii")
     profile_title = f"🔐 {config.BOT_NAME}"
+    served = len(lines) + 1  # + АВТО-ВЫБОР
 
     headers = {
         "Content-Type": "text/plain; charset=utf-8",
@@ -64,7 +85,12 @@ async def subscription(token: str):
         "Content-Disposition": f'inline; filename="{config.BOT_NAME}.txt"',
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "hide-settings": "1",
-        "X-TsuloVPN-Configs": str(len(lines)),
+        "subscription-autoconnect": "1",
+        "subscription-autoconnect-type": "lowestdelay",
+        "subscription-ping-onopen-enabled": "1",
+        "ping-type": "proxy",
+        "subscriptions-sort-type": "ping",
+        "X-TsuloVPN-Configs": str(served),
         "X-TsuloVPN-Source-Total": str(pool.source_total),
         "X-TsuloVPN-Updated": datetime.fromtimestamp(
             pool.last_refresh_at or time.time(),
@@ -72,5 +98,9 @@ async def subscription(token: str):
         ).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
-    logger.info("Subscription for user %s: %s configs", user.telegram_id, len(lines))
+    logger.info(
+        "Subscription for user %s: %s configs (+auto)",
+        user.telegram_id,
+        len(lines),
+    )
     return Response(content=body, media_type="text/plain", headers=headers)
