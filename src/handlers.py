@@ -351,31 +351,76 @@ async def admin_refresh_callback(callback: CallbackQuery) -> None:
     await callback.message.edit_text(text, reply_markup=builder.as_markup())
 
 
-@router.callback_query(F.data == "admin_users")
-async def admin_users_callback(callback: CallbackQuery) -> None:
-    if callback.from_user.id not in config.ADMINS:
-        await callback.answer("Доступ запрещён", show_alert=True)
+USERS_PAGE_SIZE = 20
+
+
+async def _show_admin_users(callback: CallbackQuery, page: int = 0) -> None:
+    users = await get_all_users()
+    total = len(users)
+    if total == 0:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="← Админ", callback_data="admin_menu")
+        await callback.message.edit_text(
+            "<b>Пользователи (0)</b>\n\nСписок пуст.",
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+        )
         return
 
-    await callback.answer()
-    users = await get_all_users()
-    lines = [f"<b>Пользователи ({len(users)})</b>\n"]
-    for user in users[:30]:
+    pages = max(1, (total + USERS_PAGE_SIZE - 1) // USERS_PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
+    start = page * USERS_PAGE_SIZE
+    chunk = users[start : start + USERS_PAGE_SIZE]
+
+    lines = [f"<b>Пользователи ({total})</b> · стр. {page + 1}/{pages}\n"]
+    for idx, user in enumerate(chunk, start=start + 1):
         username = f"@{user.username}" if user.username else "—"
+        access = format_access_until(user)
         lines.append(
-            f"• <code>{user.telegram_id}</code> "
-            f"{html.escape(user.full_name or '—')} ({html.escape(username)})"
+            f"{idx}. <code>{user.telegram_id}</code> "
+            f"{html.escape(user.full_name or '—')} ({html.escape(username)})\n"
+            f"    {html.escape(access)}"
         )
-    if len(users) > 30:
-        lines.append(f"\n… ещё {len(users) - 30}")
 
     builder = InlineKeyboardBuilder()
+    nav_count = 0
+    if page > 0:
+        builder.button(text="← Назад", callback_data=f"admin_users:{page - 1}")
+        nav_count += 1
+    if page < pages - 1:
+        builder.button(text="Ещё →", callback_data=f"admin_users:{page + 1}")
+        nav_count += 1
     builder.button(text="← Админ", callback_data="admin_menu")
+    if nav_count == 2:
+        builder.adjust(2, 1)
+    elif nav_count == 1:
+        builder.adjust(1, 1)
+    else:
+        builder.adjust(1)
+
     await callback.message.edit_text(
         "\n".join(lines),
         reply_markup=builder.as_markup(),
         parse_mode="HTML",
     )
+
+
+@router.callback_query(F.data == "admin_users")
+@router.callback_query(F.data.startswith("admin_users:"))
+async def admin_users_callback(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in config.ADMINS:
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+
+    page = 0
+    if callback.data and callback.data.startswith("admin_users:"):
+        try:
+            page = int(callback.data.split(":", 1)[1])
+        except ValueError:
+            page = 0
+
+    await callback.answer()
+    await _show_admin_users(callback, page)
 
 
 @router.callback_query(F.data == "back_to_menu")
