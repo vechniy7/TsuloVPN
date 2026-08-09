@@ -340,18 +340,20 @@ def speed_score(uri: str) -> int:
     # Один хост с кучей одинаковых SNI-вариантов — не бустим по fragment-стране
     if "anycast" in fragment:
         score += 15
-    if "russia" in fragment or "🇫🇮" in fragment or "estonia" in fragment:
+    if "finland" in fragment or "estonia" in fragment or "🇳🇱" in fragment:
         score += 10
 
     return score
 
 
 def rank_configs_for_speed(uris: list[str]) -> list[str]:
-    """Один лучший конфиг на host:port, затем сортировка по speed_score."""
+    """Без РФ, один лучший конфиг на host:port, сортировка по speed_score."""
     best_by_host: dict[str, tuple[int, str]] = {}
     no_host: list[tuple[int, str]] = []
 
     for uri in uris:
+        if is_russian_config(uri):
+            continue
         hostport = extract_host_port(uri)
         scored = speed_score(uri)
         if not hostport:
@@ -453,6 +455,14 @@ def extract_host_port(uri: str) -> tuple[str, int] | None:
 
 # Флаг страны в remark (Happ берёт первый emoji как иконку сервера)
 _COUNTRY_FLAG_RE = re.compile(r"[\U0001F1E6-\U0001F1FF]{2}")
+RUSSIA_FLAG = "🇷🇺"
+_RUSSIA_MARKERS = (
+    "russia",
+    "россий",
+    "россия",
+    " рф",
+    "rf ",
+)
 
 
 def extract_country_flag(uri: str) -> str:
@@ -464,9 +474,21 @@ def extract_country_flag(uri: str) -> str:
     return match.group(0) if match else ""
 
 
+def is_russian_config(uri: str) -> bool:
+    """Конфиг помечен как российский (флаг/название в remark)."""
+    fragment = get_fragment(uri)
+    if not fragment:
+        return False
+    if RUSSIA_FLAG in fragment:
+        return True
+    return any(marker in fragment for marker in _RUSSIA_MARKERS)
+
+
 def build_server_label(category: str, uri: str, index: int) -> str:
     """Подпись сервера в подписке — флаг страны и номер."""
     flag = extract_country_flag(uri) or "🌐"
+    if flag == RUSSIA_FLAG:
+        flag = "🌐"
     return f"{flag} {config.BOT_NAME} · Сервер #{index}"
 
 
