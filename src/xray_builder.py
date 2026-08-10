@@ -93,7 +93,13 @@ def _stream_settings(uri: str) -> dict:
         header_type = (params.get("headertype") or "none").lower()
         if header_type and header_type != "none":
             stream["tcpSettings"] = {"header": {"type": header_type}}
+        # xhttp / httpupgrade not always present; keep tcp clean for stable probes
 
+    # Mux breaks observatory RTT and causes flaky leastPing — always off
+    stream["sockopt"] = {
+        "tcpFastOpen": False,
+        "tcpKeepAliveInterval": 30,
+    }
     return stream
 
 
@@ -126,6 +132,7 @@ def vless_to_outbound(uri: str, tag: str) -> dict | None:
             ]
         },
         "streamSettings": _stream_settings(uri),
+        "mux": {"enabled": False, "concurrency": -1},
     }
 
 
@@ -149,6 +156,7 @@ def trojan_to_outbound(uri: str, tag: str) -> dict | None:
             ]
         },
         "streamSettings": _stream_settings(uri),
+        "mux": {"enabled": False, "concurrency": -1},
     }
 
 
@@ -194,13 +202,14 @@ def _dns_block() -> dict:
         "servers": [
             "1.1.1.1",
             "8.8.8.8",
+            "localhost",
         ],
         "queryStrategy": "UseIP",
     }
 
 
 def build_auto_select_config(uris: list[str]) -> dict | None:
-    """One selectable Happ entry: leastPing balancer + continuous health checks."""
+    """One Happ entry: Xray leastPing over all source nodes (real RTT via observatory)."""
     outbounds: list[dict] = []
     for idx, uri in enumerate(uris):
         outbound = uri_to_outbound(uri, f"{NODE_TAG_PREFIX}{idx}")
@@ -208,7 +217,6 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
             outbounds.append(outbound)
 
     if len(outbounds) < 2:
-        # Need at least 2 nodes for meaningful auto-failover
         if not outbounds and uris:
             one = uri_to_outbound(uris[0], f"{NODE_TAG_PREFIX}0")
             if one:
@@ -221,9 +229,9 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
 
     node_count = sum(1 for o in outbounds if str(o.get("tag", "")).startswith(NODE_TAG_PREFIX))
     remarks = f"⚡ {config.BOT_NAME} · АВТО-ВЫБОР"
-    desc = f"leastPing · {node_count} узлов · автопроверка"
-    # Fallback to first proxy node — never leak via "direct" if probes fail briefly
+    desc = f"leastPing · {node_count} узлов · RTT каждые 10с"
     first_node = f"{NODE_TAG_PREFIX}0"
+
     return {
         "remarks": remarks,
         "meta": {
@@ -234,7 +242,8 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
         "inbounds": _client_inbounds(),
         "outbounds": outbounds,
         "routing": {
-            "domainStrategy": "AsIs",
+            # IPIfNonMatch: resolve then route — more stable with Reality + balancer
+            "domainStrategy": "IPIfNonMatch",
             "balancers": [
                 {
                     "tag": "auto",
@@ -244,18 +253,35 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
                 }
             ],
             "rules": [
+                # Private / LAN — explicit CIDRs (no geoip file dependency in Happ)
                 {
                     "type": "field",
-                    "inboundTag": ["socks", "http"],
+                    "ip": [
+                        "0.0.0.0/8",
+                        "10.0.0.0/8",
+                        "127.0.0.0/8",
+                        "169.254.0.0/16",
+                        "172.16.0.0/12",
+                        "192.168.0.0/16",
+                        "::1/128",
+                        "fc00::/7",
+                        "fe80::/10",
+                    ],
+                    "outboundTag": "direct",
+                },
+                # Do NOT bind inboundTag — Happ may replace socks/http tags;
+                # unbound rule keeps leastPing on all client traffic.
+                {
+                    "type": "field",
                     "network": "tcp,udp",
                     "balancerTag": "auto",
-                }
+                },
             ],
         },
         "observatory": {
             "subjectSelector": [NODE_TAG_PREFIX],
             "probeUrl": PROBE_URL,
-            "probeInterval": "15s",
+            "probeInterval": "10s",
             "enableConcurrency": True,
         },
     }

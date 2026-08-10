@@ -13,6 +13,7 @@ from parser import (
     extract_host_port,
     parse_subscription_lines,
     rank_configs_for_speed,
+    speed_score,
 )
 from xray_builder import uri_to_outbound
 
@@ -130,12 +131,13 @@ def _merge_sources(
       1) WHITE-CIDR-RU-checked
       2) Mobile
       3) extras (all / SNI / verified …)
-    Keep source order — do NOT globally re-rank (that drowned whitelist in aggregators).
+    Then sort the chosen set by speed_score so node-0 is the best
+    heuristic fallback while leastPing warms up.
     Only Xray-convertible URIs (vless/trojan) enter АВТО-ВЫБОР.
     """
     result: list[str] = []
     seen: set[str] = set()
-    final_counts: dict[str, int] = {label: 0 for label, _ in ranked_by_source}
+    owner: dict[str, str] = {}
 
     for label, uris in ranked_by_source:
         for uri in uris:
@@ -148,9 +150,18 @@ def _merge_sources(
                 continue
             seen.add(key)
             result.append(uri)
-            final_counts[label] += 1
+            owner[key] = label
         if len(result) >= limit:
             break
+
+    # Best-first order for fallbackTag node-0 (do not re-dedupe — keep full pool)
+    result.sort(key=speed_score, reverse=True)
+
+    final_counts: dict[str, int] = {label: 0 for label, _ in ranked_by_source}
+    for uri in result:
+        label = owner.get(_config_identity(uri))
+        if label:
+            final_counts[label] += 1
 
     return result, final_counts
 
