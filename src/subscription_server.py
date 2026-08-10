@@ -22,11 +22,10 @@ app.include_router(cardlink_router)
 # Happ app-management headers (JSON subscriptions use headers, not # body comments)
 HAPP_HEADERS = {
     "hide-settings": "1",
-    "subscription-autoconnect": "1",
-    "subscription-autoconnect-type": "lowestdelay",
-    "subscription-ping-onopen-enabled": "1",
+    # Don't force reconnect/ping storms on every open — causes random drops
+    "subscription-autoconnect": "0",
+    "subscription-ping-onopen-enabled": "0",
     "ping-type": "tcp",
-    "subscriptions-sort-type": "ping",
     "check-url-via-proxy": "https://www.gstatic.com/generate_204",
     "fragmentation-enable": "0",
 }
@@ -36,7 +35,7 @@ def _source_name(url: str) -> str:
     return url.rstrip("/").split("/")[-1] or url
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     pool = get_pool_state()
     sources = config.config_source_urls()
@@ -81,13 +80,13 @@ async def subscription(token: str):
 
     headers = {
         "Content-Type": "application/json; charset=utf-8",
-        "Profile-Update-Interval": "1",
+        "Profile-Update-Interval": "6",
         "Profile-Title": f"base64:{base64.b64encode(profile_title.encode()).decode()}",
         "Subscription-Userinfo": (
             f"upload=0; download=0; total=0; expire={int(time.time()) + 31536000}"
         ),
         "Content-Disposition": f'inline; filename="{config.BOT_NAME}.json"',
-        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Cache-Control": "private, max-age=300",
         **HAPP_HEADERS,
         "X-TsuloVPN-Configs": str(len(entries)),
         "X-TsuloVPN-Nodes": str(len(lines)),

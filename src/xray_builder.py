@@ -229,7 +229,7 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
 
     node_count = sum(1 for o in outbounds if str(o.get("tag", "")).startswith(NODE_TAG_PREFIX))
     remarks = f"⚡ {config.BOT_NAME} · АВТО-ВЫБОР"
-    desc = f"leastPing · {node_count} узлов · RTT каждые 10с"
+    desc = f"leastPing · {node_count} узлов · стабильный RTT"
     first_node = f"{NODE_TAG_PREFIX}0"
 
     return {
@@ -242,18 +242,17 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
         "inbounds": _client_inbounds(),
         "outbounds": outbounds,
         "routing": {
-            # IPIfNonMatch: resolve then route — more stable with Reality + balancer
             "domainStrategy": "IPIfNonMatch",
             "balancers": [
                 {
                     "tag": "auto",
                     "selector": [NODE_TAG_PREFIX],
                     "fallbackTag": first_node,
+                    # leastPing = lowest delay; long probe interval avoids flapping/disconnects
                     "strategy": {"type": "leastPing"},
                 }
             ],
             "rules": [
-                # Private / LAN — explicit CIDRs (no geoip file dependency in Happ)
                 {
                     "type": "field",
                     "ip": [
@@ -269,8 +268,6 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
                     ],
                     "outboundTag": "direct",
                 },
-                # Do NOT bind inboundTag — Happ may replace socks/http tags;
-                # unbound rule keeps leastPing on all client traffic.
                 {
                     "type": "field",
                     "network": "tcp,udp",
@@ -278,10 +275,12 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
                 },
             ],
         },
+        # 120 concurrent probes every 10s thrash mobile stacks and drop the tunnel.
+        # Probe less often; still pick the lowest RTT when results refresh.
         "observatory": {
             "subjectSelector": [NODE_TAG_PREFIX],
             "probeUrl": PROBE_URL,
-            "probeInterval": "10s",
+            "probeInterval": "45s",
             "enableConcurrency": True,
         },
     }
