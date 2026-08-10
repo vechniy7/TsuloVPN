@@ -1,0 +1,31 @@
+# Держит Render Free web service «тёплым»: пинг /health чаще, чем idle 15 мин.
+# Лимит Render Free: ~750 часов/мес ≈ хватает на 1 сервис 24/7.
+name: Keep Render awake
+
+on:
+  schedule:
+    # каждые 10 минут (UTC)
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping /health
+        env:
+          # Переопределите в Settings → Secrets → APP_URL при другом домене
+          APP_URL: ${{ vars.APP_URL || 'https://tsulovpn.onrender.com' }}
+        run: |
+          set -e
+          URL="${APP_URL%/}/health"
+          echo "GET $URL"
+          code=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 90 "$URL" || true)
+          echo "HTTP $code"
+          head -c 500 /tmp/health.json || true
+          echo
+          if [ "$code" != "200" ]; then
+            echo "Keep-alive ping failed (cold start or downtime). Will retry next run."
+            exit 0
+          fi
