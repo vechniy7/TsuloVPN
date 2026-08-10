@@ -24,7 +24,8 @@ HAPP_HEADERS = {
     "subscription-autoconnect": "0",
     "subscription-ping-onopen-enabled": "0",
     "ping-type": "tcp",
-    "check-url-via-proxy": "https://www.gstatic.com/generate_204",
+    # Happ UI check через тот же путь, что LTE leastPing (YouTube 204)
+    "check-url-via-proxy": "https://www.youtube.com/generate_204",
     "fragmentation-enable": "0",
 }
 
@@ -43,7 +44,11 @@ async def health():
         "wifi_sources": pool.wifi_source_counts,
         "lte_sources": pool.lte_source_counts,
         "limit_per_profile": config.SUBSCRIPTION_CONFIG_LIMIT,
+        "lte_limit": config.LTE_CONFIG_LIMIT,
+        "wifi_probe": config.WIFI_PROBE_URL,
+        "lte_probe": config.LTE_PROBE_URL,
         "probe_interval_sec": config.AUTO_PROBE_INTERVAL_SEC,
+        "lte_probe_interval_sec": config.LTE_PROBE_INTERVAL_SEC,
         "last_refresh_at": pool.last_refresh_at,
         "is_refreshing": pool.is_refreshing,
         "last_error": pool.last_error,

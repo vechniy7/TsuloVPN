@@ -11,6 +11,8 @@ from parser import (
     brand_config,
     build_server_label,
     extract_host_port,
+    is_lte_fast_candidate,
+    lte_speed_score,
     parse_subscription_lines,
     rank_configs_for_speed,
     speed_score,
@@ -137,31 +139,54 @@ async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
 def _prepare_pool(
     ranked_by_source: list[tuple[str, list[str]]],
     limit: int,
+    *,
+    mode: str = "wifi",
 ) -> tuple[list[str], dict[str, int]]:
     """
     Ranked sources already exclude РФ labels.
-    Keep only Xray-convertible (vless/trojan), dedupe, cap, sort by speed_score.
+    Keep only Xray-convertible (vless/trojan), dedupe, cap, sort.
+    LTE: prefer TCP/Reality first, then fill remaining slots for probe diversity.
     """
     result: list[str] = []
     seen: set[str] = set()
     owner: dict[str, str] = {}
+    score_fn = lte_speed_score if mode == "lte" else speed_score
 
+    def _append(label: str, uri: str) -> bool:
+        if len(result) >= limit:
+            return False
+        if not uri_to_outbound(uri, "probe"):
+            return False
+        key = _config_identity(uri)
+        if key in seen:
+            return False
+        seen.add(key)
+        result.append(uri)
+        owner[key] = label
+        return True
+
+    # Pass 1 — preferred candidates
     for label, uris in ranked_by_source:
         for uri in uris:
             if len(result) >= limit:
                 break
-            if not uri_to_outbound(uri, "probe"):
+            if mode == "lte" and not is_lte_fast_candidate(uri):
                 continue
-            key = _config_identity(uri)
-            if key in seen:
-                continue
-            seen.add(key)
-            result.append(uri)
-            owner[key] = label
+            _append(label, uri)
         if len(result) >= limit:
             break
 
-    result.sort(key=speed_score, reverse=True)
+    # Pass 2 (LTE only) — fill so leastPing has enough YouTube RTT samples
+    if mode == "lte" and len(result) < limit:
+        for label, uris in ranked_by_source:
+            for uri in uris:
+                if len(result) >= limit:
+                    break
+                _append(label, uri)
+            if len(result) >= limit:
+                break
+
+    result.sort(key=score_fn, reverse=True)
 
     counts: dict[str, int] = {label: 0 for label, _ in ranked_by_source}
     for uri in result:
@@ -225,8 +250,9 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 total_raw += len(ranked)
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
-            wifi_uris, wifi_counts = _prepare_pool(wifi_ranked, limit)
-            lte_uris, lte_counts = _prepare_pool(lte_ranked, limit)
+            lte_limit = config.LTE_CONFIG_LIMIT
+            wifi_uris, wifi_counts = _prepare_pool(wifi_ranked, limit, mode="wifi")
+            lte_uris, lte_counts = _prepare_pool(lte_ranked, lte_limit, mode="lte")
 
             fingerprint = _content_fingerprint(texts, wifi_uris, lte_uris)
             global _cached_wifi_lines, _cached_lte_lines

@@ -228,10 +228,12 @@ def build_auto_select_config(
     remarks: str,
     node_prefix: str,
     description: str,
+    probe_url: str | None = None,
+    probe_interval_sec: int | None = None,
 ) -> dict | None:
     """
     One Happ profile: Xray observatory + leastPing over all nodes.
-    Unique node_prefix per profile so WIFI/LTE never share tags.
+    probe_url is fetched BY THE CLIENT through each outbound (real RTT path).
     """
     outbounds: list[dict] = []
     for idx, uri in enumerate(uris):
@@ -241,6 +243,9 @@ def build_auto_select_config(
 
     if not outbounds:
         return None
+
+    probe = (probe_url or PROBE_URL).strip() or PROBE_URL
+    probe_sec = max(10, int(probe_interval_sec or config.AUTO_PROBE_INTERVAL_SEC))
 
     # Single node: still a valid profile (no balancer needed)
     if len(outbounds) == 1:
@@ -275,15 +280,15 @@ def build_auto_select_config(
     outbounds.append({"tag": "block", "protocol": "blackhole", "settings": {}})
 
     node_count = sum(1 for o in outbounds if str(o.get("tag", "")).startswith(node_prefix))
-    probe_sec = max(10, int(config.AUTO_PROBE_INTERVAL_SEC))
     first_node = f"{node_prefix}0"
     balancer_tag = f"bal-{node_prefix.rstrip('-')}"
+    host_hint = probe.replace("https://", "").replace("http://", "").split("/", 1)[0]
 
     return {
         "remarks": remarks,
         "meta": {
             "serverDescription": base64.b64encode(
-                f"{description} · leastPing · {node_count} · {probe_sec}с".encode()
+                f"{description} · leastPing→{host_hint} · {node_count} · {probe_sec}с".encode()
             ).decode()
         },
         "log": {"loglevel": "warning"},
@@ -291,7 +296,6 @@ def build_auto_select_config(
         "inbounds": _client_inbounds(),
         "outbounds": outbounds,
         "routing": {
-            # AsIs: avoid DNS blackholes that look like "no internet"
             "domainStrategy": "AsIs",
             "balancers": [
                 {
@@ -303,7 +307,6 @@ def build_auto_select_config(
             ],
             "rules": [
                 _private_direct_rule(),
-                # No inboundTag — Happ may replace socks/http
                 {
                     "type": "field",
                     "network": "tcp,udp",
@@ -313,7 +316,7 @@ def build_auto_select_config(
         },
         "observatory": {
             "subjectSelector": [node_prefix],
-            "probeUrl": PROBE_URL,
+            "probeUrl": probe,
             "probeInterval": f"{probe_sec}s",
             "enableConcurrency": True,
         },
@@ -367,6 +370,8 @@ def build_subscription_json(
         remarks=f"📶 {config.BOT_NAME} · АВТО WIFI",
         node_prefix="wifi-",
         description="Wi‑Fi · чёрные списки",
+        probe_url=config.WIFI_PROBE_URL,
+        probe_interval_sec=config.AUTO_PROBE_INTERVAL_SEC,
     )
     if wifi:
         entries.append(wifi)
@@ -375,7 +380,9 @@ def build_subscription_json(
         lte_uris,
         remarks=f"📱 {config.BOT_NAME} · АВТО LTE",
         node_prefix="lte-",
-        description="LTE · белые списки CIDR/SNI",
+        description="LTE · обход · RTT YouTube",
+        probe_url=config.LTE_PROBE_URL,
+        probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
     )
     if lte:
         entries.append(lte)

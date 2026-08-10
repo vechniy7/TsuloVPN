@@ -358,6 +358,50 @@ def speed_score(uri: str) -> int:
     return score
 
 
+def is_lte_fast_candidate(uri: str) -> bool:
+    """
+    LTE АВТО: только стабильные быстрые транспорты.
+    gRPC/WS/xhttp часто дают «живой» пинг, но мизерный throughput до YouTube.
+    """
+    transport = get_transport(uri)
+    if transport in ("grpc", "ws", "xhttp", "h2", "httpupgrade", "splithttp"):
+        return False
+    if transport not in ("tcp", "raw", ""):
+        return False
+    security = get_security(uri)
+    if security not in ("reality", "tls"):
+        return False
+    # Нужен рабочий Reality/TLS endpoint
+    if security == "reality" and not (_query_params(uri).get("pbk") or "").strip():
+        return False
+    return True
+
+
+def lte_speed_score(uri: str) -> int:
+    """Эвристика «быстрее до YouTube/Instagram» для обхода LTE."""
+    score = speed_score(uri)
+    uri_l = uri.lower()
+    transport = get_transport(uri)
+    security = get_security(uri)
+    sni = (get_sni(uri) or "").lower()
+    hostport = extract_host_port(uri)
+
+    if "flow=xtls-rprx-vision" in uri_l and transport in ("tcp", "raw", ""):
+        score += 80
+    if security == "reality" and transport in ("tcp", "raw", ""):
+        score += 40
+    if hostport and hostport[1] == 443:
+        score += 30
+
+    # RU CDN SNI обычно лучше проходит мобильный БС к зарубежным сервисам
+    if is_ru_whitelist_sni(sni):
+        score += 50
+    if any(x in sni for x in ("vk.com", "vkvideo", "yandex", "mail.ru", "okcdn", "mycdn")):
+        score += 40
+
+    return score
+
+
 def rank_configs_for_speed(uris: list[str]) -> list[str]:
     """Без РФ, один лучший конфиг на host:port, сортировка по speed_score."""
     best_by_host: dict[str, tuple[int, str]] = {}

@@ -22,22 +22,38 @@ class Config(BaseModel):
         "WIFI_SOURCE_URLS",
         f"{IGARECK_RAW}/BLACK_VLESS_RUS_mobile.txt",
     )
-    # АВТО LTE — белые списки (мобильный интернет / CIDR+SNI)
+    # АВТО LTE — белые списки (мобильный / обход). Mobile white — доп. качественные узлы.
     LTE_SOURCE_URLS: str = os.getenv(
         "LTE_SOURCE_URLS",
-        f"{IGARECK_RAW}/WHITE-CIDR-RU-all.txt,{IGARECK_RAW}/WHITE-SNI-RU-all.txt",
+        (
+            f"{IGARECK_RAW}/WHITE-CIDR-RU-all.txt,"
+            f"{IGARECK_RAW}/WHITE-SNI-RU-all.txt,"
+            f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile.txt"
+        ),
     )
 
-    # Сколько узлов внутри КАЖДОГО АВТО-профиля (точность leastPing)
+    # Сколько узлов внутри WIFI-профиля
     SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "40"))
+    # LTE: меньше узлов = точнее YouTube-RTT (leastPing)
+    LTE_CONFIG_LIMIT: int = int(os.getenv("LTE_CONFIG_LIMIT", "24"))
     SUBSCRIPTION_SHOW_INDIVIDUAL: bool = os.getenv(
         "SUBSCRIPTION_SHOW_INDIVIDUAL", "false"
     ).lower() in ("1", "true", "yes")
 
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "300"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
-    # RTT-пробы на клиенте; при реконнекте Happ снова прогревает leastPing
     AUTO_PROBE_INTERVAL_SEC: int = int(os.getenv("AUTO_PROBE_INTERVAL_SEC", "12"))
+    # Клиент меряет RTT через прокси до этих URL (не с сервера Render)
+    WIFI_PROBE_URL: str = os.getenv(
+        "WIFI_PROBE_URL",
+        "https://www.gstatic.com/generate_204",
+    )
+    # YouTube 204 — ближе к реальной «скорости соцсетей/видео» на LTE
+    LTE_PROBE_URL: str = os.getenv(
+        "LTE_PROBE_URL",
+        "https://www.youtube.com/generate_204",
+    )
+    LTE_PROBE_INTERVAL_SEC: int = int(os.getenv("LTE_PROBE_INTERVAL_SEC", "10"))
 
     HAPP_ENCRYPT_SUBSCRIPTION: bool = os.getenv("HAPP_ENCRYPT_SUBSCRIPTION", "true").lower() in (
         "1",
