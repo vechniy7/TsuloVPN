@@ -31,8 +31,8 @@ class Config(BaseModel):
     # Полный список через запятую перекрывает URL выше
     CONFIG_SOURCE_URLS: str = os.getenv("CONFIG_SOURCE_URLS", "")
 
-    # Сколько узлов внутри «АВТО-ВЫБОР» (клиент видит только 1 профиль)
-    SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "120"))
+    # Сколько узлов внутри «АВТО-ВЫБОР» (меньше = точнее RTT на мобильном)
+    SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "48"))
     # Показывать ли отдельные серверы в ключе (по умолчанию только АВТО)
     SUBSCRIPTION_SHOW_INDIVIDUAL: bool = os.getenv(
         "SUBSCRIPTION_SHOW_INDIVIDUAL", "false"
@@ -41,6 +41,8 @@ class Config(BaseModel):
     # Как часто проверять обновления на GitHub (секунды)
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "300"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
+    # Интервал RTT-проб на клиенте (секунды) — быстрее ловит смену Wi‑Fi→LTE
+    AUTO_PROBE_INTERVAL_SEC: int = int(os.getenv("AUTO_PROBE_INTERVAL_SEC", "18"))
 
     # Шифровать ссылку подписки через Happ API (happ://crypt5/...)
     HAPP_ENCRYPT_SUBSCRIPTION: bool = os.getenv("HAPP_ENCRYPT_SUBSCRIPTION", "true").lower() in (

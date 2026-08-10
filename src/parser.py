@@ -309,39 +309,51 @@ def speed_score(uri: str) -> int:
     hostport = extract_host_port(uri)
     fragment = get_fragment(uri)
 
-    # Hysteria2 обычно даёт лучший throughput
+    # Hysteria2 обычно даёт лучший throughput (в АВТО пока не конвертим)
     if uri_l.startswith(("hysteria2://", "hy2://")):
         score += 120
 
-    # Vision + TCP Reality — лучший баланс скорости и совместимости
+    # Vision + TCP Reality — лучший баланс скорости на мобильном БС
     if "flow=xtls-rprx-vision" in uri_l and transport in ("tcp", "raw", ""):
-        score += 90
+        score += 120
+    elif transport in ("tcp", "raw", "") and security == "reality":
+        score += 70
     elif transport in ("tcp", "raw", ""):
-        score += 40
+        score += 35
 
-    # gRPC/WS чаще медленнее для обычного трафика
+    # gRPC/WS чаще медленнее и нестабильнее при смене сети
     if transport == "grpc":
-        score -= 35
+        score -= 50
     if transport == "ws":
-        score -= 20
+        score -= 35
+    if transport == "xhttp":
+        score -= 25
 
     if security == "reality":
-        score += 25
+        score += 30
 
     if hostport:
         port = hostport[1]
         if port == 443:
-            score += 20
+            score += 25
         elif port in (8443, 7443, 5443):
             score += 10
         elif port == 80:
-            score -= 40
+            score -= 50
 
-    # Один хост с кучей одинаковых SNI-вариантов — не бустим по fragment-стране
+    # Метки мобильного CIDR / white-list из источников igareck
+    if "*cidr*" in fragment or "[*cidr*]" in fragment:
+        score += 60
+    if "white" in fragment and "list" in fragment:
+        score += 40
+    if "mobile" in fragment or "телефон" in fragment:
+        score += 35
+
     if "anycast" in fragment:
         score += 15
-    if "finland" in fragment or "estonia" in fragment or "🇳🇱" in fragment:
-        score += 10
+    # Не бустим по «стране в названии» — это не скорость
+    if "finland" in fragment or "estonia" in fragment:
+        score += 5
 
     return score
 

@@ -229,7 +229,8 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
 
     node_count = sum(1 for o in outbounds if str(o.get("tag", "")).startswith(NODE_TAG_PREFIX))
     remarks = f"⚡ {config.BOT_NAME} · АВТО-ВЫБОР"
-    desc = f"leastPing · {node_count} узлов · стабильный RTT"
+    probe_sec = max(10, int(config.AUTO_PROBE_INTERVAL_SEC))
+    desc = f"leastPing · {node_count} WHITE-узлов · RTT {probe_sec}с"
     first_node = f"{NODE_TAG_PREFIX}0"
 
     return {
@@ -248,7 +249,6 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
                     "tag": "auto",
                     "selector": [NODE_TAG_PREFIX],
                     "fallbackTag": first_node,
-                    # leastPing = lowest delay; long probe interval avoids flapping/disconnects
                     "strategy": {"type": "leastPing"},
                 }
             ],
@@ -275,12 +275,12 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
                 },
             ],
         },
-        # 120 concurrent probes every 10s thrash mobile stacks and drop the tunnel.
-        # Probe less often; still pick the lowest RTT when results refresh.
+        # Компактный WHITE-пул + частый RTT: быстро переключается Wi‑Fi→LTE
+        # на реально самый низкий пинг, без 120-node probe storm.
         "observatory": {
             "subjectSelector": [NODE_TAG_PREFIX],
             "probeUrl": PROBE_URL,
-            "probeInterval": "45s",
+            "probeInterval": f"{probe_sec}s",
             "enableConcurrency": True,
         },
     }

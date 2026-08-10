@@ -122,39 +122,77 @@ async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
     return label, text, uris
 
 
+def _is_whitelist_source(label: str) -> bool:
+    """igareck WHITE / Mobile CIDR sources — best for RU mobile networks."""
+    name = label.lower()
+    return any(
+        key in name
+        for key in (
+            "white-cidr",
+            "white-sni",
+            "white-lists",
+            "rus-mobile",
+            "whitelist",
+        )
+    )
+
+
 def _merge_sources(
     ranked_by_source: list[tuple[str, list[str]]],
     limit: int,
 ) -> tuple[list[str], dict[str, int]]:
     """
-    Priority fill up to limit:
-      1) WHITE-CIDR-RU-checked
-      2) Mobile
-      3) extras (all / SNI / verified …)
-    Then sort the chosen set by speed_score so node-0 is the best
-    heuristic fallback while leastPing warms up.
-    Only Xray-convertible URIs (vless/trojan) enter АВТО-ВЫБОР.
+    Priority:
+      1) Take ALL usable WHITE/Mobile nodes first (checked → mobile → all → sni)
+      2) Fill remaining slots with best aggregator nodes (by speed_score)
+    RF-labeled configs are already excluded in rank_configs_for_speed.
     """
     result: list[str] = []
     seen: set[str] = set()
     owner: dict[str, str] = {}
 
-    for label, uris in ranked_by_source:
+    whitelist = [(l, u) for l, u in ranked_by_source if _is_whitelist_source(l)]
+    aggregators = [(l, u) for l, u in ranked_by_source if not _is_whitelist_source(l)]
+
+    def _append(label: str, uri: str) -> bool:
+        if len(result) >= limit:
+            return False
+        if not uri_to_outbound(uri, "probe"):
+            return False
+        key = _config_identity(uri)
+        if key in seen:
+            return False
+        seen.add(key)
+        result.append(uri)
+        owner[key] = label
+        return True
+
+    # Phase 1 — whitelist / mobile CIDR (best for cellular BS)
+    for label, uris in whitelist:
         for uri in uris:
             if len(result) >= limit:
                 break
-            if not uri_to_outbound(uri, "probe"):
-                continue
-            key = _config_identity(uri)
-            if key in seen:
-                continue
-            seen.add(key)
-            result.append(uri)
-            owner[key] = label
+            _append(label, uri)
         if len(result) >= limit:
             break
 
-    # Best-first order for fallbackTag node-0 (do not re-dedupe — keep full pool)
+    # Phase 2 — best aggregators to fill the probe set (still no RF labels)
+    if len(result) < limit:
+        candidates: list[tuple[int, str, str]] = []
+        for label, uris in aggregators:
+            for uri in uris:
+                if not uri_to_outbound(uri, "probe"):
+                    continue
+                key = _config_identity(uri)
+                if key in seen:
+                    continue
+                candidates.append((speed_score(uri), label, uri))
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        for _score, label, uri in candidates:
+            if len(result) >= limit:
+                break
+            _append(label, uri)
+
     result.sort(key=speed_score, reverse=True)
 
     final_counts: dict[str, int] = {label: 0 for label, _ in ranked_by_source}
