@@ -32,21 +32,28 @@ HAPP_HEADERS = {
 }
 
 
+def _source_name(url: str) -> str:
+    return url.rstrip("/").split("/")[-1] or url
+
+
 @app.get("/health")
 async def health():
     pool = get_pool_state()
+    sources = config.config_source_urls()
     return {
         "status": "ok",
         "source_total": pool.source_total,
         "primary_count": pool.primary_count,
         "fill_count": pool.fill_count,
+        "source_counts": pool.source_counts,
         "subscription_count": pool.subscription_count,
         "limit": config.SUBSCRIPTION_CONFIG_LIMIT,
+        "show_individual": False,
         "last_refresh_at": pool.last_refresh_at,
         "is_refreshing": pool.is_refreshing,
-        "source": config.CONFIG_SOURCE_URL.split("/")[-1],
-        "fill_source": config.CONFIG_FILL_SOURCE_URL.split("/")[-1],
+        "sources": [_source_name(u) for u in sources],
         "auto_select": "xray-leastPing",
+        "visible_profiles": 1,
     }
 
 
@@ -64,11 +71,12 @@ async def subscription(token: str):
         raise HTTPException(status_code=503, detail="Configs loading, try again in a minute")
 
     pool = get_pool_state()
-    entries = build_subscription_json(lines)
+    # Always hide individual servers for clients — only АВТО-ВЫБОР
+    entries = build_subscription_json(lines, show_individual=False)
     if not entries:
         raise HTTPException(status_code=503, detail="No valid configs for subscription")
 
-    body = subscription_json_bytes(lines)
+    body = subscription_json_bytes(lines, show_individual=False)
     profile_title = f"🔐 {config.BOT_NAME}"
 
     headers = {
@@ -91,7 +99,7 @@ async def subscription(token: str):
     }
 
     logger.info(
-        "JSON subscription for user %s: %s entries (%s nodes, auto=%s)",
+        "JSON subscription for user %s: %s visible, %s nodes in АВТО (%s)",
         user.telegram_id,
         len(entries),
         len(lines),

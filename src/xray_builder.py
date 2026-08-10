@@ -219,13 +219,15 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
     outbounds.append({"tag": "direct", "protocol": "freedom", "settings": {}})
     outbounds.append({"tag": "block", "protocol": "blackhole", "settings": {}})
 
+    node_count = sum(1 for o in outbounds if str(o.get("tag", "")).startswith(NODE_TAG_PREFIX))
     remarks = f"⚡ {config.BOT_NAME} · АВТО-ВЫБОР"
+    desc = f"leastPing · {node_count} узлов · автопроверка"
+    # Fallback to first proxy node — never leak via "direct" if probes fail briefly
+    first_node = f"{NODE_TAG_PREFIX}0"
     return {
         "remarks": remarks,
         "meta": {
-            "serverDescription": base64.b64encode(
-                "leastPing · автопереключение".encode()
-            ).decode()
+            "serverDescription": base64.b64encode(desc.encode()).decode()
         },
         "log": {"loglevel": "warning"},
         "dns": _dns_block(),
@@ -237,13 +239,14 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
                 {
                     "tag": "auto",
                     "selector": [NODE_TAG_PREFIX],
-                    "fallbackTag": "direct",
+                    "fallbackTag": first_node,
                     "strategy": {"type": "leastPing"},
                 }
             ],
             "rules": [
                 {
                     "type": "field",
+                    "inboundTag": ["socks", "http"],
                     "network": "tcp,udp",
                     "balancerTag": "auto",
                 }
@@ -252,7 +255,7 @@ def build_auto_select_config(uris: list[str]) -> dict | None:
         "observatory": {
             "subjectSelector": [NODE_TAG_PREFIX],
             "probeUrl": PROBE_URL,
-            "probeInterval": "20s",
+            "probeInterval": "15s",
             "enableConcurrency": True,
         },
     }
@@ -288,22 +291,29 @@ def build_single_server_config(uri: str, index: int) -> dict | None:
     }
 
 
-def build_subscription_json(uris: list[str]) -> list[dict]:
-    """Happ JSON-array subscription: АВТО-ВЫБОР first, then manual servers."""
+def build_subscription_json(uris: list[str], *, show_individual: bool | None = None) -> list[dict]:
+    """Happ JSON: only АВТО-ВЫБОР by default (probes all uris inside)."""
+    if show_individual is None:
+        show_individual = config.SUBSCRIPTION_SHOW_INDIVIDUAL
+
     entries: list[dict] = []
     auto = build_auto_select_config(uris)
     if auto:
         entries.append(auto)
 
-    for idx, uri in enumerate(uris, start=1):
-        single = build_single_server_config(uri, idx)
-        if single:
-            entries.append(single)
+    # Individual servers are opt-in only — client must see a single profile.
+    if show_individual:
+        for idx, uri in enumerate(uris, start=1):
+            single = build_single_server_config(uri, idx)
+            if single:
+                entries.append(single)
 
     return entries
 
 
-def subscription_json_bytes(uris: list[str]) -> bytes:
-    return json.dumps(build_subscription_json(uris), ensure_ascii=False, separators=(",", ":")).encode(
-        "utf-8"
-    )
+def subscription_json_bytes(uris: list[str], *, show_individual: bool | None = None) -> bytes:
+    return json.dumps(
+        build_subscription_json(uris, show_individual=show_individual),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")

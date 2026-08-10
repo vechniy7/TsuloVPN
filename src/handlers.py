@@ -263,6 +263,9 @@ async def admin_menu_callback(callback: CallbackQuery) -> None:
     await callback.answer()
     pool = get_pool_state()
     total_users = await get_user_count()
+    sources_line = ", ".join(
+        f"{name.split('.')[0][:18]}={n}" for name, n in pool.source_counts.items()
+    )
     await callback.message.edit_text(
         ui.screen_admin(
             users=total_users,
@@ -270,6 +273,8 @@ async def admin_menu_callback(callback: CallbackQuery) -> None:
             limit=config.SUBSCRIPTION_CONFIG_LIMIT,
             primary=pool.primary_count,
             fill=pool.fill_count,
+            source_total=pool.source_total,
+            sources_line=sources_line,
         ),
         reply_markup=ui.kb_admin(),
         parse_mode="HTML",
@@ -285,12 +290,17 @@ async def admin_refresh_callback(callback: CallbackQuery) -> None:
     await callback.message.edit_text("Обновление данных…")
     await refresh_pool(force=True)
     pool = get_pool_state()
+    sources_line = ", ".join(
+        f"{name.split('.')[0][:18]}={n}" for name, n in pool.source_counts.items()
+    )
     await callback.message.edit_text(
         ui.screen_admin_refresh(
             sub_count=pool.subscription_count,
             limit=config.SUBSCRIPTION_CONFIG_LIMIT,
             primary=pool.primary_count,
             fill=pool.fill_count,
+            source_total=pool.source_total,
+            sources_line=sources_line,
         ),
         reply_markup=ui.kb_admin_back(),
         parse_mode="HTML",

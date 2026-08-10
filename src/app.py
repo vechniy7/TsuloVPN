@@ -64,7 +64,7 @@ async def main() -> None:
     asyncio.create_task(run_subscription_server())
 
     logger.info(
-        "%s started (Upstash, %s configs per key%s)",
+        "%s started (Upstash, АВТО-пул до %s узлов%s)",
         config.BOT_NAME,
         config.SUBSCRIPTION_CONFIG_LIMIT,
         ", Cardlink ON" if config.use_cardlink else "",

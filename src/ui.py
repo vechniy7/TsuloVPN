@@ -229,8 +229,8 @@ def screen_access(user: User, import_url: str) -> str:
         f"1. Скопируйте ссылку (тап по тексту)\n"
         f"2. Вставьте в приложение-клиент\n"
         f"3. Включите автообновление\n\n"
-        f"В списке серверов выберите <b>АВТО-ВЫБОР</b> — "
-        f"клиент сам возьмёт узел с лучшим пингом."
+        f"В приложении будет один профиль <b>АВТО-ВЫБОР</b> — "
+        f"он сам проверяет узлы и держит самый быстрый."
     )
 
 
@@ -298,30 +298,52 @@ def screen_help() -> str:
         f"<b>3.</b> Включите автообновление\n"
         f"{DIV}\n\n"
         f"<b>АВТО-ВЫБОР</b>\n"
-        f"Умный сервер: сам выбирает узел\n"
-        f"с наименьшим пингом и переключается,\n"
-        f"если связь слабеет.\n\n"
+        f"Один профиль в приложении: сам проверяет\n"
+        f"узлы из всех источников и держит\n"
+        f"самый быстрый, переключаясь при сбое.\n\n"
         f"Нужна помощь — напишите администратору."
     )
 
 
-def screen_admin(*, users: int, sub_count: int, limit: int, primary: int, fill: int) -> str:
+def screen_admin(
+    *,
+    users: int,
+    sub_count: int,
+    limit: int,
+    primary: int,
+    fill: int,
+    source_total: int = 0,
+    sources_line: str = "",
+) -> str:
+    sources = f"\nИсточники · {_esc(sources_line)}" if sources_line else ""
     return (
         f"<b>Админ</b>\n\n"
         f"{DIV}\n"
         f"Пользователей · <b>{users}</b>\n"
-        f"В ключе · <b>{sub_count}</b> / {limit}\n"
-        f"Основной · {primary} · доп. · {fill}\n"
+        f"АВТО-пул · <b>{sub_count}</b> / {limit}\n"
+        f"Уникальных с источников · {source_total}\n"
+        f"Разбивка · {primary} + {fill}{sources}\n"
+        f"В Happ видно · только АВТО-ВЫБОР\n"
         f"{DIV}"
     )
 
 
-def screen_admin_refresh(*, sub_count: int, limit: int, primary: int, fill: int) -> str:
+def screen_admin_refresh(
+    *,
+    sub_count: int,
+    limit: int,
+    primary: int,
+    fill: int,
+    source_total: int = 0,
+    sources_line: str = "",
+) -> str:
+    sources = f"\nИсточники · {_esc(sources_line)}" if sources_line else ""
     return (
         f"<b>Данные обновлены</b>\n\n"
         f"{DIV}\n"
-        f"В ключе · <b>{sub_count}</b> / {limit}\n"
-        f"Основной · {primary} · доп. · {fill}\n"
+        f"АВТО-пул · <b>{sub_count}</b> / {limit}\n"
+        f"Уникальных с источников · {source_total}\n"
+        f"Разбивка · {primary} + {fill}{sources}\n"
         f"{DIV}"
     )
 

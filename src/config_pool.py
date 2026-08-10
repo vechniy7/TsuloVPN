@@ -14,6 +14,7 @@ from parser import (
     parse_subscription_lines,
     rank_configs_for_speed,
 )
+from xray_builder import uri_to_outbound
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class PoolState:
     source_total: int = 0
     primary_count: int = 0
     fill_count: int = 0
+    source_counts: dict[str, int] = field(default_factory=dict)
     subscription_count: int = 0
     last_refresh_at: float = 0.0
     last_refresh_duration: float = 0.0
@@ -59,8 +61,8 @@ def _build_lines(uris: list[str]) -> list[str]:
     return lines
 
 
-def _content_fingerprint(primary_text: str, fill_text: str, uris: list[str]) -> str:
-    digest = hashlib.sha256((primary_text + "\n" + fill_text).encode("utf-8")).hexdigest()
+def _content_fingerprint(texts: list[str], uris: list[str]) -> str:
+    digest = hashlib.sha256("\n".join(texts).encode("utf-8")).hexdigest()
     return f"{len(uris)}:{digest[:16]}"
 
 
@@ -68,6 +70,10 @@ def _config_identity(uri: str) -> str:
     """Identity for dedup: host:port + protocol + uuid/user without fragment."""
     base = uri.split("#", 1)[0].strip().lower()
     return base
+
+
+def _source_label(url: str) -> str:
+    return url.rstrip("/").split("/")[-1] or url
 
 
 async def _get_session() -> aiohttp.ClientSession:
@@ -88,15 +94,17 @@ async def close_session() -> None:
         _session = None
 
 
-async def _fetch_url(url: str) -> tuple[str | None, list[str]]:
+async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
+    """Returns (label, text_or_None, uris)."""
+    label = _source_label(url)
     session = await _get_session()
     try:
         async with session.get(url, ssl=False) as resp:
             resp.raise_for_status()
             text = await resp.text()
     except Exception as exc:
-        logger.warning("Fetch failed %s: %s", url, exc)
-        return None, []
+        logger.warning("Fetch failed %s: %s", label, exc)
+        return label, None, []
 
     parsed = parse_subscription_lines(text)
     uris: list[str] = []
@@ -107,39 +115,44 @@ async def _fetch_url(url: str) -> tuple[str | None, list[str]]:
     logger.info(
         "Loaded %s configs from %s (%s valid)",
         len(parsed),
-        url.split("/")[-1],
+        label,
         len(uris),
     )
-    return text, uris
+    return label, text, uris
 
 
-def _merge_up_to_limit(primary: list[str], fill: list[str], limit: int) -> tuple[list[str], int, int]:
-    """Primary first, then fill from secondary without duplicates. Cap at limit."""
+def _merge_sources(
+    ranked_by_source: list[tuple[str, list[str]]],
+    limit: int,
+) -> tuple[list[str], dict[str, int]]:
+    """
+    Priority fill up to limit:
+      1) WHITE-CIDR-RU-checked
+      2) Mobile
+      3) extras (all / SNI / verified …)
+    Keep source order — do NOT globally re-rank (that drowned whitelist in aggregators).
+    Only Xray-convertible URIs (vless/trojan) enter АВТО-ВЫБОР.
+    """
     result: list[str] = []
     seen: set[str] = set()
+    final_counts: dict[str, int] = {label: 0 for label, _ in ranked_by_source}
 
-    for uri in primary:
+    for label, uris in ranked_by_source:
+        for uri in uris:
+            if len(result) >= limit:
+                break
+            if not uri_to_outbound(uri, "probe"):
+                continue
+            key = _config_identity(uri)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(uri)
+            final_counts[label] += 1
         if len(result) >= limit:
             break
-        key = _config_identity(uri)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(uri)
 
-    primary_used = len(result)
-
-    for uri in fill:
-        if len(result) >= limit:
-            break
-        key = _config_identity(uri)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(uri)
-
-    fill_used = len(result) - primary_used
-    return result, primary_used, fill_used
+    return result, final_counts
 
 
 async def refresh_pool(force: bool = False) -> PoolState:
@@ -152,48 +165,51 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        logger.info(
-            "Checking sources: primary=%s fill=%s",
-            config.CONFIG_SOURCE_URL.split("/")[-1],
-            config.CONFIG_FILL_SOURCE_URL.split("/")[-1],
-        )
+        urls = config.config_source_urls()
+        labels = [_source_label(u) for u in urls]
+        logger.info("Checking %s sources: %s", len(urls), ", ".join(labels))
 
         try:
-            primary_text, primary_uris = await _fetch_url(config.CONFIG_SOURCE_URL)
-            fill_text, fill_uris = await _fetch_url(config.CONFIG_FILL_SOURCE_URL)
+            results = await asyncio.gather(*[_fetch_url(url) for url in urls])
 
-            if primary_text is None and fill_text is None:
-                _pool.last_error = "Failed to fetch both config sources"
+            if all(text is None for _, text, _ in results):
+                _pool.last_error = "Failed to fetch all config sources"
                 return _pool
 
-            primary_text = primary_text or ""
-            fill_text = fill_text or ""
-            primary_uris = rank_configs_for_speed(primary_uris or [])
-            fill_uris = rank_configs_for_speed(fill_uris or [])
+            ranked_by_source: list[tuple[str, list[str]]] = []
+            texts: list[str] = []
+            total_raw = 0
+            for label, text, uris in results:
+                texts.append(text or "")
+                ranked = rank_configs_for_speed(uris or [])
+                ranked_by_source.append((label, ranked))
+                total_raw += len(ranked)
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
-            subscription_uris, primary_used, fill_used = _merge_up_to_limit(
-                primary_uris, fill_uris, limit
-            )
+            subscription_uris, source_counts = _merge_sources(ranked_by_source, limit)
 
-            fingerprint = _content_fingerprint(primary_text, fill_text, subscription_uris)
+            fingerprint = _content_fingerprint(texts, subscription_uris)
             global _cached_lines
 
             if fingerprint == _pool.content_fingerprint and _cached_lines and not force:
                 logger.info(
-                    "Config sources unchanged (%s in key: %s primary + %s fill)",
+                    "Config sources unchanged (%s nodes in АВТО from %s unique)",
                     len(subscription_uris),
-                    primary_used,
-                    fill_used,
+                    total_raw,
                 )
                 _pool.last_refresh_at = time.time()
                 _pool.last_error = None
                 return _pool
 
+            counts_list = list(source_counts.values())
+            primary_used = counts_list[0] if counts_list else 0
+            fill_used = sum(counts_list[1:]) if len(counts_list) > 1 else 0
+
             _pool.configs = subscription_uris
-            _pool.source_total = len(primary_uris) + len(fill_uris)
+            _pool.source_total = total_raw
             _pool.primary_count = primary_used
             _pool.fill_count = fill_used
+            _pool.source_counts = source_counts
             _pool.subscription_count = len(subscription_uris)
             _pool.content_fingerprint = fingerprint
             _cached_lines = _build_lines(subscription_uris)
@@ -201,19 +217,17 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.last_refresh_duration = time.perf_counter() - started
             _pool.last_error = None
 
+            breakdown = ", ".join(f"{k}={v}" for k, v in source_counts.items())
             logger.info(
-                "Pool updated: %s in key (%s from primary, %s from fill), "
-                "sources %s+%s (%.1fs)",
+                "Pool updated: %s nodes in АВТО (%s), unique from sources %s (%.1fs)",
                 len(subscription_uris),
-                primary_used,
-                fill_used,
-                len(primary_uris),
-                len(fill_uris),
+                breakdown or "empty",
+                total_raw,
                 _pool.last_refresh_duration,
             )
             if len(subscription_uris) < limit:
                 logger.warning(
-                    "Subscription has only %s configs (wanted %s)",
+                    "Auto pool has only %s configs (wanted %s)",
                     len(subscription_uris),
                     limit,
                 )
