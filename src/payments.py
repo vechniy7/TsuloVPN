@@ -25,19 +25,21 @@ def get_plan(plan_id: str) -> TariffPlan | None:
 
 
 def format_tariffs_text() -> str:
-    lines = ["<b>Тарифы</b>\n"]
-    for plan in PLANS.values():
-        lines.append(f"{plan.title} — <b>{plan.price_rub} ₽</b>")
-    lines.append("\nВыберите тариф и нажмите «Оформить заказ».")
-    return "\n".join(lines)
+    from ui import screen_tariffs
+
+    return screen_tariffs()
 
 
 def format_order_text(plan: TariffPlan) -> str:
-    return (
-        f"<b>Оформление заказа</b>\n\n"
-        f"Услуга: цифровая подписка · {plan.title}\n"
-        f"Сумма: <b>{plan.price_rub} ₽</b>"
-    )
+    from ui import screen_order
+
+    return screen_order(plan)
+
+
+def format_access_until(user: User) -> str:
+    from ui import format_access_until as _fmt
+
+    return _fmt(user)
 
 
 def is_subscription_active(user: User) -> bool:
@@ -52,22 +54,6 @@ def is_subscription_active(user: User) -> bool:
         return expires > datetime.now(timezone.utc)
     except ValueError:
         return True
-
-
-def format_access_until(user: User) -> str:
-    if not config.payments_active:
-        return "активен"
-    if not user.expires_at:
-        return "не оплачен — выберите тариф"
-    try:
-        expires = datetime.fromisoformat(user.expires_at)
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        if expires <= datetime.now(timezone.utc):
-            return "истёк — выберите тариф"
-        return f"до {expires.strftime('%d.%m.%Y')}"
-    except ValueError:
-        return "активен"
 
 
 async def extend_subscription(user: User, plan_id: str) -> User:

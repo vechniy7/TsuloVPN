@@ -1,11 +1,8 @@
-import html
 import logging
 
 from aiogram import Bot
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import config
-from payments import format_access_until
+import ui
 
 logger = logging.getLogger(__name__)
 
@@ -21,22 +18,11 @@ async def notify_payment_success(telegram_id: int, plan_title: str, user) -> Non
     if not _bot:
         return
 
-    text = (
-        f"<b>Оплата получена</b>\n\n"
-        f"Тариф: {html.escape(plan_title)}\n"
-        f"Статус: {format_access_until(user)}\n\n"
-        f"Нажмите «Мой доступ», чтобы получить ссылку."
-    )
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Мой доступ", callback_data="get_key")
-    builder.button(text="← Меню", callback_data="back_to_menu")
-    builder.adjust(1)
-
     try:
         await _bot.send_message(
             telegram_id,
-            text,
-            reply_markup=builder.as_markup(),
+            ui.screen_payment_success(plan_title, user),
+            reply_markup=ui.kb_payment_success(),
             parse_mode="HTML",
         )
     except Exception as exc:

@@ -1,10 +1,8 @@
-import html
 import logging
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import CallbackQuery, Message
 
 from bot_notify import notify_payment_success
 from cardlink import CardlinkError, create_bill, new_order_id
@@ -13,53 +11,34 @@ from config_pool import get_pool_state, refresh_pool
 from database import User, create_user, get_all_users, get_user, get_user_count
 from happ_crypto import encrypt_subscription_url
 from payments import (
-    PLANS,
     create_pending_order,
-    format_access_until,
-    format_order_text,
-    format_tariffs_text,
     get_plan,
     is_subscription_active,
     try_activate_from_bill,
 )
+import ui
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+USERS_PAGE_SIZE = 20
 
 
 def _is_admin(user: User | None, chat_id: int) -> bool:
     return chat_id in config.ADMINS or bool(user and user.is_admin)
 
 
-def _main_keyboard(user: User, chat_id: int) -> InlineKeyboardBuilder:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Мой доступ", callback_data="get_key")
-    builder.button(text="Тарифы", callback_data="tariffs")
-    builder.button(text="Справка", callback_data="help")
-    if _is_admin(user, chat_id):
-        builder.button(text="Админ", callback_data="admin_menu")
-    builder.adjust(1)
-    return builder
-
-
-def _tariffs_keyboard() -> InlineKeyboardBuilder:
-    builder = InlineKeyboardBuilder()
-    for plan in PLANS.values():
-        builder.button(
-            text=f"{plan.title} — {plan.price_rub} ₽",
-            callback_data=f"order:{plan.id}",
-        )
-    builder.button(text="← Меню", callback_data="back_to_menu")
-    builder.adjust(1)
-    return builder
-
-
-def _order_keyboard(plan_id: str) -> InlineKeyboardBuilder:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Оплатить", callback_data=f"pay:{plan_id}")
-    builder.button(text="← Тарифы", callback_data="tariffs")
-    builder.adjust(1)
-    return builder
+async def _edit_or_answer(
+    target: Message,
+    text: str,
+    markup,
+    *,
+    edit: bool,
+) -> None:
+    if edit:
+        await target.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    else:
+        await target.answer(text, reply_markup=markup, parse_mode="HTML")
 
 
 async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> None:
@@ -67,13 +46,8 @@ async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> No
     if not user:
         return
 
-    text = (
-        f"<b>{html.escape(config.BOT_NAME)}</b>\n"
-        f"Цифровая подписка на IT-сервис\n\n"
-        f"Статус: {format_access_until(user)}"
-    )
-
-    markup = _main_keyboard(user, chat_id).as_markup()
+    text = ui.screen_home(user, is_admin=_is_admin(user, chat_id))
+    markup = ui.kb_home(is_admin=_is_admin(user, chat_id))
     if message_id:
         await bot.edit_message_text(
             chat_id=chat_id,
@@ -91,38 +65,35 @@ async def show_menu(bot: Bot, chat_id: int, message_id: int | None = None) -> No
         )
 
 
-async def send_subscription_key(target: Message, user: User) -> None:
+async def send_subscription_key(target: Message, user: User, *, edit: bool = False) -> None:
     if config.payments_active and not _is_admin(user, user.telegram_id):
         if not is_subscription_active(user):
-            text = (
-                "<b>Доступ не активен</b>\n\n"
-                "Оформите подписку в разделе «Тарифы»."
+            await _edit_or_answer(
+                target,
+                ui.screen_access_inactive(),
+                ui.kb_access(inactive=True),
+                edit=edit,
             )
-            builder = InlineKeyboardBuilder()
-            builder.button(text="Тарифы", callback_data="tariffs")
-            builder.button(text="← Меню", callback_data="back_to_menu")
-            builder.adjust(1)
-            await target.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
             return
 
     pool = get_pool_state()
     if not pool.configs:
-        await target.answer("Данные загружаются. Попробуйте через минуту.")
+        await _edit_or_answer(
+            target,
+            ui.screen_access_loading(),
+            ui.kb_access(),
+            edit=edit,
+        )
         return
 
     sub_url = config.subscription_url_for_token(user.subscription_token)
     import_url = await encrypt_subscription_url(sub_url)
-
-    text = (
-        f"<b>Ваш доступ</b>\n\n"
-        f"<code>{html.escape(import_url)}</code>\n\n"
-        f"Скопируйте ссылку и добавьте её в приложение-клиент.\n"
-        f"Включите автообновление подписки."
+    await _edit_or_answer(
+        target,
+        ui.screen_access(user, import_url),
+        ui.kb_access(),
+        edit=edit,
     )
-
-    builder = InlineKeyboardBuilder()
-    builder.button(text="← Меню", callback_data="back_to_menu")
-    await target.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 
 @router.message(Command("start"))
@@ -151,53 +122,39 @@ async def key_cmd(message: Message) -> None:
     if not user:
         await message.answer("Нажмите /start")
         return
-    await send_subscription_key(message, user)
+    await send_subscription_key(message, user, edit=False)
 
 
 @router.message(Command("help"))
 async def help_cmd(message: Message) -> None:
-    await _send_help(message)
-
-
-async def _send_help(target: Message) -> None:
-    text = (
-        f"<b>{html.escape(config.BOT_NAME)}</b>\n\n"
-        "1. Получите ссылку доступа в боте\n"
-        "2. Откройте приложение-клиент и добавьте подписку по ссылке\n"
-        "3. Включите автообновление\n\n"
-        "Выберите «АВТО-ВЫБОР» — клиент сам найдёт сервер "
-        "с наименьшим пингом и переключится, если связь пропадёт.\n\n"
-        "Поддержка: напишите администратору через бота."
-    )
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Мой доступ", callback_data="get_key")
-    builder.button(text="Тарифы", callback_data="tariffs")
-    builder.button(text="← Меню", callback_data="back_to_menu")
-    builder.adjust(1)
-    await target.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await message.answer(ui.screen_help(), reply_markup=ui.kb_help(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "get_key")
 async def get_key_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
+    await callback.answer("Готовим доступ…")
     user = await get_user(callback.from_user.id)
     if not user:
         return
-    await send_subscription_key(callback.message, user)
+    await send_subscription_key(callback.message, user, edit=True)
 
 
 @router.callback_query(F.data == "help")
 async def help_callback(callback: CallbackQuery) -> None:
     await callback.answer()
-    await _send_help(callback.message)
+    await callback.message.edit_text(
+        ui.screen_help(),
+        reply_markup=ui.kb_help(),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data == "tariffs")
 async def tariffs_callback(callback: CallbackQuery) -> None:
     await callback.answer()
     await callback.message.edit_text(
-        format_tariffs_text(),
-        reply_markup=_tariffs_keyboard().as_markup(),
+        ui.screen_tariffs(),
+        reply_markup=ui.kb_tariffs(),
         parse_mode="HTML",
     )
 
@@ -212,8 +169,8 @@ async def order_callback(callback: CallbackQuery) -> None:
 
     await callback.answer()
     await callback.message.edit_text(
-        format_order_text(plan),
-        reply_markup=_order_keyboard(plan_id).as_markup(),
+        ui.screen_order(plan),
+        reply_markup=ui.kb_order(plan_id),
         parse_mode="HTML",
     )
 
@@ -255,8 +212,9 @@ async def pay_callback(callback: CallbackQuery) -> None:
     except CardlinkError as exc:
         logger.error("Cardlink create bill failed: %s", exc)
         await callback.message.edit_text(
-            "Не удалось создать счёт. Попробуйте позже или напишите администратору.",
-            reply_markup=_order_keyboard(plan_id).as_markup(),
+            ui.screen_pay_error(),
+            reply_markup=ui.kb_order(plan_id),
+            parse_mode="HTML",
         )
         return
 
@@ -268,24 +226,9 @@ async def pay_callback(callback: CallbackQuery) -> None:
         bill_id=bill["bill_id"],
     )
 
-    text = (
-        f"<b>Оплата заказа</b>\n\n"
-        f"Тариф: {html.escape(plan.title)}\n"
-        f"Сумма: <b>{plan.price_rub} ₽</b>\n\n"
-        f"Нажмите «Перейти к оплате», завершите платёж и вернитесь в бот.\n"
-        f"Доступ активируется автоматически."
-    )
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="Перейти к оплате", url=bill["link_page_url"]),
-    )
-    builder.button(text="Проверить оплату", callback_data=f"check:{bill['bill_id']}")
-    builder.button(text="← Тарифы", callback_data="tariffs")
-    builder.adjust(1)
-
     await callback.message.edit_text(
-        text,
-        reply_markup=builder.as_markup(),
+        ui.screen_pay(plan),
+        reply_markup=ui.kb_pay(bill["link_page_url"], bill["bill_id"]),
         parse_mode="HTML",
     )
 
@@ -296,7 +239,7 @@ async def check_payment_callback(callback: CallbackQuery) -> None:
     user, plan, activated = await try_activate_from_bill(bill_id)
 
     if activated and user and plan:
-        await callback.answer("Оплата подтверждена!", show_alert=True)
+        await callback.answer("Оплата подтверждена", show_alert=True)
         await notify_payment_success(callback.from_user.id, plan.title, user)
         return
 
@@ -320,18 +263,17 @@ async def admin_menu_callback(callback: CallbackQuery) -> None:
     await callback.answer()
     pool = get_pool_state()
     total_users = await get_user_count()
-    text = (
-        f"<b>Админ</b>\n\n"
-        f"Пользователей: <b>{total_users}</b>\n"
-        f"В ключе: <b>{pool.subscription_count}</b> / {config.SUBSCRIPTION_CONFIG_LIMIT}\n"
-        f"Основной: {pool.primary_count} · Дополнение: {pool.fill_count}"
+    await callback.message.edit_text(
+        ui.screen_admin(
+            users=total_users,
+            sub_count=pool.subscription_count,
+            limit=config.SUBSCRIPTION_CONFIG_LIMIT,
+            primary=pool.primary_count,
+            fill=pool.fill_count,
+        ),
+        reply_markup=ui.kb_admin(),
+        parse_mode="HTML",
     )
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Обновить данные", callback_data="admin_refresh")
-    builder.button(text="Список пользователей", callback_data="admin_users")
-    builder.button(text="← Меню", callback_data="back_to_menu")
-    builder.adjust(1)
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin_refresh")
@@ -340,31 +282,28 @@ async def admin_refresh_callback(callback: CallbackQuery) -> None:
         await callback.answer("Доступ запрещён", show_alert=True)
         return
     await callback.answer("Обновляю…")
-    await callback.message.edit_text("Загрузка…")
+    await callback.message.edit_text("Обновление данных…")
     await refresh_pool(force=True)
     pool = get_pool_state()
-    text = (
-        f"Готово\n\n"
-        f"В ключе: {pool.subscription_count} / {config.SUBSCRIPTION_CONFIG_LIMIT}\n"
-        f"Основной: {pool.primary_count} · Дополнение: {pool.fill_count}"
+    await callback.message.edit_text(
+        ui.screen_admin_refresh(
+            sub_count=pool.subscription_count,
+            limit=config.SUBSCRIPTION_CONFIG_LIMIT,
+            primary=pool.primary_count,
+            fill=pool.fill_count,
+        ),
+        reply_markup=ui.kb_admin_back(),
+        parse_mode="HTML",
     )
-    builder = InlineKeyboardBuilder()
-    builder.button(text="← Админ", callback_data="admin_menu")
-    await callback.message.edit_text(text, reply_markup=builder.as_markup())
-
-
-USERS_PAGE_SIZE = 20
 
 
 async def _show_admin_users(callback: CallbackQuery, page: int = 0) -> None:
     users = await get_all_users()
     total = len(users)
     if total == 0:
-        builder = InlineKeyboardBuilder()
-        builder.button(text="← Админ", callback_data="admin_menu")
         await callback.message.edit_text(
-            "<b>Пользователи (0)</b>\n\nСписок пуст.",
-            reply_markup=builder.as_markup(),
+            "<b>Пользователи</b>\n\nСписок пуст.",
+            reply_markup=ui.kb_admin_back(),
             parse_mode="HTML",
         )
         return
@@ -374,35 +313,26 @@ async def _show_admin_users(callback: CallbackQuery, page: int = 0) -> None:
     start = page * USERS_PAGE_SIZE
     chunk = users[start : start + USERS_PAGE_SIZE]
 
-    lines = [f"<b>Пользователи ({total})</b> · стр. {page + 1}/{pages}\n"]
+    lines = [
+        f"<b>Пользователи · {total}</b>",
+        f"стр. {page + 1}/{pages}",
+        "",
+        ui.DIV,
+    ]
     for idx, user in enumerate(chunk, start=start + 1):
         username = f"@{user.username}" if user.username else "—"
-        access = format_access_until(user)
+        access = ui.format_access_until(user)
         lines.append(
-            f"{idx}. <code>{user.telegram_id}</code> "
-            f"{html.escape(user.full_name or '—')} ({html.escape(username)})\n"
-            f"    {html.escape(access)}"
+            f"<b>{idx}.</b> <code>{user.telegram_id}</code>\n"
+            f"{ui._esc(user.full_name or '—')} · {ui._esc(username)}\n"
+            f"<i>{ui._esc(access)}</i>"
         )
-
-    builder = InlineKeyboardBuilder()
-    nav_count = 0
-    if page > 0:
-        builder.button(text="← Назад", callback_data=f"admin_users:{page - 1}")
-        nav_count += 1
-    if page < pages - 1:
-        builder.button(text="Ещё →", callback_data=f"admin_users:{page + 1}")
-        nav_count += 1
-    builder.button(text="← Админ", callback_data="admin_menu")
-    if nav_count == 2:
-        builder.adjust(2, 1)
-    elif nav_count == 1:
-        builder.adjust(1, 1)
-    else:
-        builder.adjust(1)
+        lines.append("")
+    lines.append(ui.DIV)
 
     await callback.message.edit_text(
         "\n".join(lines),
-        reply_markup=builder.as_markup(),
+        reply_markup=ui.kb_admin_users(page=page, pages=pages),
         parse_mode="HTML",
     )
 
