@@ -27,6 +27,13 @@ CHROME_UA = (
 
 @dataclass
 class PoolState:
+    wifi_uris: list[str] = field(default_factory=list)
+    lte_uris: list[str] = field(default_factory=list)
+    wifi_count: int = 0
+    lte_count: int = 0
+    wifi_source_counts: dict[str, int] = field(default_factory=dict)
+    lte_source_counts: dict[str, int] = field(default_factory=dict)
+    # Legacy aliases for admin/health compatibility
     configs: list[str] = field(default_factory=list)
     source_total: int = 0
     primary_count: int = 0
@@ -43,32 +50,42 @@ class PoolState:
 _pool = PoolState()
 _refresh_lock = asyncio.Lock()
 _session: aiohttp.ClientSession | None = None
-_cached_lines: list[str] = []
+_cached_wifi_lines: list[str] = []
+_cached_lte_lines: list[str] = []
 
 
 def get_pool_state() -> PoolState:
     return _pool
 
 
+def get_wifi_lines() -> list[str]:
+    return _cached_wifi_lines
+
+
+def get_lte_lines() -> list[str]:
+    return _cached_lte_lines
+
+
 def get_subscription_lines() -> list[str]:
-    return _cached_lines
+    """Legacy: combined list (prefer get_wifi_lines / get_lte_lines)."""
+    return _cached_wifi_lines + _cached_lte_lines
 
 
-def _build_lines(uris: list[str]) -> list[str]:
+def _build_lines(uris: list[str], kind: str) -> list[str]:
     lines: list[str] = []
     for idx, uri in enumerate(uris, start=1):
-        label = build_server_label("whitelist", uri, idx)
+        label = build_server_label(kind, uri, idx)
         lines.append(brand_config(uri, label))
     return lines
 
 
-def _content_fingerprint(texts: list[str], uris: list[str]) -> str:
-    digest = hashlib.sha256("\n".join(texts).encode("utf-8")).hexdigest()
-    return f"{len(uris)}:{digest[:16]}"
+def _content_fingerprint(texts: list[str], wifi: list[str], lte: list[str]) -> str:
+    payload = "\n".join(texts) + f"|w{len(wifi)}|l{len(lte)}"
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{len(wifi)}:{len(lte)}:{digest[:16]}"
 
 
 def _config_identity(uri: str) -> str:
-    """Identity for dedup: host:port + protocol + uuid/user without fragment."""
     base = uri.split("#", 1)[0].strip().lower()
     return base
 
@@ -96,7 +113,6 @@ async def close_session() -> None:
 
 
 async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
-    """Returns (label, text_or_None, uris)."""
     label = _source_label(url)
     session = await _get_session()
     try:
@@ -108,11 +124,7 @@ async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
         return label, None, []
 
     parsed = parse_subscription_lines(text)
-    uris: list[str] = []
-    for uri in parsed:
-        if extract_host_port(uri):
-            uris.append(uri)
-
+    uris = [uri for uri in parsed if extract_host_port(uri)]
     logger.info(
         "Loaded %s configs from %s (%s valid)",
         len(parsed),
@@ -122,86 +134,41 @@ async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
     return label, text, uris
 
 
-def _is_whitelist_source(label: str) -> bool:
-    """igareck WHITE / Mobile CIDR sources — best for RU mobile networks."""
-    name = label.lower()
-    return any(
-        key in name
-        for key in (
-            "white-cidr",
-            "white-sni",
-            "white-lists",
-            "rus-mobile",
-            "whitelist",
-        )
-    )
-
-
-def _merge_sources(
+def _prepare_pool(
     ranked_by_source: list[tuple[str, list[str]]],
     limit: int,
 ) -> tuple[list[str], dict[str, int]]:
     """
-    Priority:
-      1) Take ALL usable WHITE/Mobile nodes first (checked → mobile → all → sni)
-      2) Fill remaining slots with best aggregator nodes (by speed_score)
-    RF-labeled configs are already excluded in rank_configs_for_speed.
+    Ranked sources already exclude РФ labels.
+    Keep only Xray-convertible (vless/trojan), dedupe, cap, sort by speed_score.
     """
     result: list[str] = []
     seen: set[str] = set()
     owner: dict[str, str] = {}
 
-    whitelist = [(l, u) for l, u in ranked_by_source if _is_whitelist_source(l)]
-    aggregators = [(l, u) for l, u in ranked_by_source if not _is_whitelist_source(l)]
-
-    def _append(label: str, uri: str) -> bool:
-        if len(result) >= limit:
-            return False
-        if not uri_to_outbound(uri, "probe"):
-            return False
-        key = _config_identity(uri)
-        if key in seen:
-            return False
-        seen.add(key)
-        result.append(uri)
-        owner[key] = label
-        return True
-
-    # Phase 1 — whitelist / mobile CIDR (best for cellular BS)
-    for label, uris in whitelist:
+    for label, uris in ranked_by_source:
         for uri in uris:
             if len(result) >= limit:
                 break
-            _append(label, uri)
+            if not uri_to_outbound(uri, "probe"):
+                continue
+            key = _config_identity(uri)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(uri)
+            owner[key] = label
         if len(result) >= limit:
             break
 
-    # Phase 2 — best aggregators to fill the probe set (still no RF labels)
-    if len(result) < limit:
-        candidates: list[tuple[int, str, str]] = []
-        for label, uris in aggregators:
-            for uri in uris:
-                if not uri_to_outbound(uri, "probe"):
-                    continue
-                key = _config_identity(uri)
-                if key in seen:
-                    continue
-                candidates.append((speed_score(uri), label, uri))
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        for _score, label, uri in candidates:
-            if len(result) >= limit:
-                break
-            _append(label, uri)
-
     result.sort(key=speed_score, reverse=True)
 
-    final_counts: dict[str, int] = {label: 0 for label, _ in ranked_by_source}
+    counts: dict[str, int] = {label: 0 for label, _ in ranked_by_source}
     for uri in result:
         label = owner.get(_config_identity(uri))
         if label:
-            final_counts[label] += 1
-
-    return result, final_counts
+            counts[label] += 1
+    return result, counts
 
 
 async def refresh_pool(force: bool = False) -> PoolState:
@@ -214,72 +181,104 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        urls = config.config_source_urls()
-        labels = [_source_label(u) for u in urls]
-        logger.info("Checking %s sources: %s", len(urls), ", ".join(labels))
+        wifi_urls = config.wifi_source_urls()
+        lte_urls = config.lte_source_urls()
+        all_urls = list(dict.fromkeys(wifi_urls + lte_urls))
+
+        logger.info(
+            "Checking sources WIFI=%s LTE=%s",
+            ", ".join(_source_label(u) for u in wifi_urls) or "none",
+            ", ".join(_source_label(u) for u in lte_urls) or "none",
+        )
 
         try:
-            results = await asyncio.gather(*[_fetch_url(url) for url in urls])
+            results = await asyncio.gather(*[_fetch_url(url) for url in all_urls])
+            by_label: dict[str, tuple[str | None, list[str]]] = {}
+            for label, text, uris in results:
+                by_label[label] = (text, uris)
 
-            if all(text is None for _, text, _ in results):
+            if all(text is None for text, _ in by_label.values()):
                 _pool.last_error = "Failed to fetch all config sources"
                 return _pool
 
-            ranked_by_source: list[tuple[str, list[str]]] = []
             texts: list[str] = []
+            wifi_ranked: list[tuple[str, list[str]]] = []
+            lte_ranked: list[tuple[str, list[str]]] = []
             total_raw = 0
-            for label, text, uris in results:
+
+            for url in wifi_urls:
+                label = _source_label(url)
+                text, uris = by_label.get(label, (None, []))
                 texts.append(text or "")
                 ranked = rank_configs_for_speed(uris or [])
-                ranked_by_source.append((label, ranked))
+                wifi_ranked.append((label, ranked))
+                total_raw += len(ranked)
+
+            for url in lte_urls:
+                label = _source_label(url)
+                text, uris = by_label.get(label, (None, []))
+                # Avoid double-counting text fingerprint if URL shared (shouldn't be)
+                if url not in wifi_urls:
+                    texts.append(text or "")
+                ranked = rank_configs_for_speed(uris or [])
+                lte_ranked.append((label, ranked))
                 total_raw += len(ranked)
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
-            subscription_uris, source_counts = _merge_sources(ranked_by_source, limit)
+            wifi_uris, wifi_counts = _prepare_pool(wifi_ranked, limit)
+            lte_uris, lte_counts = _prepare_pool(lte_ranked, limit)
 
-            fingerprint = _content_fingerprint(texts, subscription_uris)
-            global _cached_lines
+            fingerprint = _content_fingerprint(texts, wifi_uris, lte_uris)
+            global _cached_wifi_lines, _cached_lte_lines
 
-            if fingerprint == _pool.content_fingerprint and _cached_lines and not force:
+            if (
+                fingerprint == _pool.content_fingerprint
+                and _cached_wifi_lines
+                and _cached_lte_lines
+                and not force
+            ):
                 logger.info(
-                    "Config sources unchanged (%s nodes in АВТО from %s unique)",
-                    len(subscription_uris),
+                    "Sources unchanged (WIFI=%s LTE=%s from %s ranked)",
+                    len(wifi_uris),
+                    len(lte_uris),
                     total_raw,
                 )
                 _pool.last_refresh_at = time.time()
                 _pool.last_error = None
                 return _pool
 
-            counts_list = list(source_counts.values())
-            primary_used = counts_list[0] if counts_list else 0
-            fill_used = sum(counts_list[1:]) if len(counts_list) > 1 else 0
+            _cached_wifi_lines = _build_lines(wifi_uris, "wifi")
+            _cached_lte_lines = _build_lines(lte_uris, "lte")
 
-            _pool.configs = subscription_uris
+            _pool.wifi_uris = wifi_uris
+            _pool.lte_uris = lte_uris
+            _pool.wifi_count = len(wifi_uris)
+            _pool.lte_count = len(lte_uris)
+            _pool.wifi_source_counts = wifi_counts
+            _pool.lte_source_counts = lte_counts
+            _pool.configs = wifi_uris + lte_uris
             _pool.source_total = total_raw
-            _pool.primary_count = primary_used
-            _pool.fill_count = fill_used
-            _pool.source_counts = source_counts
-            _pool.subscription_count = len(subscription_uris)
+            _pool.primary_count = len(wifi_uris)
+            _pool.fill_count = len(lte_uris)
+            _pool.source_counts = {**wifi_counts, **lte_counts}
+            _pool.subscription_count = len(wifi_uris) + len(lte_uris)
             _pool.content_fingerprint = fingerprint
-            _cached_lines = _build_lines(subscription_uris)
             _pool.last_refresh_at = time.time()
             _pool.last_refresh_duration = time.perf_counter() - started
             _pool.last_error = None
 
-            breakdown = ", ".join(f"{k}={v}" for k, v in source_counts.items())
             logger.info(
-                "Pool updated: %s nodes in АВТО (%s), unique from sources %s (%.1fs)",
-                len(subscription_uris),
-                breakdown or "empty",
-                total_raw,
+                "Pools updated: WIFI=%s (%s) LTE=%s (%s) in %.1fs",
+                len(wifi_uris),
+                ", ".join(f"{k}={v}" for k, v in wifi_counts.items() if v),
+                len(lte_uris),
+                ", ".join(f"{k}={v}" for k, v in lte_counts.items() if v),
                 _pool.last_refresh_duration,
             )
-            if len(subscription_uris) < limit:
-                logger.warning(
-                    "Auto pool has only %s configs (wanted %s)",
-                    len(subscription_uris),
-                    limit,
-                )
+            if len(wifi_uris) < 2:
+                logger.warning("WIFI auto pool too small: %s (need ≥2 for leastPing)", len(wifi_uris))
+            if len(lte_uris) < 2:
+                logger.warning("LTE auto pool too small: %s (need ≥2 for leastPing)", len(lte_uris))
         except Exception as exc:
             _pool.last_error = str(exc)
             logger.exception("Pool refresh failed: %s", exc)

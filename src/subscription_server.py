@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Response
 
 from config import config
-from config_pool import get_pool_state, get_subscription_lines
+from config_pool import get_lte_lines, get_pool_state, get_wifi_lines
 from database import get_user_by_token
 from miniapp_routes import router as miniapp_router
 from cardlink_routes import router as cardlink_router
@@ -19,10 +19,8 @@ app = FastAPI(title="TsuloVPN Subscription Server", docs_url=None, redoc_url=Non
 app.include_router(miniapp_router)
 app.include_router(cardlink_router)
 
-# Happ app-management headers (JSON subscriptions use headers, not # body comments)
 HAPP_HEADERS = {
     "hide-settings": "1",
-    # Don't force reconnect/ping storms on every open — causes random drops
     "subscription-autoconnect": "0",
     "subscription-ping-onopen-enabled": "0",
     "ping-type": "tcp",
@@ -38,21 +36,24 @@ def _source_name(url: str) -> str:
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     pool = get_pool_state()
-    sources = config.config_source_urls()
     return {
         "status": "ok",
-        "source_total": pool.source_total,
-        "primary_count": pool.primary_count,
-        "fill_count": pool.fill_count,
-        "source_counts": pool.source_counts,
-        "subscription_count": pool.subscription_count,
-        "limit": config.SUBSCRIPTION_CONFIG_LIMIT,
-        "show_individual": False,
+        "wifi_count": pool.wifi_count,
+        "lte_count": pool.lte_count,
+        "wifi_sources": pool.wifi_source_counts,
+        "lte_sources": pool.lte_source_counts,
+        "limit_per_profile": config.SUBSCRIPTION_CONFIG_LIMIT,
+        "probe_interval_sec": config.AUTO_PROBE_INTERVAL_SEC,
         "last_refresh_at": pool.last_refresh_at,
         "is_refreshing": pool.is_refreshing,
-        "sources": [_source_name(u) for u in sources],
-        "auto_select": "xray-leastPing",
-        "visible_profiles": 1,
+        "last_error": pool.last_error,
+        "wifi_urls": [_source_name(u) for u in config.wifi_source_urls()],
+        "lte_urls": [_source_name(u) for u in config.lte_source_urls()],
+        "auto_select": "dual-leastPing",
+        "visible_profiles": 2,
+        # legacy fields
+        "subscription_count": pool.subscription_count,
+        "source_counts": pool.source_counts,
     }
 
 
@@ -65,17 +66,17 @@ async def subscription(token: str):
     if config.payments_active and not user.is_admin and not is_subscription_active(user):
         raise HTTPException(status_code=403, detail="Subscription expired")
 
-    lines = get_subscription_lines()
-    if not lines:
+    wifi = get_wifi_lines()
+    lte = get_lte_lines()
+    if not wifi and not lte:
         raise HTTPException(status_code=503, detail="Configs loading, try again in a minute")
 
     pool = get_pool_state()
-    # Always hide individual servers for clients — only АВТО-ВЫБОР
-    entries = build_subscription_json(lines, show_individual=False)
+    entries = build_subscription_json(wifi, lte, show_individual=False)
     if not entries:
         raise HTTPException(status_code=503, detail="No valid configs for subscription")
 
-    body = subscription_json_bytes(lines, show_individual=False)
+    body = subscription_json_bytes(wifi, lte, show_individual=False)
     profile_title = f"🔐 {config.BOT_NAME}"
 
     headers = {
@@ -89,8 +90,8 @@ async def subscription(token: str):
         "Cache-Control": "private, max-age=300",
         **HAPP_HEADERS,
         "X-TsuloVPN-Configs": str(len(entries)),
-        "X-TsuloVPN-Nodes": str(len(lines)),
-        "X-TsuloVPN-Source-Total": str(pool.source_total),
+        "X-TsuloVPN-Wifi-Nodes": str(len(wifi)),
+        "X-TsuloVPN-Lte-Nodes": str(len(lte)),
         "X-TsuloVPN-Updated": datetime.fromtimestamp(
             pool.last_refresh_at or time.time(),
             tz=timezone.utc,
@@ -98,10 +99,11 @@ async def subscription(token: str):
     }
 
     logger.info(
-        "JSON subscription for user %s: %s visible, %s nodes in АВТО (%s)",
+        "JSON subscription user=%s visible=%s WIFI=%s LTE=%s profiles=%s",
         user.telegram_id,
         len(entries),
-        len(lines),
-        entries[0].get("remarks") if entries else None,
+        len(wifi),
+        len(lte),
+        [e.get("remarks") for e in entries],
     )
     return Response(content=body, media_type="application/json", headers=headers)

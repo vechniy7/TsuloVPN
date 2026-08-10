@@ -17,46 +17,38 @@ class Config(BaseModel):
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )
 
-    CONFIG_SOURCE_URL: str = os.getenv(
-        "CONFIG_SOURCE_URL",
-        f"{IGARECK_RAW}/WHITE-CIDR-RU-checked.txt",
+    # АВТО WIFI — чёрные списки (обычный Wi‑Fi / домашний инет)
+    WIFI_SOURCE_URLS: str = os.getenv(
+        "WIFI_SOURCE_URLS",
+        f"{IGARECK_RAW}/BLACK_VLESS_RUS_mobile.txt",
     )
-    # Дополнение (legacy + часть multi-source пула)
-    CONFIG_FILL_SOURCE_URL: str = os.getenv(
-        "CONFIG_FILL_SOURCE_URL",
-        f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile.txt",
+    # АВТО LTE — белые списки (мобильный интернет / CIDR+SNI)
+    LTE_SOURCE_URLS: str = os.getenv(
+        "LTE_SOURCE_URLS",
+        f"{IGARECK_RAW}/WHITE-CIDR-RU-all.txt,{IGARECK_RAW}/WHITE-SNI-RU-all.txt",
     )
-    # Доп. источники через запятую; пусто = Mobile-2 + WHITE-CIDR-RU-all
-    CONFIG_EXTRA_SOURCE_URLS: str = os.getenv("CONFIG_EXTRA_SOURCE_URLS", "")
-    # Полный список через запятую перекрывает URL выше
-    CONFIG_SOURCE_URLS: str = os.getenv("CONFIG_SOURCE_URLS", "")
 
-    # Сколько узлов внутри «АВТО-ВЫБОР» (меньше = точнее RTT на мобильном)
-    SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "48"))
-    # Показывать ли отдельные серверы в ключе (по умолчанию только АВТО)
+    # Сколько узлов внутри КАЖДОГО АВТО-профиля (точность leastPing)
+    SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "40"))
     SUBSCRIPTION_SHOW_INDIVIDUAL: bool = os.getenv(
         "SUBSCRIPTION_SHOW_INDIVIDUAL", "false"
     ).lower() in ("1", "true", "yes")
 
-    # Как часто проверять обновления на GitHub (секунды)
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "300"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
-    # Интервал RTT-проб на клиенте (секунды) — быстрее ловит смену Wi‑Fi→LTE
-    AUTO_PROBE_INTERVAL_SEC: int = int(os.getenv("AUTO_PROBE_INTERVAL_SEC", "18"))
+    # RTT-пробы на клиенте; при реконнекте Happ снова прогревает leastPing
+    AUTO_PROBE_INTERVAL_SEC: int = int(os.getenv("AUTO_PROBE_INTERVAL_SEC", "12"))
 
-    # Шифровать ссылку подписки через Happ API (happ://crypt5/...)
     HAPP_ENCRYPT_SUBSCRIPTION: bool = os.getenv("HAPP_ENCRYPT_SUBSCRIPTION", "true").lower() in (
         "1",
         "true",
         "yes",
     )
 
-    # Оплата: Cardlink или ЮKassa — включите PAYMENTS_ENFORCE=true
     PAYMENTS_ENFORCE: bool = os.getenv("PAYMENTS_ENFORCE", "false").lower() in ("1", "true", "yes")
 
     CARDLINK_API_TOKEN: str = os.getenv("CARDLINK_API_TOKEN", "")
     CARDLINK_SHOP_ID: str = os.getenv("CARDLINK_SHOP_ID", "")
-    # SBP или BANK_CARD — пусто = клиент выбирает сам
     CARDLINK_PAYMENT_METHOD: str = os.getenv("CARDLINK_PAYMENT_METHOD", "")
 
     UPSTASH_REDIS_REST_URL: str = os.getenv("UPSTASH_REDIS_REST_URL", "")
@@ -85,31 +77,24 @@ class Config(BaseModel):
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
         return f"{base}/sub/{token}"
 
-    def config_source_urls(self) -> list[str]:
-        """Ordered list of raw GitHub (or mirror) subscription URLs."""
-        if self.CONFIG_SOURCE_URLS.strip():
-            return [u.strip() for u in self.CONFIG_SOURCE_URLS.split(",") if u.strip()]
+    @staticmethod
+    def _split_urls(raw: str) -> list[str]:
+        return [u.strip() for u in raw.split(",") if u.strip()]
 
-        urls: list[str] = []
-        for url in (self.CONFIG_SOURCE_URL, self.CONFIG_FILL_SOURCE_URL):
-            if url and url not in urls:
-                urls.append(url)
+    def wifi_source_urls(self) -> list[str]:
+        return self._split_urls(self.WIFI_SOURCE_URLS)
 
-        if self.CONFIG_EXTRA_SOURCE_URLS.strip():
-            extras = [
-                u.strip() for u in self.CONFIG_EXTRA_SOURCE_URLS.split(",") if u.strip()
-            ]
-        else:
-            # Mobile-2 удалён у igareck (404). Вместо него: SNI + verified-агрегатор.
-            extras = [
-                f"{IGARECK_RAW}/WHITE-CIDR-RU-all.txt",
-                f"{IGARECK_RAW}/WHITE-SNI-RU-all.txt",
-                "https://raw.githubusercontent.com/aviamastersgh/vpn-free-russia/main/verified_configs.txt",
-            ]
-        for url in extras:
-            if url not in urls:
-                urls.append(url)
-        return urls
+    def lte_source_urls(self) -> list[str]:
+        return self._split_urls(self.LTE_SOURCE_URLS)
+
+    def all_source_urls(self) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for url in self.wifi_source_urls() + self.lte_source_urls():
+            if url not in seen:
+                seen.add(url)
+                out.append(url)
+        return out
 
 
 config = Config(ADMINS=os.getenv("ADMINS", ""))

@@ -1,4 +1,4 @@
-"""Build Happ-compatible Xray JSON configs (balancer АВТО-ВЫБОР + single servers)."""
+"""Build Happ-compatible Xray JSON: АВТО WIFI + АВТО LTE (leastPing each)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from parser import extract_country_flag, extract_host_port
 logger = logging.getLogger(__name__)
 
 PROBE_URL = "https://www.gstatic.com/generate_204"
-NODE_TAG_PREFIX = "node-"
 
 
 def _q(uri: str) -> dict[str, str]:
@@ -30,7 +29,6 @@ def _remark_from_branded(uri: str, fallback: str) -> str:
 
 
 def _parse_userinfo_host(uri: str) -> tuple[str, str, int] | None:
-    """Returns (user, host, port) for vless/trojan/ss-style URIs."""
     hostport = extract_host_port(uri)
     if not hostport:
         return None
@@ -54,9 +52,13 @@ def _stream_settings(uri: str) -> dict:
     security = (params.get("security") or "").lower()
     stream: dict = {"network": network}
 
+    fp = (params.get("fp") or "chrome").strip() or "chrome"
+    if fp in ("random", "randomized", ""):
+        fp = "chrome"
+
     if security == "reality":
         reality: dict = {
-            "fingerprint": params.get("fp") or "chrome",
+            "fingerprint": fp,
             "serverName": params.get("sni") or params.get("host") or "",
             "publicKey": params.get("pbk") or "",
             "shortId": params.get("sid") or "",
@@ -68,7 +70,7 @@ def _stream_settings(uri: str) -> dict:
     elif security == "tls":
         tls: dict = {
             "serverName": params.get("sni") or params.get("host") or "",
-            "fingerprint": params.get("fp") or "chrome",
+            "fingerprint": fp,
             "allowInsecure": False,
         }
         alpn = params.get("alpn")
@@ -93,13 +95,7 @@ def _stream_settings(uri: str) -> dict:
         header_type = (params.get("headertype") or "none").lower()
         if header_type and header_type != "none":
             stream["tcpSettings"] = {"header": {"type": header_type}}
-        # xhttp / httpupgrade not always present; keep tcp clean for stable probes
 
-    # Mux breaks observatory RTT and causes flaky leastPing — always off
-    stream["sockopt"] = {
-        "tcpFastOpen": False,
-        "tcpKeepAliveInterval": 30,
-    }
     return stream
 
 
@@ -162,6 +158,10 @@ def trojan_to_outbound(uri: str, tag: str) -> dict | None:
 
 def uri_to_outbound(uri: str, tag: str) -> dict | None:
     try:
+        params = _q(uri)
+        network = (params.get("type") or "tcp").lower()
+        if network == "xhttp":
+            return None
         if uri.lower().startswith("vless://"):
             return vless_to_outbound(uri, tag)
         if uri.lower().startswith("trojan://"):
@@ -199,86 +199,120 @@ def _client_inbounds() -> list[dict]:
 
 def _dns_block() -> dict:
     return {
-        "servers": [
-            "1.1.1.1",
-            "8.8.8.8",
-            "localhost",
-        ],
+        "servers": ["1.1.1.1", "8.8.8.8"],
         "queryStrategy": "UseIP",
     }
 
 
-def build_auto_select_config(uris: list[str]) -> dict | None:
-    """One Happ entry: Xray leastPing over all source nodes (real RTT via observatory)."""
+def _private_direct_rule() -> dict:
+    return {
+        "type": "field",
+        "ip": [
+            "0.0.0.0/8",
+            "10.0.0.0/8",
+            "127.0.0.0/8",
+            "169.254.0.0/16",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "::1/128",
+            "fc00::/7",
+            "fe80::/10",
+        ],
+        "outboundTag": "direct",
+    }
+
+
+def build_auto_select_config(
+    uris: list[str],
+    *,
+    remarks: str,
+    node_prefix: str,
+    description: str,
+) -> dict | None:
+    """
+    One Happ profile: Xray observatory + leastPing over all nodes.
+    Unique node_prefix per profile so WIFI/LTE never share tags.
+    """
     outbounds: list[dict] = []
     for idx, uri in enumerate(uris):
-        outbound = uri_to_outbound(uri, f"{NODE_TAG_PREFIX}{idx}")
+        outbound = uri_to_outbound(uri, f"{node_prefix}{idx}")
         if outbound:
             outbounds.append(outbound)
 
-    if len(outbounds) < 2:
-        if not outbounds and uris:
-            one = uri_to_outbound(uris[0], f"{NODE_TAG_PREFIX}0")
-            if one:
-                outbounds = [one]
-        if not outbounds:
-            return None
+    if not outbounds:
+        return None
+
+    # Single node: still a valid profile (no balancer needed)
+    if len(outbounds) == 1:
+        only = outbounds[0]
+        only["tag"] = "proxy"
+        outbounds = [
+            only,
+            {"tag": "direct", "protocol": "freedom", "settings": {}},
+            {"tag": "block", "protocol": "blackhole", "settings": {}},
+        ]
+        return {
+            "remarks": remarks,
+            "meta": {"serverDescription": base64.b64encode(description.encode()).decode()},
+            "log": {"loglevel": "warning"},
+            "dns": _dns_block(),
+            "inbounds": _client_inbounds(),
+            "outbounds": outbounds,
+            "routing": {
+                "domainStrategy": "AsIs",
+                "rules": [
+                    _private_direct_rule(),
+                    {
+                        "type": "field",
+                        "network": "tcp,udp",
+                        "outboundTag": "proxy",
+                    },
+                ],
+            },
+        }
 
     outbounds.append({"tag": "direct", "protocol": "freedom", "settings": {}})
     outbounds.append({"tag": "block", "protocol": "blackhole", "settings": {}})
 
-    node_count = sum(1 for o in outbounds if str(o.get("tag", "")).startswith(NODE_TAG_PREFIX))
-    remarks = f"⚡ {config.BOT_NAME} · АВТО-ВЫБОР"
+    node_count = sum(1 for o in outbounds if str(o.get("tag", "")).startswith(node_prefix))
     probe_sec = max(10, int(config.AUTO_PROBE_INTERVAL_SEC))
-    desc = f"leastPing · {node_count} WHITE-узлов · RTT {probe_sec}с"
-    first_node = f"{NODE_TAG_PREFIX}0"
+    first_node = f"{node_prefix}0"
+    balancer_tag = f"bal-{node_prefix.rstrip('-')}"
 
     return {
         "remarks": remarks,
         "meta": {
-            "serverDescription": base64.b64encode(desc.encode()).decode()
+            "serverDescription": base64.b64encode(
+                f"{description} · leastPing · {node_count} · {probe_sec}с".encode()
+            ).decode()
         },
         "log": {"loglevel": "warning"},
         "dns": _dns_block(),
         "inbounds": _client_inbounds(),
         "outbounds": outbounds,
         "routing": {
-            "domainStrategy": "IPIfNonMatch",
+            # AsIs: avoid DNS blackholes that look like "no internet"
+            "domainStrategy": "AsIs",
             "balancers": [
                 {
-                    "tag": "auto",
-                    "selector": [NODE_TAG_PREFIX],
+                    "tag": balancer_tag,
+                    "selector": [node_prefix],
                     "fallbackTag": first_node,
                     "strategy": {"type": "leastPing"},
                 }
             ],
             "rules": [
-                {
-                    "type": "field",
-                    "ip": [
-                        "0.0.0.0/8",
-                        "10.0.0.0/8",
-                        "127.0.0.0/8",
-                        "169.254.0.0/16",
-                        "172.16.0.0/12",
-                        "192.168.0.0/16",
-                        "::1/128",
-                        "fc00::/7",
-                        "fe80::/10",
-                    ],
-                    "outboundTag": "direct",
-                },
+                _private_direct_rule(),
+                # No inboundTag — Happ may replace socks/http
                 {
                     "type": "field",
                     "network": "tcp,udp",
-                    "balancerTag": "auto",
+                    "balancerTag": balancer_tag,
                 },
             ],
         },
-        # Компактный WHITE-пул + частый RTT: быстро переключается Wi‑Fi→LTE
-        # на реально самый низкий пинг, без 120-node probe storm.
         "observatory": {
-            "subjectSelector": [NODE_TAG_PREFIX],
+            "subjectSelector": [node_prefix],
             "probeUrl": PROBE_URL,
             "probeInterval": f"{probe_sec}s",
             "enableConcurrency": True,
@@ -316,19 +350,38 @@ def build_single_server_config(uri: str, index: int) -> dict | None:
     }
 
 
-def build_subscription_json(uris: list[str], *, show_individual: bool | None = None) -> list[dict]:
-    """Happ JSON: only АВТО-ВЫБОР by default (probes all uris inside)."""
+def build_subscription_json(
+    wifi_uris: list[str],
+    lte_uris: list[str],
+    *,
+    show_individual: bool | None = None,
+) -> list[dict]:
+    """Two visible profiles: АВТО WIFI + АВТО LTE."""
     if show_individual is None:
         show_individual = config.SUBSCRIPTION_SHOW_INDIVIDUAL
 
     entries: list[dict] = []
-    auto = build_auto_select_config(uris)
-    if auto:
-        entries.append(auto)
 
-    # Individual servers are opt-in only — client must see a single profile.
+    wifi = build_auto_select_config(
+        wifi_uris,
+        remarks=f"📶 {config.BOT_NAME} · АВТО WIFI",
+        node_prefix="wifi-",
+        description="Wi‑Fi · чёрные списки",
+    )
+    if wifi:
+        entries.append(wifi)
+
+    lte = build_auto_select_config(
+        lte_uris,
+        remarks=f"📱 {config.BOT_NAME} · АВТО LTE",
+        node_prefix="lte-",
+        description="LTE · белые списки CIDR/SNI",
+    )
+    if lte:
+        entries.append(lte)
+
     if show_individual:
-        for idx, uri in enumerate(uris, start=1):
+        for idx, uri in enumerate(wifi_uris + lte_uris, start=1):
             single = build_single_server_config(uri, idx)
             if single:
                 entries.append(single)
@@ -336,9 +389,14 @@ def build_subscription_json(uris: list[str], *, show_individual: bool | None = N
     return entries
 
 
-def subscription_json_bytes(uris: list[str], *, show_individual: bool | None = None) -> bytes:
+def subscription_json_bytes(
+    wifi_uris: list[str],
+    lte_uris: list[str],
+    *,
+    show_individual: bool | None = None,
+) -> bytes:
     return json.dumps(
-        build_subscription_json(uris, show_individual=show_individual),
+        build_subscription_json(wifi_uris, lte_uris, show_individual=show_individual),
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")

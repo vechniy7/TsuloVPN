@@ -229,8 +229,10 @@ def screen_access(user: User, import_url: str) -> str:
         f"1. Скопируйте ссылку (тап по тексту)\n"
         f"2. Вставьте в приложение-клиент\n"
         f"3. Включите автообновление\n\n"
-        f"В приложении будет один профиль <b>АВТО-ВЫБОР</b> — "
-        f"он сам проверяет узлы и держит самый быстрый."
+        f"В приложении два профиля:\n"
+        f"• <b>АВТО WIFI</b> — домашний / Wi‑Fi\n"
+        f"• <b>АВТО LTE</b> — мобильный интернет\n"
+        f"Каждый сам выбирает узел с наименьшим пингом."
     )
 
 
@@ -297,10 +299,12 @@ def screen_help() -> str:
         f"<b>2.</b> Добавьте её в приложение-клиент\n"
         f"<b>3.</b> Включите автообновление\n"
         f"{DIV}\n\n"
-        f"<b>АВТО-ВЫБОР</b>\n"
-        f"Один профиль в приложении: сам проверяет\n"
-        f"узлы из всех источников и держит\n"
-        f"самый быстрый, переключаясь при сбое.\n\n"
+        f"<b>АВТО WIFI</b> — для Wi‑Fi: проверяет узлы\n"
+        f"из чёрных списков и берёт самый быстрый.\n\n"
+        f"<b>АВТО LTE</b> — для мобильного: узлы\n"
+        f"белых списков (CIDR/SNI), тоже leastPing.\n\n"
+        f"Если связь просела — отключите и снова\n"
+        f"подключите нужный АВТО-профиль.\n\n"
         f"Нужна помощь — напишите администратору."
     )
 
@@ -314,16 +318,19 @@ def screen_admin(
     fill: int,
     source_total: int = 0,
     sources_line: str = "",
+    wifi_count: int = 0,
+    lte_count: int = 0,
 ) -> str:
     sources = f"\nИсточники · {_esc(sources_line)}" if sources_line else ""
     return (
         f"<b>Админ</b>\n\n"
         f"{DIV}\n"
         f"Пользователей · <b>{users}</b>\n"
-        f"АВТО-пул · <b>{sub_count}</b> / {limit}\n"
-        f"Уникальных с источников · {source_total}\n"
-        f"Разбивка · {primary} + {fill}{sources}\n"
-        f"В Happ видно · только АВТО-ВЫБОР\n"
+        f"АВТО WIFI · <b>{wifi_count}</b> / {limit}\n"
+        f"АВТО LTE · <b>{lte_count}</b> / {limit}\n"
+        f"Узлов всего · {sub_count} · raw · {source_total}\n"
+        f"Разбивка · WIFI {primary} · LTE {fill}{sources}\n"
+        f"В Happ · 2 профиля (WIFI + LTE)\n"
         f"{DIV}"
     )
 
@@ -336,14 +343,17 @@ def screen_admin_refresh(
     fill: int,
     source_total: int = 0,
     sources_line: str = "",
+    wifi_count: int = 0,
+    lte_count: int = 0,
 ) -> str:
     sources = f"\nИсточники · {_esc(sources_line)}" if sources_line else ""
     return (
         f"<b>Данные обновлены</b>\n\n"
         f"{DIV}\n"
-        f"АВТО-пул · <b>{sub_count}</b> / {limit}\n"
-        f"Уникальных с источников · {source_total}\n"
-        f"Разбивка · {primary} + {fill}{sources}\n"
+        f"АВТО WIFI · <b>{wifi_count}</b> / {limit}\n"
+        f"АВТО LTE · <b>{lte_count}</b> / {limit}\n"
+        f"Узлов всего · {sub_count} · raw · {source_total}\n"
+        f"Разбивка · WIFI {primary} · LTE {fill}{sources}\n"
         f"{DIV}"
     )
 
