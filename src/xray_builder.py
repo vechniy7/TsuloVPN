@@ -230,10 +230,12 @@ def build_auto_select_config(
     description: str,
     probe_url: str | None = None,
     probe_interval_sec: int | None = None,
+    max_rtt_ms: int | None = None,
 ) -> dict | None:
     """
-    One Happ profile: Xray observatory + leastPing over all nodes.
+    One Happ profile: Xray observatory + balancer over all nodes.
     probe_url is fetched BY THE CLIENT through each outbound (real RTT path).
+    If max_rtt_ms is set (LTE), use leastLoad+maxRTT to skip dead 1–2.5s nodes.
     """
     outbounds: list[dict] = []
     for idx, uri in enumerate(uris):
@@ -284,11 +286,27 @@ def build_auto_select_config(
     balancer_tag = f"bal-{node_prefix.rstrip('-')}"
     host_hint = probe.replace("https://", "").replace("http://", "").split("/", 1)[0]
 
+    if max_rtt_ms and max_rtt_ms > 0:
+        # Exclude alive-but-unusable high-latency nodes (typical 1000–2500ms fails)
+        strategy: dict = {
+            "type": "leastLoad",
+            "settings": {
+                # Only nodes with YouTube RTT under this threshold; pick the best one
+                "maxRTT": f"{int(max_rtt_ms)}ms",
+                "expected": 1,
+                "tolerance": 0.1,
+            },
+        }
+        strategy_label = f"leastLoad≤{int(max_rtt_ms)}ms→{host_hint}"
+    else:
+        strategy = {"type": "leastPing"}
+        strategy_label = f"leastPing→{host_hint}"
+
     return {
         "remarks": remarks,
         "meta": {
             "serverDescription": base64.b64encode(
-                f"{description} · leastPing→{host_hint} · {node_count} · {probe_sec}с".encode()
+                f"{description} · {strategy_label} · {node_count} · {probe_sec}с".encode()
             ).decode()
         },
         "log": {"loglevel": "warning"},
@@ -302,7 +320,7 @@ def build_auto_select_config(
                     "tag": balancer_tag,
                     "selector": [node_prefix],
                     "fallbackTag": first_node,
-                    "strategy": {"type": "leastPing"},
+                    "strategy": strategy,
                 }
             ],
             "rules": [
@@ -383,6 +401,7 @@ def build_subscription_json(
         description="LTE · обход · RTT YouTube",
         probe_url=config.LTE_PROBE_URL,
         probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
+        max_rtt_ms=config.LTE_MAX_RTT_MS,
     )
     if lte:
         entries.append(lte)

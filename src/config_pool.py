@@ -11,7 +11,6 @@ from parser import (
     brand_config,
     build_server_label,
     extract_host_port,
-    is_lte_fast_candidate,
     lte_speed_score,
     parse_subscription_lines,
     rank_configs_for_speed,
@@ -139,60 +138,67 @@ async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
 def _prepare_pool(
     ranked_by_source: list[tuple[str, list[str]]],
     limit: int,
-    *,
-    mode: str = "wifi",
 ) -> tuple[list[str], dict[str, int]]:
-    """
-    Ranked sources already exclude РФ labels.
-    Keep only Xray-convertible (vless/trojan), dedupe, cap, sort.
-    LTE: prefer TCP/Reality first, then fill remaining slots for probe diversity.
-    """
+    """WIFI pool: ranked, host-deduped, convertible, capped."""
     result: list[str] = []
     seen: set[str] = set()
     owner: dict[str, str] = {}
-    score_fn = lte_speed_score if mode == "lte" else speed_score
 
-    def _append(label: str, uri: str) -> bool:
-        if len(result) >= limit:
-            return False
-        if not uri_to_outbound(uri, "probe"):
-            return False
-        key = _config_identity(uri)
-        if key in seen:
-            return False
-        seen.add(key)
-        result.append(uri)
-        owner[key] = label
-        return True
-
-    # Pass 1 — preferred candidates
     for label, uris in ranked_by_source:
         for uri in uris:
             if len(result) >= limit:
                 break
-            if mode == "lte" and not is_lte_fast_candidate(uri):
+            if not uri_to_outbound(uri, "probe"):
                 continue
-            _append(label, uri)
+            key = _config_identity(uri)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(uri)
+            owner[key] = label
         if len(result) >= limit:
             break
 
-    # Pass 2 (LTE only) — fill so leastPing has enough YouTube RTT samples
-    if mode == "lte" and len(result) < limit:
-        for label, uris in ranked_by_source:
-            for uri in uris:
-                if len(result) >= limit:
-                    break
-                _append(label, uri)
-            if len(result) >= limit:
-                break
-
-    result.sort(key=score_fn, reverse=True)
+    result.sort(key=speed_score, reverse=True)
 
     counts: dict[str, int] = {label: 0 for label, _ in ranked_by_source}
     for uri in result:
         label = owner.get(_config_identity(uri))
         if label:
             counts[label] += 1
+    return result, counts
+
+
+def _prepare_lte_pool(
+    raw_by_source: list[tuple[str, list[str]]],
+    limit: int,
+) -> tuple[list[str], dict[str, int]]:
+    """
+    LTE: source priority order (Mobile → CIDR → …), cap at limit.
+    Keep ALL unique convertible URIs from earlier sources (fp/query variants),
+    no host:port collapse — so Mobile list is fully probed first.
+    """
+    result: list[str] = []
+    seen: set[str] = set()
+    counts: dict[str, int] = {label: 0 for label, _ in raw_by_source}
+
+    for label, uris in raw_by_source:
+        for uri in uris:
+            if len(result) >= limit:
+                break
+            if not uri_to_outbound(uri, "probe"):
+                continue
+            key = _config_identity(uri)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(uri)
+            counts[label] += 1
+        if len(result) >= limit:
+            break
+
+    # Best heuristic first = fallback while YouTube probes warm up
+    result.sort(key=lte_speed_score, reverse=True)
     return result, counts
 
 
@@ -228,7 +234,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
             texts: list[str] = []
             wifi_ranked: list[tuple[str, list[str]]] = []
-            lte_ranked: list[tuple[str, list[str]]] = []
+            lte_raw: list[tuple[str, list[str]]] = []
             total_raw = 0
 
             for url in wifi_urls:
@@ -242,17 +248,17 @@ async def refresh_pool(force: bool = False) -> PoolState:
             for url in lte_urls:
                 label = _source_label(url)
                 text, uris = by_label.get(label, (None, []))
-                # Avoid double-counting text fingerprint if URL shared (shouldn't be)
                 if url not in wifi_urls:
                     texts.append(text or "")
-                ranked = rank_configs_for_speed(uris or [])
-                lte_ranked.append((label, ranked))
-                total_raw += len(ranked)
+                # Raw list — no host collapse; Mobile variants must all be probeable
+                raw = list(uris or [])
+                lte_raw.append((label, raw))
+                total_raw += len(raw)
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
             lte_limit = config.LTE_CONFIG_LIMIT
-            wifi_uris, wifi_counts = _prepare_pool(wifi_ranked, limit, mode="wifi")
-            lte_uris, lte_counts = _prepare_pool(lte_ranked, lte_limit, mode="lte")
+            wifi_uris, wifi_counts = _prepare_pool(wifi_ranked, limit)
+            lte_uris, lte_counts = _prepare_lte_pool(lte_raw, lte_limit)
 
             fingerprint = _content_fingerprint(texts, wifi_uris, lte_uris)
             global _cached_wifi_lines, _cached_lte_lines
