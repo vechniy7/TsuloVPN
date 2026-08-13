@@ -18,6 +18,7 @@ from parser import (
     parse_subscription_lines,
     rank_configs_for_speed,
     rank_lte_configs,
+    rank_universal_configs,
     set_whitelist_cidrs,
     speed_score,
 )
@@ -366,88 +367,74 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 return _pool
 
             texts: list[str] = []
-            wifi_ranked: list[tuple[str, list[str]]] = []
-            lte_raw: list[tuple[str, list[str]]] = []
+            all_uris: list[str] = []
             total_raw = 0
+            source_counts: dict[str, int] = {}
 
-            for url in wifi_urls:
+            for url in all_urls:
                 label = _source_label(url)
                 text, uris = by_label.get(label, (None, []))
                 texts.append(text or "")
-                ranked = rank_configs_for_speed(uris or [])
-                wifi_ranked.append((label, ranked))
-                total_raw += len(ranked)
-
-            for url in lte_urls:
-                label = _source_label(url)
-                text, uris = by_label.get(label, (None, []))
-                if url not in wifi_urls:
-                    texts.append(text or "")
-                # Raw list — no host collapse; Mobile variants must all be probeable
                 raw = list(uris or [])
-                lte_raw.append((label, raw))
+                all_uris.extend(raw)
+                source_counts[label] = len(raw)
                 total_raw += len(raw)
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
-            lte_limit = config.LTE_CONFIG_LIMIT
-            lte_min = config.LTE_MIN_BYPASS_SCORE
-            wifi_uris, wifi_counts = _prepare_pool(wifi_ranked, limit)
-            lte_uris, lte_counts = _prepare_lte_pool(lte_raw, lte_limit, lte_min)
-            lte_uris = _sort_lte_whitelist_first(lte_uris)
-            lte_uris = await _rank_by_tcp_latency(lte_uris)
-            lte_uris = _lte_profiles_from_pool(lte_uris)
+            picked = rank_universal_configs(all_uris, limit=limit)
 
-            fingerprint = _content_fingerprint(texts, wifi_uris, lte_uris)
+            fingerprint = _content_fingerprint(texts, picked, [])
             global _cached_wifi_lines, _cached_lte_lines
 
             if (
                 fingerprint == _pool.content_fingerprint
-                and _cached_wifi_lines
                 and _cached_lte_lines
                 and not force
             ):
                 logger.info(
-                    "Sources unchanged (WIFI=%s LTE=%s from %s ranked)",
-                    len(wifi_uris),
-                    len(lte_uris),
+                    "Source unchanged (%s in key from %s raw unique-ranked)",
+                    len(picked),
                     total_raw,
                 )
                 _pool.last_refresh_at = time.time()
                 _pool.last_error = None
                 return _pool
 
-            _cached_wifi_lines = _build_lines(wifi_uris, "wifi")
-            _cached_lte_lines = _build_lines(lte_uris, "lte")
+            branded = _build_lines(picked, "vpn")
+            _cached_wifi_lines = []
+            _cached_lte_lines = branded
 
-            _pool.wifi_uris = wifi_uris
-            _pool.lte_uris = lte_uris
-            _pool.wifi_count = len(wifi_uris)
-            _pool.lte_count = len(lte_uris)
-            _pool.wifi_source_counts = wifi_counts
-            _pool.lte_source_counts = lte_counts
-            _pool.configs = wifi_uris + lte_uris
+            _pool.wifi_uris = []
+            _pool.lte_uris = picked
+            _pool.wifi_count = 0
+            _pool.lte_count = len(picked)
+            _pool.wifi_source_counts = {}
+            _pool.lte_source_counts = source_counts
+            _pool.configs = picked
             _pool.source_total = total_raw
-            _pool.primary_count = len(wifi_uris)
-            _pool.fill_count = len(lte_uris)
-            _pool.source_counts = {**wifi_counts, **lte_counts}
-            _pool.subscription_count = len(wifi_uris) + len(lte_uris)
+            _pool.primary_count = len(picked)
+            _pool.fill_count = 0
+            _pool.source_counts = source_counts
+            _pool.subscription_count = len(picked)
             _pool.content_fingerprint = fingerprint
             _pool.last_refresh_at = time.time()
             _pool.last_refresh_duration = time.perf_counter() - started
             _pool.last_error = None
 
             logger.info(
-                "Pools updated: WIFI=%s (%s) LTE=%s (%s) in %.1fs",
-                len(wifi_uris),
-                ", ".join(f"{k}={v}" for k, v in wifi_counts.items() if v),
-                len(lte_uris),
-                ", ".join(f"{k}={v}" for k, v in lte_counts.items() if v),
+                "Pool updated: %s in key (limit=%s) from %s raw (%s) in %.1fs",
+                len(picked),
+                limit,
+                total_raw,
+                ", ".join(f"{k}={v}" for k, v in source_counts.items() if v),
                 _pool.last_refresh_duration,
             )
-            if len(wifi_uris) < 2:
-                logger.warning("WIFI auto pool too small: %s (need ≥2 for leastPing)", len(wifi_uris))
-            if len(lte_uris) < 2:
-                logger.warning("LTE auto pool too small: %s (need ≥2 for leastPing)", len(lte_uris))
+            if len(picked) < limit:
+                logger.warning(
+                    "Fewer than %s unique configs after rank: %s",
+                    limit,
+                    len(picked),
+                )
         except Exception as exc:
             _pool.last_error = str(exc)
             logger.exception("Pool refresh failed: %s", exc)

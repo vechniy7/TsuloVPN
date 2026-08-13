@@ -227,11 +227,9 @@ def screen_access(user: User, import_url: str) -> str:
         f"<code>{_esc(import_url)}</code>\n\n"
         f"<b>Как подключить</b>\n"
         f"1. Скопируйте ссылку (тап по тексту)\n"
-        f"2. Вставьте в Happ → автообновление вкл.\n\n"
-        f"В подписке:\n"
-        f"• <b>📶 АВТО WIFI</b> — домашний / Wi‑Fi\n"
-        f"• <b>📱 АВТО LTE ★</b> и <b>LTE #02–#10</b> — мобильный\n"
-        f"На LTE выбирайте сервер с ping (не N/A)."
+        f"2. Вставьте в Happ → автообновление вкл.\n"
+        f"3. На LTE выберите сервер с ping (не N/A)\n\n"
+        f"В ключе до 50 серверов из проверенного списка."
     )
 
 
@@ -295,12 +293,11 @@ def screen_help() -> str:
         f"<i>как подключить</i>\n\n"
         f"{DIV}\n"
         f"<b>1.</b> Получите ссылку в «Доступ»\n"
-        f"<b>2.</b> Добавьте её в приложение-клиент\n"
+        f"<b>2.</b> Добавьте её в Happ\n"
         f"<b>3.</b> Включите автообновление\n"
         f"{DIV}\n\n"
-        f"<b>АВТО WIFI</b> — для Wi‑Fi (автовыбор узла).\n\n"
-        f"<b>АВТО LTE ★ / LTE #02…</b> — для мобильного.\n"
-        f"На LTE — сервер с ping, не N/A.\n\n"
+        f"В ключе до 50 серверов. На мобильном\n"
+        f"берите конфиг с ping, не N/A.\n\n"
         f"Если связь просела — отключите и снова\n"
         f"подключите нужный АВТО-профиль (~10–15 сек).\n\n"
         f"Нужна помощь — напишите администратору."
@@ -324,11 +321,9 @@ def screen_admin(
         f"<b>Админ</b>\n\n"
         f"{DIV}\n"
         f"Пользователей · <b>{users}</b>\n"
-        f"АВТО WIFI · <b>{wifi_count}</b> / {limit}\n"
-        f"АВТО LTE · <b>{lte_count}</b> / {limit}\n"
-        f"Узлов всего · {sub_count} · raw · {source_total}\n"
-        f"Разбивка · WIFI {primary} · LTE {fill}{sources}\n"
-        f"В Happ · 1 подписка (WIFI + LTE профили)\n"
+        f"В ключе · <b>{sub_count}</b> / {limit}\n"
+        f"В источнике · {source_total}{sources}\n"
+        f"Формат · Happ vless (50 max)\n"
         f"{DIV}"
     )
 
@@ -348,10 +343,8 @@ def screen_admin_refresh(
     return (
         f"<b>Данные обновлены</b>\n\n"
         f"{DIV}\n"
-        f"АВТО WIFI · <b>{wifi_count}</b> / {limit}\n"
-        f"АВТО LTE · <b>{lte_count}</b> / {limit}\n"
-        f"Узлов всего · {sub_count} · raw · {source_total}\n"
-        f"Разбивка · WIFI {primary} · LTE {fill}{sources}\n"
+        f"В ключе · <b>{sub_count}</b> / {limit}\n"
+        f"В источнике · {source_total}{sources}\n"
         f"{DIV}"
     )
 

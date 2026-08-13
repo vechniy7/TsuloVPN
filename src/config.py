@@ -4,25 +4,8 @@ from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
-IGARECK_RAW = "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main"
-RJSXRD_RAW = "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass"
-VSVAVAN_RAW = "https://raw.githubusercontent.com/vsvavan2/vpn-config-rkn/main/output"
 ZIENG2_RAW = "https://raw.githubusercontent.com/zieng2/wl/main"
-
-# LTE: сначала vsvavan «working», затем агрегаторы
-_DEFAULT_LTE_SOURCES = ",".join(
-    (
-        f"{VSVAVAN_RAW}/WHITE_Reality_Mobile_working.txt",
-        f"{VSVAVAN_RAW}/WHITE_Reality_Mobile_2_working.txt",
-        f"{VSVAVAN_RAW}/WHITE_CIDR_RU_checked_working.txt",
-        f"{VSVAVAN_RAW}/WHITE_CIDR_RU_all_working.txt",
-        f"{RJSXRD_RAW}/bypass-all.txt",
-        f"{ZIENG2_RAW}/vless_universal.txt",
-        f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile.txt",
-        f"{IGARECK_RAW}/WHITE-CIDR-RU-checked.txt",
-        f"{IGARECK_RAW}/WHITE-CIDR-RU-all.txt",
-    )
-)
+ZIENG2_UNIVERSAL = f"{ZIENG2_RAW}/vless_universal.txt"
 
 
 class Config(BaseModel):
@@ -35,18 +18,11 @@ class Config(BaseModel):
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )
 
-    # АВТО WIFI — чёрные списки (обычный Wi‑Fi / домашний инет)
-    WIFI_SOURCE_URLS: str = os.getenv(
-        "WIFI_SOURCE_URLS",
-        f"{IGARECK_RAW}/BLACK_VLESS_RUS_mobile.txt",
-    )
-    # АВТО LTE: multi-source bypass (rjsxrd → zieng2 → vsvavan → igareck)
-    LTE_SOURCE_URLS: str = os.getenv("LTE_SOURCE_URLS", _DEFAULT_LTE_SOURCES)
+    WIFI_SOURCE_URLS: str = os.getenv("WIFI_SOURCE_URLS", ZIENG2_UNIVERSAL)
+    LTE_SOURCE_URLS: str = os.getenv("LTE_SOURCE_URLS", ZIENG2_UNIVERSAL)
 
-    # Сколько узлов внутри WIFI-профиля
-    SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "40"))
-    # LTE: до 100 в пуле, в JSON-профиль — LTE_BALANCER_NODES (меньше = стабильнее на Happ)
-    LTE_CONFIG_LIMIT: int = int(os.getenv("LTE_CONFIG_LIMIT", "100"))
+    SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "50"))
+    LTE_CONFIG_LIMIT: int = int(os.getenv("LTE_CONFIG_LIMIT", "50"))
     LTE_BALANCER_NODES: int = int(os.getenv("LTE_BALANCER_NODES", "10"))
     # happ_ping = отдельные минимальные профили; balancer = observatory
     LTE_DELIVERY: str = os.getenv("LTE_DELIVERY", "happ_ping").strip().lower()
@@ -59,7 +35,7 @@ class Config(BaseModel):
     # 0 = leastPing (совместимее с Happ); >0 = leastLoad+maxRTT
     LTE_MAX_RTT_MS: int = int(os.getenv("LTE_MAX_RTT_MS", "0"))
     # TCP-проверка :443 с сервера перед выдачей в подписку
-    LTE_TCP_CHECK: bool = os.getenv("LTE_TCP_CHECK", "true").lower() in ("1", "true", "yes")
+    LTE_TCP_CHECK: bool = os.getenv("LTE_TCP_CHECK", "false").lower() in ("1", "true", "yes")
     WHITELIST_CIDR_URL: str = os.getenv(
         "WHITELIST_CIDR_URL",
         "https://raw.githubusercontent.com/hxehex/russia-mobile-internet-whitelist/main/cidrwhitelist.txt",
