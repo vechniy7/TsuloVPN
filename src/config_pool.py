@@ -196,9 +196,22 @@ def _lte_profiles_from_pool(uris: list[str]) -> list[str]:
         strict.append(uri)
 
     strict.sort(key=lte_speed_score, reverse=True)
-    if len(strict) >= 3:
-        logger.info("LTE strict pool: %s configs (IP+SNI+443)", len(strict))
-        return strict
+    # Один конфиг на IP — меньше дубликатов
+    deduped: list[str] = []
+    seen_ip: set[str] = set()
+    for uri in strict:
+        hp = extract_host_port(uri)
+        if not hp:
+            continue
+        ip = hp[0].lower()
+        if ip in seen_ip:
+            continue
+        seen_ip.add(ip)
+        deduped.append(uri)
+
+    if len(deduped) >= 3:
+        logger.info("LTE strict pool: %s configs (IP+SNI+443, %s IPs)", len(deduped), len(seen_ip))
+        return deduped
 
     if config.LTE_REQUIRE_WHITELIST_IP:
         wl = [

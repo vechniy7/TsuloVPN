@@ -9,15 +9,15 @@ RJSXRD_RAW = "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/
 VSVAVAN_RAW = "https://raw.githubusercontent.com/vsvavan2/vpn-config-rkn/main/output"
 ZIENG2_RAW = "https://raw.githubusercontent.com/zieng2/wl/main"
 
-# LTE: приоритет — проверенные bypass-агрегаторы, затем igareck
+# LTE: сначала vsvavan «working», затем агрегаторы
 _DEFAULT_LTE_SOURCES = ",".join(
     (
-        f"{RJSXRD_RAW}/bypass-all.txt",
-        f"{ZIENG2_RAW}/vless_universal.txt",
         f"{VSVAVAN_RAW}/WHITE_Reality_Mobile_working.txt",
         f"{VSVAVAN_RAW}/WHITE_Reality_Mobile_2_working.txt",
         f"{VSVAVAN_RAW}/WHITE_CIDR_RU_checked_working.txt",
         f"{VSVAVAN_RAW}/WHITE_CIDR_RU_all_working.txt",
+        f"{RJSXRD_RAW}/bypass-all.txt",
+        f"{ZIENG2_RAW}/vless_universal.txt",
         f"{IGARECK_RAW}/Vless-Reality-White-Lists-Rus-Mobile.txt",
         f"{IGARECK_RAW}/WHITE-CIDR-RU-checked.txt",
         f"{IGARECK_RAW}/WHITE-CIDR-RU-all.txt",
@@ -55,7 +55,7 @@ class Config(BaseModel):
         "LTE_REQUIRE_WHITELIST_IP", "true"
     ).lower() in ("1", "true", "yes")
     # Мин. bypass-score для попадания в LTE-пул (отсекает мусор из агрегаторов)
-    LTE_MIN_BYPASS_SCORE: int = int(os.getenv("LTE_MIN_BYPASS_SCORE", "45"))
+    LTE_MIN_BYPASS_SCORE: int = int(os.getenv("LTE_MIN_BYPASS_SCORE", "55"))
     # 0 = leastPing (совместимее с Happ); >0 = leastLoad+maxRTT
     LTE_MAX_RTT_MS: int = int(os.getenv("LTE_MAX_RTT_MS", "0"))
     # TCP-проверка :443 с сервера перед выдачей в подписку
@@ -136,6 +136,10 @@ class Config(BaseModel):
     def subscription_url_for_token(self, token: str) -> str:
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
         return f"{base}/sub/{token}"
+
+    def subscription_lte_url_for_token(self, token: str) -> str:
+        base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
+        return f"{base}/sub/{token}/lte"
 
     @staticmethod
     def _split_urls(raw: str) -> list[str]:

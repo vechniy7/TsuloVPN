@@ -86,11 +86,13 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
         )
         return
 
-    sub_url = config.subscription_url_for_token(user.subscription_token)
-    import_url = await encrypt_subscription_url(sub_url)
+    wifi_url = config.subscription_url_for_token(user.subscription_token)
+    lte_url = config.subscription_lte_url_for_token(user.subscription_token)
+    wifi_import = await encrypt_subscription_url(wifi_url)
+    lte_import = await encrypt_subscription_url(lte_url)
     await _edit_or_answer(
         target,
-        ui.screen_access(user, import_url),
+        ui.screen_access(user, wifi_import, lte_import),
         ui.kb_access(),
         edit=edit,
     )
