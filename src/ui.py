@@ -215,7 +215,7 @@ def screen_access_loading() -> str:
     )
 
 
-def screen_access(user: User, wifi_url: str, lte_url: str) -> str:
+def screen_access(user: User, import_url: str) -> str:
     badge, detail, _ = status_info(user)
     return (
         f"<b>Ваш доступ</b>\n\n"
@@ -223,15 +223,15 @@ def screen_access(user: User, wifi_url: str, lte_url: str) -> str:
         f"<b>Статус · {badge}</b>\n"
         f"{_esc(detail)}\n"
         f"{DIV}\n\n"
-        f"<b>1. Wi‑Fi (домашний интернет)</b>\n"
-        f"<code>{_esc(wifi_url)}</code>\n\n"
-        f"<b>2. LTE (мобильный · Билайн/МТС/Мегафон)</b>\n"
-        f"<code>{_esc(lte_url)}</code>\n\n"
+        f"<b>Ссылка</b>\n"
+        f"<code>{_esc(import_url)}</code>\n\n"
         f"<b>Как подключить</b>\n"
-        f"1. В Happ добавьте <b>обе</b> ссылки как подписки\n"
-        f"2. Дома — профиль <b>АВТО WIFI</b>\n"
-        f"3. На LTE — серверы из второй подписки, выберите с ping\n"
-        f"4. Включите автообновление у обеих"
+        f"1. Скопируйте ссылку (тап по тексту)\n"
+        f"2. Вставьте в Happ → автообновление вкл.\n\n"
+        f"В подписке:\n"
+        f"• <b>📶 АВТО WIFI</b> — домашний / Wi‑Fi\n"
+        f"• <b>📱 АВТО LTE ★</b> и <b>LTE #02–#10</b> — мобильный\n"
+        f"На LTE выбирайте сервер с ping (не N/A)."
     )
 
 
@@ -298,9 +298,9 @@ def screen_help() -> str:
         f"<b>2.</b> Добавьте её в приложение-клиент\n"
         f"<b>3.</b> Включите автообновление\n"
         f"{DIV}\n\n"
-        f"<b>АВТО WIFI</b> — подписка 1, для Wi‑Fi.\n\n"
-        f"<b>LTE</b> — подписка 2, нативные vless для мобильного.\n"
-        f"На LTE выберите сервер с ping (не N/A).\n\n"
+        f"<b>АВТО WIFI</b> — для Wi‑Fi (автовыбор узла).\n\n"
+        f"<b>АВТО LTE ★ / LTE #02…</b> — для мобильного.\n"
+        f"На LTE — сервер с ping, не N/A.\n\n"
         f"Если связь просела — отключите и снова\n"
         f"подключите нужный АВТО-профиль (~10–15 сек).\n\n"
         f"Нужна помощь — напишите администратору."
@@ -328,7 +328,7 @@ def screen_admin(
         f"АВТО LTE · <b>{lte_count}</b> / {limit}\n"
         f"Узлов всего · {sub_count} · raw · {source_total}\n"
         f"Разбивка · WIFI {primary} · LTE {fill}{sources}\n"
-        f"В Happ · 2 подписки (WIFI JSON + LTE vless)\n"
+        f"В Happ · 1 подписка (WIFI + LTE профили)\n"
         f"{DIV}"
     )
 

@@ -61,7 +61,7 @@ async def health():
         "last_error": pool.last_error,
         "wifi_urls": [_source_name(u) for u in config.wifi_source_urls()],
         "lte_urls": [_source_name(u) for u in config.lte_source_urls()],
-        "auto_select": "WIFI-json + LTE-classic-vless",
+        "auto_select": "WIFI-json + LTE-json-profiles",
         "visible_profiles": f"1 wifi + up to {config.LTE_BALANCER_NODES} lte",
         # legacy fields
         "subscription_count": pool.subscription_count,
@@ -88,12 +88,11 @@ async def subscription(token: str):
         raise HTTPException(status_code=503, detail="Configs loading, try again in a minute")
 
     pool = get_pool_state()
-    # Основная подписка: только АВТО WIFI (JSON). LTE — отдельный URL /lte
-    entries = build_subscription_json(wifi, [], show_individual=False)
+    entries = build_subscription_json(wifi, lte, show_individual=False)
     if not entries:
         raise HTTPException(status_code=503, detail="No valid configs for subscription")
 
-    body = subscription_json_bytes(wifi, [], show_individual=False)
+    body = subscription_json_bytes(wifi, lte, show_individual=False)
     profile_title = f"🔐 {config.BOT_NAME}"
 
     headers = {
@@ -116,9 +115,11 @@ async def subscription(token: str):
     }
 
     logger.info(
-        "JSON subscription user=%s WIFI-only visible=%s profiles=%s",
+        "JSON subscription user=%s visible=%s WIFI=%s LTE=%s profiles=%s",
         user.telegram_id,
         len(entries),
+        len(wifi),
+        len(lte),
         [e.get("remarks") for e in entries],
     )
     return Response(content=body, media_type="application/json", headers=headers)
