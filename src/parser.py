@@ -402,6 +402,69 @@ def lte_speed_score(uri: str) -> int:
     return score
 
 
+def is_lte_eligible(uri: str, min_score: int = 45) -> bool:
+    """
+    LTE whitelist bypass: TCP/Vision Reality, RU SNI or CIDR label, port 443 (или vision+RU на 5443/8443).
+    Отсекает gRPC/dl.google.com/нестандартные порты — типичные ложные «рабочие» конфиги.
+    """
+    uri_l = uri.lower()
+    if not uri_l.startswith(("vless://", "trojan://")):
+        return False
+    if INSECURE_PATTERN.search(urllib.parse.unquote(uri)):
+        return False
+    if not is_lte_fast_candidate(uri):
+        return False
+
+    sni = get_sni(uri)
+    sni_l = (sni or "").lower()
+    if any(bad in sni_l for bad in BAD_WHITELIST_SNI):
+        return False
+    if "dl.google" in sni_l:
+        return False
+
+    hostport = extract_host_port(uri)
+    if not hostport:
+        return False
+    port = hostport[1]
+    has_vision = "flow=xtls-rprx-vision" in uri_l
+    ru_sni = is_ru_whitelist_sni(sni)
+
+    if port == 443:
+        pass
+    elif port in (5443, 8443) and ru_sni and has_vision:
+        pass
+    else:
+        return False
+
+    fragment = get_fragment(uri)
+    bypass = bypass_whitelist_score(uri)
+    if ru_sni or is_bypass_label(uri):
+        return bypass >= min_score - 15
+    if "*cidr*" in fragment or "[*cidr*]" in fragment:
+        return bypass >= min_score - 10
+    return bypass >= min_score
+
+
+def rank_lte_configs(uris: list[str], min_score: int = 45) -> list[str]:
+    """Один лучший вариант на host:port, только LTE-eligible, сортировка по lte_speed_score."""
+    best_by_host: dict[str, tuple[int, str]] = {}
+
+    for uri in uris:
+        if not is_lte_eligible(uri, min_score=min_score):
+            continue
+        hostport = extract_host_port(uri)
+        if not hostport:
+            continue
+        key = f"{hostport[0].lower()}:{hostport[1]}"
+        scored = lte_speed_score(uri)
+        prev = best_by_host.get(key)
+        if prev is None or scored > prev[0]:
+            best_by_host[key] = (scored, uri)
+
+    ranked = sorted(best_by_host.values(), key=lambda item: item[0], reverse=True)
+    return [uri for _, uri in ranked]
+
+
 def rank_configs_for_speed(uris: list[str]) -> list[str]:
     """Без РФ, один лучший конфиг на host:port, сортировка по speed_score."""
     best_by_host: dict[str, tuple[int, str]] = {}

@@ -197,7 +197,13 @@ def _client_inbounds() -> list[dict]:
     ]
 
 
-def _dns_block() -> dict:
+def _dns_block(*, lte: bool = False) -> dict:
+    if lte:
+        # Yandex DNS часто доступен на whitelist LTE; остальное — через туннель (sniffing)
+        return {
+            "servers": ["77.88.8.8", "77.88.8.1", "1.1.1.1"],
+            "queryStrategy": "UseIPv4",
+        }
     return {
         "servers": ["1.1.1.1", "8.8.8.8"],
         "queryStrategy": "UseIP",
@@ -231,6 +237,7 @@ def build_auto_select_config(
     probe_url: str | None = None,
     probe_interval_sec: int | None = None,
     max_rtt_ms: int | None = None,
+    lte_dns: bool = False,
 ) -> dict | None:
     """
     One Happ profile: Xray observatory + balancer over all nodes.
@@ -247,7 +254,7 @@ def build_auto_select_config(
         return None
 
     probe = (probe_url or PROBE_URL).strip() or PROBE_URL
-    probe_sec = max(10, int(probe_interval_sec or config.AUTO_PROBE_INTERVAL_SEC))
+    probe_sec = max(8, int(probe_interval_sec or config.AUTO_PROBE_INTERVAL_SEC))
 
     # Single node: still a valid profile (no balancer needed)
     if len(outbounds) == 1:
@@ -262,7 +269,7 @@ def build_auto_select_config(
             "remarks": remarks,
             "meta": {"serverDescription": base64.b64encode(description.encode()).decode()},
             "log": {"loglevel": "warning"},
-            "dns": _dns_block(),
+            "dns": _dns_block(lte=lte_dns),
             "inbounds": _client_inbounds(),
             "outbounds": outbounds,
             "routing": {
@@ -310,11 +317,11 @@ def build_auto_select_config(
             ).decode()
         },
         "log": {"loglevel": "warning"},
-        "dns": _dns_block(),
+        "dns": _dns_block(lte=lte_dns),
         "inbounds": _client_inbounds(),
         "outbounds": outbounds,
         "routing": {
-            "domainStrategy": "AsIs",
+            "domainStrategy": "IPIfNonMatch" if lte_dns else "AsIs",
             "balancers": [
                 {
                     "tag": balancer_tag,
@@ -398,10 +405,11 @@ def build_subscription_json(
         lte_uris,
         remarks=f"📱 {config.BOT_NAME} · АВТО LTE",
         node_prefix="lte-",
-        description="LTE · обход · RTT YouTube",
+        description="LTE · обход · Cloudflare probe",
         probe_url=config.LTE_PROBE_URL,
         probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
         max_rtt_ms=config.LTE_MAX_RTT_MS,
+        lte_dns=True,
     )
     if lte:
         entries.append(lte)

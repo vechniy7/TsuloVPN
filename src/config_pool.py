@@ -14,6 +14,7 @@ from parser import (
     lte_speed_score,
     parse_subscription_lines,
     rank_configs_for_speed,
+    rank_lte_configs,
     speed_score,
 )
 from xray_builder import uri_to_outbound
@@ -172,18 +173,19 @@ def _prepare_pool(
 def _prepare_lte_pool(
     raw_by_source: list[tuple[str, list[str]]],
     limit: int,
+    min_score: int,
 ) -> tuple[list[str], dict[str, int]]:
     """
-    LTE: source priority order (Mobile → CIDR → …), cap at limit.
-    Keep ALL unique convertible URIs from earlier sources (fp/query variants),
-    no host:port collapse — so Mobile list is fully probed first.
+    LTE: source priority, rank_lte_configs per source (host:port dedup + quality filter),
+    cap at limit. Best nodes first for balancer fallback.
     """
     result: list[str] = []
     seen: set[str] = set()
     counts: dict[str, int] = {label: 0 for label, _ in raw_by_source}
 
     for label, uris in raw_by_source:
-        for uri in uris:
+        ranked = rank_lte_configs(uris, min_score=min_score)
+        for uri in ranked:
             if len(result) >= limit:
                 break
             if not uri_to_outbound(uri, "probe"):
@@ -197,7 +199,6 @@ def _prepare_lte_pool(
         if len(result) >= limit:
             break
 
-    # Best heuristic first = fallback while YouTube probes warm up
     result.sort(key=lte_speed_score, reverse=True)
     return result, counts
 
@@ -257,8 +258,9 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
             lte_limit = config.LTE_CONFIG_LIMIT
+            lte_min = config.LTE_MIN_BYPASS_SCORE
             wifi_uris, wifi_counts = _prepare_pool(wifi_ranked, limit)
-            lte_uris, lte_counts = _prepare_lte_pool(lte_raw, lte_limit)
+            lte_uris, lte_counts = _prepare_lte_pool(lte_raw, lte_limit, lte_min)
 
             fingerprint = _content_fingerprint(texts, wifi_uris, lte_uris)
             global _cached_wifi_lines, _cached_lte_lines
