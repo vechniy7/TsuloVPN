@@ -24,7 +24,7 @@ HAPP_HEADERS = {
     "subscription-autoconnect": "0",
     "subscription-ping-onopen-enabled": "0",
     "ping-type": "tcp",
-    "check-url-via-proxy": "https://cp.cloudflare.com/generate_204",
+    "check-url-via-proxy": "https://www.gstatic.com/generate_204",
     "fragmentation-enable": "0",
 }
 
@@ -46,6 +46,8 @@ async def health():
         "lte_limit": config.LTE_CONFIG_LIMIT,
         "lte_max_rtt_ms": config.LTE_MAX_RTT_MS,
         "lte_min_bypass_score": config.LTE_MIN_BYPASS_SCORE,
+        "lte_balancer_nodes": config.LTE_BALANCER_NODES,
+        "lte_tcp_check": config.LTE_TCP_CHECK,
         "wifi_probe": config.WIFI_PROBE_URL,
         "lte_probe": config.LTE_PROBE_URL,
         "probe_interval_sec": config.AUTO_PROBE_INTERVAL_SEC,

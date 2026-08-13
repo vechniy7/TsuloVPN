@@ -1,5 +1,6 @@
 import base64
 import html
+import ipaddress
 import json
 import re
 import urllib.parse
@@ -55,6 +56,66 @@ RU_WHITELIST_SNI_KEYWORDS = (
     "dendiboss",
     "dendibase",
 )
+
+# Известные подсети RU-cloud / whitelist CIDR (Yandex, VK, Selectel, …)
+RU_CLOUD_IP_PREFIXES: tuple[str, ...] = (
+    "5.188.",
+    "5.189.",
+    "5.35.",
+    "31.130.",
+    "37.139.",
+    "45.12.",
+    "45.146.",
+    "46.8.",
+    "46.253.",
+    "51.250.",
+    "77.110.",
+    "82.117.",
+    "83.168.",
+    "84.32.",
+    "89.208.",
+    "91.185.",
+    "91.240.",
+    "95.163.",
+    "158.160.",
+    "178.154.",
+    "185.221.",
+    "193.168.",
+    "194.55.",
+    "212.192.",
+)
+
+_cidr_networks: list[ipaddress.IPv4Network] | None = None
+
+
+def set_whitelist_cidrs(lines: list[str]) -> None:
+    """Подгрузка cidrwhitelist.txt (hxehex) для точного матча IP."""
+    global _cidr_networks
+    nets: list[ipaddress.IPv4Network] = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            nets.append(ipaddress.ip_network(line, strict=False))
+        except ValueError:
+            continue
+    _cidr_networks = nets or None
+
+
+def is_whitelist_host_ip(host: str) -> bool:
+    """IP сервера в типичных whitelist-подсетях RU-cloud."""
+    try:
+        ip = ipaddress.ip_address(host.strip())
+    except ValueError:
+        return False
+    if not isinstance(ip, ipaddress.IPv4Address):
+        return False
+    if _cidr_networks:
+        return any(ip in net for net in _cidr_networks)
+    text = str(ip)
+    return any(text.startswith(p) for p in RU_CLOUD_IP_PREFIXES)
+
 
 BYPASS_LABEL_MARKERS = (
     "[bl]",
@@ -360,18 +421,25 @@ def speed_score(uri: str) -> int:
 
 def is_lte_fast_candidate(uri: str) -> bool:
     """
-    LTE АВТО: только стабильные быстрые транспорты.
-    gRPC/WS/xhttp часто дают «живой» пинг, но мизерный throughput до YouTube.
+    LTE АВТО: TCP/Vision или gRPC:443+Reality.
+    WS/xhttp на мобильном БС нестабильны.
     """
     transport = get_transport(uri)
-    if transport in ("grpc", "ws", "xhttp", "h2", "httpupgrade", "splithttp"):
+    security = get_security(uri)
+    hostport = extract_host_port(uri)
+
+    if transport in ("ws", "xhttp", "h2", "httpupgrade", "splithttp"):
         return False
+    if transport == "grpc":
+        if not hostport or hostport[1] != 443 or security != "reality":
+            return False
+        if not is_ru_whitelist_sni(get_sni(uri)) and not is_bypass_label(uri):
+            return False
+        return bool((_query_params(uri).get("pbk") or "").strip())
     if transport not in ("tcp", "raw", ""):
         return False
-    security = get_security(uri)
     if security not in ("reality", "tls"):
         return False
-    # Нужен рабочий Reality/TLS endpoint
     if security == "reality" and not (_query_params(uri).get("pbk") or "").strip():
         return False
     return True
@@ -392,6 +460,9 @@ def lte_speed_score(uri: str) -> int:
         score += 40
     if hostport and hostport[1] == 443:
         score += 30
+
+    if hostport and is_whitelist_host_ip(hostport[0]):
+        score += 250
 
     # RU CDN SNI обычно лучше проходит мобильный БС к зарубежным сервисам
     if is_ru_whitelist_sni(sni):
@@ -433,11 +504,18 @@ def is_lte_eligible(uri: str, min_score: int = 45) -> bool:
         pass
     elif port in (5443, 8443) and ru_sni and has_vision:
         pass
+    elif port == 443 and get_transport(uri) == "grpc" and ru_sni:
+        pass
     else:
         return False
 
-    fragment = get_fragment(uri)
     bypass = bypass_whitelist_score(uri)
+    fragment = get_fragment(uri)
+
+    # На LTE whitelist критичен IP из белого списка (RU-cloud)
+    if is_whitelist_host_ip(hostport[0]):
+        return bypass >= min_score - 25
+
     if ru_sni or is_bypass_label(uri):
         return bypass >= min_score - 15
     if "*cidr*" in fragment or "[*cidr*]" in fragment:

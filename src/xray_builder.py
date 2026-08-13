@@ -199,15 +199,41 @@ def _client_inbounds() -> list[dict]:
 
 def _dns_block(*, lte: bool = False) -> dict:
     if lte:
-        # Yandex DNS часто доступен на whitelist LTE; остальное — через туннель (sniffing)
         return {
-            "servers": ["77.88.8.8", "77.88.8.1", "1.1.1.1"],
+            "servers": [
+                "fakedns",
+                "77.88.8.8",
+                "8.8.8.8",
+            ],
             "queryStrategy": "UseIPv4",
+            "disableFallback": False,
         }
     return {
         "servers": ["1.1.1.1", "8.8.8.8"],
         "queryStrategy": "UseIP",
     }
+
+
+def _fakedns_block() -> list[dict]:
+    return [{"ipPool": "198.18.0.0/15", "poolSize": 65535}]
+
+
+def _lte_routing_rules(balancer_tag: str) -> list[dict]:
+    """Весь трафик (включая DNS) через balancer — иначе на LTE whitelist уходит в direct."""
+    return [
+        _private_direct_rule(),
+        {
+            "type": "field",
+            "network": "udp",
+            "port": "53",
+            "balancerTag": balancer_tag,
+        },
+        {
+            "type": "field",
+            "network": "tcp,udp",
+            "balancerTag": balancer_tag,
+        },
+    ]
 
 
 def _private_direct_rule() -> dict:
@@ -269,11 +295,12 @@ def build_auto_select_config(
             "remarks": remarks,
             "meta": {"serverDescription": base64.b64encode(description.encode()).decode()},
             "log": {"loglevel": "warning"},
+            **({"fakedns": _fakedns_block()} if lte_dns else {}),
             "dns": _dns_block(lte=lte_dns),
             "inbounds": _client_inbounds(),
             "outbounds": outbounds,
             "routing": {
-                "domainStrategy": "AsIs",
+                "domainStrategy": "IPIfNonMatch" if lte_dns else "AsIs",
                 "rules": [
                     _private_direct_rule(),
                     {
@@ -317,6 +344,7 @@ def build_auto_select_config(
             ).decode()
         },
         "log": {"loglevel": "warning"},
+        **({"fakedns": _fakedns_block()} if lte_dns else {}),
         "dns": _dns_block(lte=lte_dns),
         "inbounds": _client_inbounds(),
         "outbounds": outbounds,
@@ -330,7 +358,9 @@ def build_auto_select_config(
                     "strategy": strategy,
                 }
             ],
-            "rules": [
+            "rules": _lte_routing_rules(balancer_tag)
+            if lte_dns
+            else [
                 _private_direct_rule(),
                 {
                     "type": "field",
@@ -401,14 +431,15 @@ def build_subscription_json(
     if wifi:
         entries.append(wifi)
 
+    lte_pool = lte_uris[: max(1, config.LTE_BALANCER_NODES)]
     lte = build_auto_select_config(
-        lte_uris,
+        lte_pool,
         remarks=f"📱 {config.BOT_NAME} · АВТО LTE",
         node_prefix="lte-",
-        description="LTE · обход · Cloudflare probe",
+        description="LTE · whitelist IP · leastPing",
         probe_url=config.LTE_PROBE_URL,
         probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
-        max_rtt_ms=config.LTE_MAX_RTT_MS,
+        max_rtt_ms=config.LTE_MAX_RTT_MS or None,
         lte_dns=True,
     )
     if lte:

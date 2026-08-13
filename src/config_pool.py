@@ -11,10 +11,12 @@ from parser import (
     brand_config,
     build_server_label,
     extract_host_port,
+    is_whitelist_host_ip,
     lte_speed_score,
     parse_subscription_lines,
     rank_configs_for_speed,
     rank_lte_configs,
+    set_whitelist_cidrs,
     speed_score,
 )
 from xray_builder import uri_to_outbound
@@ -112,6 +114,70 @@ async def close_session() -> None:
     if _session and not _session.closed:
         await _session.close()
         _session = None
+
+
+async def _fetch_cidr_list() -> None:
+    url = config.WHITELIST_CIDR_URL.strip()
+    if not url:
+        return
+    session = await _get_session()
+    try:
+        async with session.get(url, ssl=False) as resp:
+            resp.raise_for_status()
+            text = await resp.text()
+        set_whitelist_cidrs(text.splitlines())
+        logger.info("Loaded whitelist CIDR list from %s", url.rsplit("/", 1)[-1])
+    except Exception as exc:
+        logger.warning("Whitelist CIDR fetch failed: %s", exc)
+
+
+async def _tcp_alive(host: str, port: int, timeout: float = 4.0) -> bool:
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port),
+            timeout=timeout,
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
+async def _filter_tcp_alive(uris: list[str], concurrency: int = 40) -> list[str]:
+    if not config.LTE_TCP_CHECK or not uris:
+        return uris
+    sem = asyncio.Semaphore(concurrency)
+    alive: list[str] = []
+
+    async def check(uri: str) -> tuple[str, bool]:
+        hp = extract_host_port(uri)
+        if not hp:
+            return uri, False
+        async with sem:
+            ok = await _tcp_alive(hp[0], hp[1])
+        return uri, ok
+
+    results = await asyncio.gather(*[check(u) for u in uris])
+    for uri, ok in results:
+        if ok:
+            alive.append(uri)
+    logger.info("LTE TCP check: %s/%s alive on :443", len(alive), len(uris))
+    return alive if alive else uris[: max(5, len(uris) // 4)]
+
+
+def _sort_lte_whitelist_first(uris: list[str]) -> list[str]:
+    wl: list[str] = []
+    rest: list[str] = []
+    for uri in uris:
+        hp = extract_host_port(uri)
+        if hp and is_whitelist_host_ip(hp[0]):
+            wl.append(uri)
+        else:
+            rest.append(uri)
+    wl.sort(key=lte_speed_score, reverse=True)
+    rest.sort(key=lte_speed_score, reverse=True)
+    return wl + rest
 
 
 async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
@@ -224,6 +290,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
         )
 
         try:
+            await _fetch_cidr_list()
             results = await asyncio.gather(*[_fetch_url(url) for url in all_urls])
             by_label: dict[str, tuple[str | None, list[str]]] = {}
             for label, text, uris in results:
@@ -261,6 +328,9 @@ async def refresh_pool(force: bool = False) -> PoolState:
             lte_min = config.LTE_MIN_BYPASS_SCORE
             wifi_uris, wifi_counts = _prepare_pool(wifi_ranked, limit)
             lte_uris, lte_counts = _prepare_lte_pool(lte_raw, lte_limit, lte_min)
+            lte_uris = _sort_lte_whitelist_first(lte_uris)
+            lte_uris = await _filter_tcp_alive(lte_uris)
+            lte_uris = _sort_lte_whitelist_first(lte_uris)
 
             fingerprint = _content_fingerprint(texts, wifi_uris, lte_uris)
             global _cached_wifi_lines, _cached_lte_lines

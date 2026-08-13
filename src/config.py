@@ -45,12 +45,19 @@ class Config(BaseModel):
 
     # Сколько узлов внутри WIFI-профиля
     SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "40"))
-    # LTE: до 100 уникальных host:port в leastLoad+probe
+    # LTE: до 100 в пуле, в JSON-профиль — LTE_BALANCER_NODES (меньше = стабильнее на Happ)
     LTE_CONFIG_LIMIT: int = int(os.getenv("LTE_CONFIG_LIMIT", "100"))
+    LTE_BALANCER_NODES: int = int(os.getenv("LTE_BALANCER_NODES", "18"))
     # Мин. bypass-score для попадания в LTE-пул (отсекает мусор из агрегаторов)
     LTE_MIN_BYPASS_SCORE: int = int(os.getenv("LTE_MIN_BYPASS_SCORE", "45"))
-    # Отсечь «живые» узлы с RTT выше порога (мс) до probe URL
-    LTE_MAX_RTT_MS: int = int(os.getenv("LTE_MAX_RTT_MS", "800"))
+    # 0 = leastPing (совместимее с Happ); >0 = leastLoad+maxRTT
+    LTE_MAX_RTT_MS: int = int(os.getenv("LTE_MAX_RTT_MS", "0"))
+    # TCP-проверка :443 с сервера перед выдачей в подписку
+    LTE_TCP_CHECK: bool = os.getenv("LTE_TCP_CHECK", "true").lower() in ("1", "true", "yes")
+    WHITELIST_CIDR_URL: str = os.getenv(
+        "WHITELIST_CIDR_URL",
+        "https://raw.githubusercontent.com/hxehex/russia-mobile-internet-whitelist/main/cidrwhitelist.txt",
+    )
     SUBSCRIPTION_SHOW_INDIVIDUAL: bool = os.getenv(
         "SUBSCRIPTION_SHOW_INDIVIDUAL", "false"
     ).lower() in ("1", "true", "yes")
@@ -62,12 +69,12 @@ class Config(BaseModel):
         "WIFI_PROBE_URL",
         "https://www.gstatic.com/generate_204",
     )
-    # Cloudflare — вне whitelist LTE; успех = реальный обход, не ложный как YouTube
+    # gstatic — стабильный probe; при fail observatory Happ не уводит трафик в direct так долго
     LTE_PROBE_URL: str = os.getenv(
         "LTE_PROBE_URL",
-        "https://cp.cloudflare.com/generate_204",
+        "https://www.gstatic.com/generate_204",
     )
-    LTE_PROBE_INTERVAL_SEC: int = int(os.getenv("LTE_PROBE_INTERVAL_SEC", "8"))
+    LTE_PROBE_INTERVAL_SEC: int = int(os.getenv("LTE_PROBE_INTERVAL_SEC", "10"))
 
     HAPP_ENCRYPT_SUBSCRIPTION: bool = os.getenv("HAPP_ENCRYPT_SUBSCRIPTION", "true").lower() in (
         "1",
