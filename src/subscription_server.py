@@ -23,9 +23,9 @@ HAPP_HEADERS = {
     "hide-settings": "1",
     "subscription-autoconnect": "0",
     "subscription-ping-onopen-enabled": "1",
-    "ping-type": "tcp",
+    "ping-type": "proxy",
     "check-url-via-proxy": "https://www.gstatic.com/generate_204",
-    "fragmentation-enable": "0",
+    "fragmentation-enable": "1",
 }
 
 

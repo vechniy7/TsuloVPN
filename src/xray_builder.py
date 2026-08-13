@@ -379,31 +379,27 @@ def build_auto_select_config(
 
 
 def build_lte_simple_config(uri: str, remarks: str) -> dict | None:
-    """Один LTE-профиль без balancer — Happ сам показывает TCP ping."""
+    """
+    Минимальный LTE-профиль как при ручном импорте vless:// в Happ.
+    Без FakeDNS/DNS — иначе на LTE whitelist DNS уходит мимо туннеля.
+    """
     outbound = uri_to_outbound(uri, "proxy")
     if not outbound:
         return None
     return {
         "remarks": remarks,
         "log": {"loglevel": "warning"},
-        "fakedns": _fakedns_block(),
-        "dns": _dns_block(lte=True),
         "inbounds": _client_inbounds(),
         "outbounds": [
             outbound,
-            {"tag": "direct", "protocol": "freedom", "settings": {}},
+            {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": "UseIPv4"}},
             {"tag": "block", "protocol": "blackhole", "settings": {}},
         ],
         "routing": {
-            "domainStrategy": "IPIfNonMatch",
+            "domainStrategy": "AsIs",
             "rules": [
                 _private_direct_rule(),
-                {
-                    "type": "field",
-                    "network": "udp",
-                    "port": "53",
-                    "outboundTag": "proxy",
-                },
+                {"type": "field", "ip": ["::/0"], "outboundTag": "block"},
                 {
                     "type": "field",
                     "network": "tcp,udp",

@@ -11,6 +11,8 @@ from parser import (
     brand_config,
     build_server_label,
     extract_host_port,
+    get_sni,
+    is_ru_whitelist_sni,
     is_whitelist_host_ip,
     lte_speed_score,
     parse_subscription_lines,
@@ -175,14 +177,45 @@ async def _rank_by_tcp_latency(uris: list[str], concurrency: int = 40) -> list[s
 
 
 def _lte_profiles_from_pool(uris: list[str]) -> list[str]:
-    """Только whitelist IP для выдачи клиенту (если хватает)."""
-    if not config.LTE_REQUIRE_WHITELIST_IP:
-        return uris
-    wl = [u for u in uris if (hp := extract_host_port(u)) and is_whitelist_host_ip(hp[0])]
-    if len(wl) >= 3:
-        return wl
-    logger.warning("LTE whitelist IP pool small (%s), using full pool %s", len(wl), len(uris))
-    return uris
+    """Whitelist IP + RU SNI + :443 для выдачи на LTE (Билайн/МТС/Мегафон)."""
+    strict: list[str] = []
+    for uri in uris:
+        hp = extract_host_port(uri)
+        sni = get_sni(uri)
+        if not hp or not sni:
+            continue
+        port = hp[1]
+        if port != 443 and not (
+            port in (5443, 8443) and "flow=xtls-rprx-vision" in uri.lower()
+        ):
+            continue
+        if not is_whitelist_host_ip(hp[0]):
+            continue
+        if not is_ru_whitelist_sni(sni):
+            continue
+        strict.append(uri)
+
+    strict.sort(key=lte_speed_score, reverse=True)
+    if len(strict) >= 3:
+        logger.info("LTE strict pool: %s configs (IP+SNI+443)", len(strict))
+        return strict
+
+    if config.LTE_REQUIRE_WHITELIST_IP:
+        wl = [
+            u
+            for u in uris
+            if (hp := extract_host_port(u)) and is_whitelist_host_ip(hp[0])
+        ]
+        if len(wl) >= 3:
+            logger.warning(
+                "LTE strict pool small (%s), fallback whitelist IP only (%s)",
+                len(strict),
+                len(wl),
+            )
+            return wl
+
+    logger.warning("LTE strict pool tiny (%s), using ranked pool %s", len(strict), len(uris))
+    return uris[: max(3, min(15, len(uris)))]
 
 
 def _sort_lte_whitelist_first(uris: list[str]) -> list[str]:

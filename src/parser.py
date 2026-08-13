@@ -82,7 +82,7 @@ RU_CLOUD_IP_PREFIXES: tuple[str, ...] = (
     "185.221.",
     "193.168.",
     "194.55.",
-    "212.192.",
+    "217.16.",
 )
 
 _cidr_networks: list[ipaddress.IPv4Network] | None = None

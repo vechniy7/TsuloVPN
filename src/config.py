@@ -47,8 +47,8 @@ class Config(BaseModel):
     SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "40"))
     # LTE: до 100 в пуле, в JSON-профиль — LTE_BALANCER_NODES (меньше = стабильнее на Happ)
     LTE_CONFIG_LIMIT: int = int(os.getenv("LTE_CONFIG_LIMIT", "100"))
-    LTE_BALANCER_NODES: int = int(os.getenv("LTE_BALANCER_NODES", "15"))
-    # happ_ping = отдельные профили + TCP ping Happ; balancer = старый observatory
+    LTE_BALANCER_NODES: int = int(os.getenv("LTE_BALANCER_NODES", "10"))
+    # happ_ping = отдельные минимальные профили; balancer = observatory
     LTE_DELIVERY: str = os.getenv("LTE_DELIVERY", "happ_ping").strip().lower()
     # В подписку только IP из whitelist CIDR (критично для Билайн/МТС/Мегафон на LTE)
     LTE_REQUIRE_WHITELIST_IP: bool = os.getenv(
