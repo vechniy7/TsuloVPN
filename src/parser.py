@@ -544,8 +544,8 @@ def rank_lte_configs(uris: list[str], min_score: int = 45) -> list[str]:
 
 
 _FP_RANK = {
-    "chrome": 15,
-    "firefox": 10,
+    "firefox": 20,
+    "chrome": 12,
     "edge": 8,
     "safari": 6,
     "ios": 5,
@@ -553,11 +553,53 @@ _FP_RANK = {
     "qq": 2,
 }
 
+# Хостинги из zieng2 с 🇷🇺 — пингуются, интернета нет
+RU_HOSTING_MARKERS = (
+    "timeweb",
+    "spaceweb",
+    "xorek",
+    "selectel",
+    "beget",
+    "aeza",
+    "ihc",
+    "megamax",
+    "4vps",
+    "vypnet",
+    "ufo hosting",
+    "reg.ru",
+)
+
+PREFERRED_EU_FLAGS = ("🇳🇱", "🇸🇪", "🇪🇪", "🇩🇪", "🇫🇷", "🇱🇹", "🇫🇮")
+PREFERRED_EU_NAMES = (
+    "netherland",
+    "sweden",
+    "estonia",
+    "germany",
+    "france",
+    "lithuania",
+    "finland",
+    "niederlande",
+    "schweden",
+    "estland",
+    "deutschland",
+    "frankreich",
+    "lietuva",
+    "suomi",
+)
+
+
+def is_ru_hosting_config(uri: str) -> bool:
+    """Российский флаг или RU-хостинг из источника — не класть в ключ."""
+    if is_russian_config(uri):
+        return True
+    fragment = get_fragment(uri)
+    return any(marker in fragment for marker in RU_HOSTING_MARKERS)
+
 
 def zieng_working_score(uri: str) -> int:
     """
-    Эвристика под живые из vless_universal: Reality/Vision на RU-IP,
-    WS Timeweb :2200/:4100, RU SNI. Не отсекает WS/xhttp.
+    Живые у клиента: зарубежный флаг (NL/SE/EE/DE/FR/LT/FI) + Reality Vision + RU SNI.
+    RU-хостинги и 🇷🇺 не скорим — их отсекает is_ru_hosting_config.
     """
     uri_l = uri.lower()
     if not uri_l.startswith("vless://"):
@@ -568,74 +610,62 @@ def zieng_working_score(uri: str) -> int:
     sni = (get_sni(uri) or "").lower()
     hostport = extract_host_port(uri)
     fragment = get_fragment(uri)
+    flag = extract_country_flag(uri)
     score = 10
 
-    if "flow=xtls-rprx-vision" in uri_l and transport in ("tcp", "raw", ""):
-        score += 120
-    if security == "reality" and transport in ("tcp", "raw", ""):
-        score += 70
-    if security == "reality":
-        score += 30
-
-    if hostport:
-        host, port = hostport
-        if is_whitelist_host_ip(host):
-            score += 220
-        if port == 443:
-            score += 40
-        elif port in (8443, 5443, 7443):
-            score += 20
-        elif port in (2200, 4100):
-            score += 55
-        elif port == 80:
-            score -= 40
-
-    if is_ru_whitelist_sni(sni):
-        score += 90
-    if any(x in sni for x in ("vk.com", "max.ru", "yandex", "ads.x5.ru", "ya.ru", "ok.ru")):
+    if flag in PREFERRED_EU_FLAGS:
+        score += 80
+    if any(name in fragment for name in PREFERRED_EU_NAMES):
         score += 40
 
-    if transport == "ws" and hostport and hostport[1] in (2200, 4100, 443):
+    if "flow=xtls-rprx-vision" in uri_l and transport in ("tcp", "raw", ""):
+        score += 140
+    if security == "reality" and transport in ("tcp", "raw", ""):
+        score += 80
+    if security == "reality":
+        score += 20
+
+    if hostport:
+        port = hostport[1]
+        if port == 443:
+            score += 50
+        elif port in (8443, 5443, 7443):
+            score += 15
+        elif port in (2200, 4100):
+            score -= 80
+        elif port == 80:
+            score -= 50
+
+    if is_ru_whitelist_sni(sni):
+        score += 70
+    if "yandexcloud" in sni or "smartcaptcha" in sni:
         score += 50
-    if transport == "xhttp" and hostport and hostport[1] == 443:
-        score += 25
+    if any(x in sni for x in ("vk.com", "max.ru", "yandex", "ads.x5.ru", "ya.ru")):
+        score += 30
+
+    if transport in ("ws", "xhttp"):
+        score -= 40
     if transport == "grpc":
-        score -= 20
+        score -= 30
 
     fp = (params.get("fp") or "").strip().lower()
     score += _FP_RANK.get(fp, 0)
-
-    if any(tag in fragment for tag in ("timeweb", "selectel", "beget", " vk", "yandex", "4vps")):
-        score += 15
-
     return score
 
 
 def rank_universal_configs(uris: list[str], limit: int = 50) -> list[str]:
-    """
-    Один конфиг на host:port (без копий fp), без отсечения WS/xhttp,
-    топ-limit по zieng_working_score. Российский флаг не фильтруем —
-    иначе вылетают живые VK/Yandex; в ключе флаг всё равно заменяется.
-    """
+    """Без РФ/Timeweb/SpaceWeb/Xorek. Один host:port, топ-limit."""
     best_by_host: dict[str, tuple[int, str]] = {}
-    skipped_no_host = 0
 
     for uri in uris:
         if INSECURE_PATTERN.search(urllib.parse.unquote(uri)):
             continue
         if not uri.lower().startswith("vless://"):
             continue
-        # РФ в названии, но не whitelist-мост (VK/Yandex/Timeweb) — не в ключ
-        if is_russian_config(uri):
-            hp = extract_host_port(uri)
-            keep_bridge = bool(
-                (hp and is_whitelist_host_ip(hp[0])) or is_ru_whitelist_sni(get_sni(uri))
-            )
-            if not keep_bridge:
-                continue
+        if is_ru_hosting_config(uri):
+            continue
         hostport = extract_host_port(uri)
         if not hostport:
-            skipped_no_host += 1
             continue
         key = f"{hostport[0].lower()}:{hostport[1]}"
         scored = zieng_working_score(uri)
@@ -644,8 +674,7 @@ def rank_universal_configs(uris: list[str], limit: int = 50) -> list[str]:
             best_by_host[key] = (scored, uri)
 
     ranked = sorted(best_by_host.values(), key=lambda item: item[0], reverse=True)
-    picked = [uri for _, uri in ranked[: max(1, limit)]]
-    return picked
+    return [uri for _, uri in ranked[: max(1, limit)]]
 
 
 def rank_configs_for_speed(uris: list[str]) -> list[str]:
