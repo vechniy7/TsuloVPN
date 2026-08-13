@@ -97,6 +97,23 @@ class Config(BaseModel):
     UPSTASH_REDIS_REST_URL: str = os.getenv("UPSTASH_REDIS_REST_URL", "")
     UPSTASH_REDIS_REST_TOKEN: str = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 
+    @field_validator("UPSTASH_REDIS_REST_URL", mode="before")
+    @classmethod
+    def normalize_upstash_url(cls, value):
+        if not value or not isinstance(value, str):
+            return value or ""
+        url = value.strip()
+        if url and not url.lower().startswith(("http://", "https://")):
+            url = f"https://{url.lstrip('/')}"
+        return url
+
+    @field_validator("UPSTASH_REDIS_REST_TOKEN", mode="before")
+    @classmethod
+    def normalize_upstash_token(cls, value):
+        if not value or not isinstance(value, str):
+            return value or ""
+        return value.strip()
+
     @property
     def use_upstash(self) -> bool:
         return bool(self.UPSTASH_REDIS_REST_URL and self.UPSTASH_REDIS_REST_TOKEN)

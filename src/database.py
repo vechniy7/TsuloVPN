@@ -91,7 +91,16 @@ async def init_db() -> None:
         return
 
     def _ping():
-        _get_redis().ping()
+        try:
+            _get_redis().ping()
+        except Exception as exc:
+            url = config.UPSTASH_REDIS_REST_URL
+            hint = "https://YOUR-DB.upstash.io"
+            raise RuntimeError(
+                f"Upstash Redis ping failed ({exc}). "
+                f"Check UPSTASH_REDIS_REST_URL (must start with https://, e.g. {hint}) "
+                "and UPSTASH_REDIS_REST_TOKEN on Render."
+            ) from exc
 
     await _run(_ping)
     logger.info("Upstash Redis connected")
