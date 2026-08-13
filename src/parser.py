@@ -587,6 +587,10 @@ PREFERRED_EU_NAMES = (
     "suomi",
 )
 
+# Подтверждённый живой узел (Ingushetia LTE): Reality+Vision, SNI yandexcloud, 🇸🇪
+KNOWN_WORKING_HOSTS = ("46.8.210.148",)
+KNOWN_WORKING_UUIDS = ("daa246bf-ed1e-0001-8959-cf4aa67b913e",)
+
 
 def is_ru_hosting_config(uri: str) -> bool:
     """Российский флаг или RU-хостинг из источника — не класть в ключ."""
@@ -650,6 +654,11 @@ def zieng_working_score(uri: str) -> int:
 
     fp = (params.get("fp") or "").strip().lower()
     score += _FP_RANK.get(fp, 0)
+
+    uuid = uri.split("://", 1)[-1].split("@", 1)[0].lower()
+    host = (hostport[0] if hostport else "").lower()
+    if uuid in KNOWN_WORKING_UUIDS or host in KNOWN_WORKING_HOSTS:
+        score += 1000
     return score
 
 
