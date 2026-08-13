@@ -1,4 +1,4 @@
-"""Build Happ-compatible Xray JSON: АВТО WIFI + АВТО LTE (leastPing each)."""
+"""Build Happ-compatible Xray JSON: АВТО WIFI + АВТО LTE (simple profiles + TCP ping)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import logging
 import urllib.parse
 
 from config import config
-from parser import extract_country_flag, extract_host_port
+from parser import extract_country_flag, extract_host_port, get_sni
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +378,64 @@ def build_auto_select_config(
     }
 
 
+def build_lte_simple_config(uri: str, remarks: str) -> dict | None:
+    """Один LTE-профиль без balancer — Happ сам показывает TCP ping."""
+    outbound = uri_to_outbound(uri, "proxy")
+    if not outbound:
+        return None
+    return {
+        "remarks": remarks,
+        "log": {"loglevel": "warning"},
+        "fakedns": _fakedns_block(),
+        "dns": _dns_block(lte=True),
+        "inbounds": _client_inbounds(),
+        "outbounds": [
+            outbound,
+            {"tag": "direct", "protocol": "freedom", "settings": {}},
+            {"tag": "block", "protocol": "blackhole", "settings": {}},
+        ],
+        "routing": {
+            "domainStrategy": "IPIfNonMatch",
+            "rules": [
+                _private_direct_rule(),
+                {
+                    "type": "field",
+                    "network": "udp",
+                    "port": "53",
+                    "outboundTag": "proxy",
+                },
+                {
+                    "type": "field",
+                    "network": "tcp,udp",
+                    "outboundTag": "proxy",
+                },
+            ],
+        },
+    }
+
+
+def _lte_profile_remark(uri: str, rank: int, *, auto: bool = False) -> str:
+    sni = get_sni(uri) or "?"
+    hp = extract_host_port(uri)
+    host = hp[0] if hp else "?"
+    sni_short = sni.split(".")[0] if sni else "?"
+    if auto:
+        return f"📱 {config.BOT_NAME} · АВТО LTE ★ · {host} · {sni_short}"
+    return f"📱 LTE #{rank:02d} · {host} · {sni_short}"
+
+
+def build_lte_happ_ping_profiles(lte_uris: list[str]) -> list[dict]:
+    """До LTE_BALANCER_NODES отдельных профилей, #1 = лучший по TCP с сервера."""
+    entries: list[dict] = []
+    pool = lte_uris[: max(1, config.LTE_BALANCER_NODES)]
+    for idx, uri in enumerate(pool):
+        remarks = _lte_profile_remark(uri, idx + 1, auto=(idx == 0))
+        cfg = build_lte_simple_config(uri, remarks)
+        if cfg:
+            entries.append(cfg)
+    return entries
+
+
 def build_single_server_config(uri: str, index: int) -> dict | None:
     outbound = uri_to_outbound(uri, "proxy")
     if not outbound:
@@ -432,18 +490,21 @@ def build_subscription_json(
         entries.append(wifi)
 
     lte_pool = lte_uris[: max(1, config.LTE_BALANCER_NODES)]
-    lte = build_auto_select_config(
-        lte_pool,
-        remarks=f"📱 {config.BOT_NAME} · АВТО LTE",
-        node_prefix="lte-",
-        description="LTE · whitelist IP · leastPing",
-        probe_url=config.LTE_PROBE_URL,
-        probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
-        max_rtt_ms=config.LTE_MAX_RTT_MS or None,
-        lte_dns=True,
-    )
-    if lte:
-        entries.append(lte)
+    if config.LTE_DELIVERY == "balancer":
+        lte = build_auto_select_config(
+            lte_pool,
+            remarks=f"📱 {config.BOT_NAME} · АВТО LTE",
+            node_prefix="lte-",
+            description="LTE · whitelist IP · leastPing",
+            probe_url=config.LTE_PROBE_URL,
+            probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
+            max_rtt_ms=config.LTE_MAX_RTT_MS or None,
+            lte_dns=True,
+        )
+        if lte:
+            entries.append(lte)
+    else:
+        entries.extend(build_lte_happ_ping_profiles(lte_pool))
 
     if show_individual:
         for idx, uri in enumerate(wifi_uris + lte_uris, start=1):

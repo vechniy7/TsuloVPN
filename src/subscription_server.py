@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Response
 
 from config import config
-from config_pool import get_lte_lines, get_pool_state, get_wifi_lines
+from config_pool import get_lte_uris, get_pool_state, get_wifi_lines
 from database import get_user_by_token
 from miniapp_routes import router as miniapp_router
 from cardlink_routes import router as cardlink_router
@@ -22,7 +22,7 @@ app.include_router(cardlink_router)
 HAPP_HEADERS = {
     "hide-settings": "1",
     "subscription-autoconnect": "0",
-    "subscription-ping-onopen-enabled": "0",
+    "subscription-ping-onopen-enabled": "1",
     "ping-type": "tcp",
     "check-url-via-proxy": "https://www.gstatic.com/generate_204",
     "fragmentation-enable": "0",
@@ -47,6 +47,8 @@ async def health():
         "lte_max_rtt_ms": config.LTE_MAX_RTT_MS,
         "lte_min_bypass_score": config.LTE_MIN_BYPASS_SCORE,
         "lte_balancer_nodes": config.LTE_BALANCER_NODES,
+        "lte_delivery": config.LTE_DELIVERY,
+        "lte_require_whitelist_ip": config.LTE_REQUIRE_WHITELIST_IP,
         "lte_tcp_check": config.LTE_TCP_CHECK,
         "wifi_probe": config.WIFI_PROBE_URL,
         "lte_probe": config.LTE_PROBE_URL,
@@ -57,8 +59,8 @@ async def health():
         "last_error": pool.last_error,
         "wifi_urls": [_source_name(u) for u in config.wifi_source_urls()],
         "lte_urls": [_source_name(u) for u in config.lte_source_urls()],
-        "auto_select": "dual-leastLoad-LTE",
-        "visible_profiles": 2,
+        "auto_select": f"dual-WIFI + LTE-{config.LTE_DELIVERY}",
+        "visible_profiles": 1 + (config.LTE_BALANCER_NODES if config.LTE_DELIVERY != "balancer" else 1),
         # legacy fields
         "subscription_count": pool.subscription_count,
         "source_counts": pool.source_counts,
@@ -75,7 +77,7 @@ async def subscription(token: str):
         raise HTTPException(status_code=403, detail="Subscription expired")
 
     wifi = get_wifi_lines()
-    lte = get_lte_lines()
+    lte = get_lte_uris()
     if not wifi and not lte:
         raise HTTPException(status_code=503, detail="Configs loading, try again in a minute")
 

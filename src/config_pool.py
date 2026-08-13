@@ -66,6 +66,10 @@ def get_wifi_lines() -> list[str]:
     return _cached_wifi_lines
 
 
+def get_lte_uris() -> list[str]:
+    return list(_pool.lte_uris)
+
+
 def get_lte_lines() -> list[str]:
     return _cached_lte_lines
 
@@ -131,39 +135,54 @@ async def _fetch_cidr_list() -> None:
         logger.warning("Whitelist CIDR fetch failed: %s", exc)
 
 
-async def _tcp_alive(host: str, port: int, timeout: float = 4.0) -> bool:
-    try:
-        _reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port),
-            timeout=timeout,
-        )
-        writer.close()
-        await writer.wait_closed()
-        return True
-    except Exception:
-        return False
-
-
-async def _filter_tcp_alive(uris: list[str], concurrency: int = 40) -> list[str]:
+async def _rank_by_tcp_latency(uris: list[str], concurrency: int = 40) -> list[str]:
+    """Живые узлы, отсортированные по TCP RTT (как ping в Happ)."""
     if not config.LTE_TCP_CHECK or not uris:
         return uris
     sem = asyncio.Semaphore(concurrency)
-    alive: list[str] = []
 
-    async def check(uri: str) -> tuple[str, bool]:
+    async def probe(uri: str) -> tuple[str, float | None]:
         hp = extract_host_port(uri)
         if not hp:
-            return uri, False
+            return uri, None
         async with sem:
-            ok = await _tcp_alive(hp[0], hp[1])
-        return uri, ok
+            started = time.perf_counter()
+            try:
+                _reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(hp[0], hp[1]),
+                    timeout=4.0,
+                )
+                writer.close()
+                await writer.wait_closed()
+                return uri, (time.perf_counter() - started) * 1000
+            except Exception:
+                return uri, None
 
-    results = await asyncio.gather(*[check(u) for u in uris])
-    for uri, ok in results:
-        if ok:
-            alive.append(uri)
-    logger.info("LTE TCP check: %s/%s alive on :443", len(alive), len(uris))
-    return alive if alive else uris[: max(5, len(uris) // 4)]
+    results = await asyncio.gather(*[probe(u) for u in uris])
+    alive = [(ms, uri) for uri, ms in results if ms is not None]
+    alive.sort(key=lambda item: item[0])
+    ranked = [uri for _, uri in alive]
+    if ranked:
+        logger.info(
+            "LTE TCP rank: %s alive, best=%.0fms, worst=%.0fms",
+            len(ranked),
+            alive[0][0],
+            alive[-1][0],
+        )
+        return ranked
+    logger.warning("LTE TCP rank: none alive, keeping top %s by score", min(10, len(uris)))
+    return uris[:10]
+
+
+def _lte_profiles_from_pool(uris: list[str]) -> list[str]:
+    """Только whitelist IP для выдачи клиенту (если хватает)."""
+    if not config.LTE_REQUIRE_WHITELIST_IP:
+        return uris
+    wl = [u for u in uris if (hp := extract_host_port(u)) and is_whitelist_host_ip(hp[0])]
+    if len(wl) >= 3:
+        return wl
+    logger.warning("LTE whitelist IP pool small (%s), using full pool %s", len(wl), len(uris))
+    return uris
 
 
 def _sort_lte_whitelist_first(uris: list[str]) -> list[str]:
@@ -329,8 +348,8 @@ async def refresh_pool(force: bool = False) -> PoolState:
             wifi_uris, wifi_counts = _prepare_pool(wifi_ranked, limit)
             lte_uris, lte_counts = _prepare_lte_pool(lte_raw, lte_limit, lte_min)
             lte_uris = _sort_lte_whitelist_first(lte_uris)
-            lte_uris = await _filter_tcp_alive(lte_uris)
-            lte_uris = _sort_lte_whitelist_first(lte_uris)
+            lte_uris = await _rank_by_tcp_latency(lte_uris)
+            lte_uris = _lte_profiles_from_pool(lte_uris)
 
             fingerprint = _content_fingerprint(texts, wifi_uris, lte_uris)
             global _cached_wifi_lines, _cached_lte_lines
