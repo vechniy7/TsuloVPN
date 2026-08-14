@@ -22,7 +22,7 @@
   const linkIg = document.getElementById("link-ig");
 
   let accessUrl = "";
-  let cardDigits = "2202208141036609";
+  let cardDigits = "2202209226540747";
 
   function hint(el, text) {
     if (el) el.textContent = text;

@@ -222,8 +222,7 @@ def screen_access_link(import_url: str) -> str:
 
 
 def screen_donate() -> str:
-    card = "".join(ch for ch in config.DONATE_CARD if ch.isdigit()) or config.DONATE_CARD
-    spaced = _esc(config.donation_card_spaced())
+    card = _esc(config.donation_card_spaced())
     name = _esc(config.DONATE_CARD_NAME)
     bank = _esc(config.DONATE_BANK)
     return (
@@ -232,8 +231,7 @@ def screen_donate() -> str:
         f"Сервис живёт на добровольных переводах.\n"
         f"Любая сумма — уже огромная помощь.\n\n"
         f"<blockquote><b>{bank}</b>\n"
-        f"<code>{_esc(card)}</code>\n"
-        f"{spaced}\n"
+        f"<code>{card}</code>\n"
         f"{name}</blockquote>\n\n"
         f"Нажмите на номер — чтобы скопировать.\n"
         f"Спасибо, что вы с нами."

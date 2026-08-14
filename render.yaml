@@ -56,7 +56,7 @@ services:
       - key: INSTAGRAM_URL
         value: "https://www.instagram.com/tsulo.it"
       - key: DONATE_CARD
-        value: "2202208141036609"
+        value: "2202209226540747"
       - key: DONATE_CARD_NAME
         value: "АЛИ Ц"
       - key: DONATE_BANK

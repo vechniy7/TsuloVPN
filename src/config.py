@@ -92,7 +92,7 @@ class Config(BaseModel):
 
     SUPPORT_URL: str = os.getenv("SUPPORT_URL", "https://t.me/tsuloew")
     INSTAGRAM_URL: str = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/tsulo.it")
-    DONATE_CARD: str = os.getenv("DONATE_CARD", "2202208141036609")
+    DONATE_CARD: str = os.getenv("DONATE_CARD", "2202209226540747")
     DONATE_CARD_NAME: str = os.getenv("DONATE_CARD_NAME", "АЛИ Ц")
     DONATE_BANK: str = os.getenv("DONATE_BANK", "Сбербанк")
 
