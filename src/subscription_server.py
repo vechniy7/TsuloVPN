@@ -81,7 +81,7 @@ async def subscription(token: str):
 
     pool = get_pool_state()
     body = base64.b64encode("\n".join(lines).encode("utf-8"))
-    profile_title = f"🔐 {config.BOT_NAME}"
+    profile_title = f"🧿 {config.BOT_NAME}"
 
     headers = {
         "Content-Type": "text/plain; charset=utf-8",
