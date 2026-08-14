@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -6,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Response
 
 from config import config
-from config_pool import get_lte_lines, get_pool_state
+from config_pool import get_happ_json_profiles, get_pool_state
 from database import get_user_by_token
 from miniapp_routes import router as miniapp_router
 from cardlink_routes import router as cardlink_router
@@ -44,7 +45,7 @@ async def health():
         "limit_per_profile": config.SUBSCRIPTION_CONFIG_LIMIT,
         "visible_configs": pool.subscription_count,
         "source": "primary-sub",
-        "format": "classic-vless-base64",
+        "format": "happ-xray-json",
         "wifi_probe": config.WIFI_PROBE_URL,
         "lte_probe": config.LTE_PROBE_URL,
         "probe_interval_sec": config.AUTO_PROBE_INTERVAL_SEC,
@@ -54,7 +55,7 @@ async def health():
         "last_error": pool.last_error,
         "wifi_urls": [_source_name(u) for u in config.wifi_source_urls()],
         "lte_urls": [_source_name(u) for u in config.lte_source_urls()],
-        "auto_select": "classic-50-vless",
+        "auto_select": "xray-json-profiles",
         "visible_profiles": pool.subscription_count,
         # legacy fields
         "subscription_count": pool.subscription_count,
@@ -75,25 +76,25 @@ async def _subscription_user(token: str):
 async def subscription(token: str):
     user = await _subscription_user(token)
 
-    lines = get_lte_lines()
-    if not lines:
+    profiles = get_happ_json_profiles()
+    if not profiles:
         raise HTTPException(status_code=503, detail="Configs loading, try again in a minute")
 
     pool = get_pool_state()
-    body = base64.b64encode("\n".join(lines).encode("utf-8"))
+    body = json.dumps(profiles, ensure_ascii=False, separators=(",", ":"))
     profile_title = f"🧿 {config.BOT_NAME}"
 
     headers = {
-        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Type": "application/json; charset=utf-8",
         "Profile-Update-Interval": "6",
         "Profile-Title": f"base64:{base64.b64encode(profile_title.encode()).decode()}",
         "Subscription-Userinfo": (
             f"upload=0; download=0; total=0; expire={int(time.time()) + 31536000}"
         ),
-        "Content-Disposition": f'inline; filename="{config.BOT_NAME}.txt"',
+        "Content-Disposition": f'inline; filename="{config.BOT_NAME}.json"',
         "Cache-Control": "private, max-age=300",
         **HAPP_HEADERS,
-        "X-TsuloVPN-Configs": str(len(lines)),
+        "X-TsuloVPN-Configs": str(len(profiles)),
         "X-TsuloVPN-Updated": datetime.fromtimestamp(
             pool.last_refresh_at or time.time(),
             tz=timezone.utc,
@@ -101,8 +102,8 @@ async def subscription(token: str):
     }
 
     logger.info(
-        "Classic subscription user=%s configs=%s",
+        "JSON subscription user=%s configs=%s",
         user.telegram_id,
-        len(lines),
+        len(profiles),
     )
-    return Response(content=body, media_type="text/plain", headers=headers)
+    return Response(content=body, media_type="application/json; charset=utf-8", headers=headers)

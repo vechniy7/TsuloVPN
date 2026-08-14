@@ -1,4 +1,5 @@
 import base64
+import copy
 import html
 import ipaddress
 import json
@@ -449,6 +450,50 @@ def extract_uris_from_xray_json(data: str) -> list[str]:
         seen_names.add(styled.lower())
         uris.append(uri)
     return uris
+
+
+_NON_PROXY_PROTOCOLS = frozenset({"freedom", "blackhole", "dns", "loopback"})
+
+
+def extract_happ_json_profiles(data: str) -> list[dict]:
+    """Оригинальные Xray-профили Happ (JSON). Без vless:// — в клиенте нет «Копировать URL»."""
+    text = data.strip()
+    if not text or text[0] not in "[{":
+        return []
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return []
+
+    if isinstance(payload, list):
+        profiles = [p for p in payload if isinstance(p, dict)]
+    elif isinstance(payload, dict):
+        profiles = [payload]
+    else:
+        return []
+
+    result: list[dict] = []
+    seen_names: set[str] = set()
+    for profile in profiles:
+        remark = str(profile.get("remarks") or profile.get("remark") or "")
+        styled = restyle_server_name(remark)
+        if not styled or styled.lower() in seen_names:
+            continue
+        outbounds = profile.get("outbounds") or []
+        if not isinstance(outbounds, list):
+            continue
+        has_proxy = any(
+            isinstance(outbound, dict)
+            and str(outbound.get("protocol") or "").lower() not in _NON_PROXY_PROTOCOLS
+            for outbound in outbounds
+        )
+        if not has_proxy:
+            continue
+        cloned = copy.deepcopy(profile)
+        cloned["remarks"] = styled
+        seen_names.add(styled.lower())
+        result.append(cloned)
+    return result
 
 
 def _split_config_lines(data: str) -> list[str]:

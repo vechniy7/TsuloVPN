@@ -11,6 +11,7 @@ from config import config
 from parser import (
     brand_config,
     build_server_label,
+    extract_happ_json_profiles,
     extract_host_port,
     get_sni,
     is_ru_whitelist_sni,
@@ -26,7 +27,7 @@ from parser import (
     speed_score,
     unique_source_labels,
 )
-from xray_builder import uri_to_outbound
+from xray_builder import json_profiles_from_uris, uri_to_outbound
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ _refresh_lock = asyncio.Lock()
 _session: aiohttp.ClientSession | None = None
 _cached_wifi_lines: list[str] = []
 _cached_lte_lines: list[str] = []
+_cached_json_profiles: list[dict] = []
 
 
 def get_pool_state() -> PoolState:
@@ -79,6 +81,10 @@ def get_lte_uris() -> list[str]:
 
 def get_lte_lines() -> list[str]:
     return _cached_lte_lines
+
+
+def get_happ_json_profiles() -> list[dict]:
+    return _cached_json_profiles
 
 
 def get_subscription_lines() -> list[str]:
@@ -430,6 +436,21 @@ async def refresh_pool(force: bool = False) -> PoolState:
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
             # Приватная подписка: все узлы как есть, без zieng2-ранжирования
             private_only = bool(all_urls) and all(_is_private_source_url(u) for u in all_urls)
+
+            json_profiles: list[dict] = []
+            seen_json: set[str] = set()
+            for text in texts:
+                for profile in extract_happ_json_profiles(text or ""):
+                    key = str(profile.get("remarks") or "").lower()
+                    if key in seen_json:
+                        continue
+                    seen_json.add(key)
+                    json_profiles.append(profile)
+                    if len(json_profiles) >= limit:
+                        break
+                if len(json_profiles) >= limit:
+                    break
+
             if private_only:
                 seen_names: set[str] = set()
                 picked = []
@@ -451,16 +472,16 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 picked = rank_universal_configs(all_uris, limit=limit)
 
             fingerprint = _content_fingerprint(texts, picked, [])
-            global _cached_wifi_lines, _cached_lte_lines
+            global _cached_wifi_lines, _cached_lte_lines, _cached_json_profiles
 
             if (
                 fingerprint == _pool.content_fingerprint
-                and _cached_lte_lines
+                and _cached_json_profiles
                 and not force
             ):
                 logger.info(
                     "Source unchanged (%s in key from %s raw unique-ranked)",
-                    len(picked),
+                    len(_cached_json_profiles),
                     total_raw,
                 )
                 _pool.last_refresh_at = time.time()
@@ -468,39 +489,42 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 return _pool
 
             branded = _build_lines(picked, "vpn")
+            if not json_profiles:
+                json_profiles = json_profiles_from_uris(branded)
             _cached_wifi_lines = []
             _cached_lte_lines = branded
+            _cached_json_profiles = json_profiles
 
             _pool.wifi_uris = []
             _pool.lte_uris = picked
             _pool.wifi_count = 0
-            _pool.lte_count = len(picked)
+            _pool.lte_count = len(json_profiles)
             _pool.wifi_source_counts = {}
             _pool.lte_source_counts = source_counts
             _pool.configs = picked
             _pool.source_total = total_raw
-            _pool.primary_count = len(picked)
+            _pool.primary_count = len(json_profiles)
             _pool.fill_count = 0
             _pool.source_counts = source_counts
-            _pool.subscription_count = len(picked)
+            _pool.subscription_count = len(json_profiles)
             _pool.content_fingerprint = fingerprint
             _pool.last_refresh_at = time.time()
             _pool.last_refresh_duration = time.perf_counter() - started
             _pool.last_error = None
 
             logger.info(
-                "Pool updated: %s in key (limit=%s) from %s raw (%s) in %.1fs",
-                len(picked),
+                "Pool updated: %s json profiles (limit=%s) from %s raw (%s) in %.1fs",
+                len(json_profiles),
                 limit,
                 total_raw,
                 ", ".join(f"{k}={v}" for k, v in source_counts.items() if v),
                 _pool.last_refresh_duration,
             )
-            if len(picked) < limit and not private_only:
+            if len(json_profiles) < limit and not private_only:
                 logger.warning(
                     "Fewer than %s unique configs after rank: %s",
                     limit,
-                    len(picked),
+                    len(json_profiles),
                 )
         except Exception as exc:
             _pool.last_error = str(exc)

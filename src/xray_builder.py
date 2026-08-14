@@ -511,6 +511,16 @@ def build_subscription_json(
     return entries
 
 
+def json_profiles_from_uris(uris: list[str]) -> list[dict]:
+    """Fallback: vless:// → JSON-профиль, чтобы Happ не показывал «Копировать URL»."""
+    entries: list[dict] = []
+    for idx, uri in enumerate(uris, start=1):
+        cfg = build_single_server_config(uri, idx)
+        if cfg:
+            entries.append(cfg)
+    return entries
+
+
 def subscription_json_bytes(
     wifi_uris: list[str],
     lte_uris: list[str],
