@@ -109,11 +109,25 @@ async def _get_session() -> aiohttp.ClientSession:
     global _session
     if _session is None or _session.closed:
         timeout = aiohttp.ClientTimeout(total=config.FETCH_TIMEOUT)
-        _session = aiohttp.ClientSession(
-            timeout=timeout,
-            headers={"User-Agent": CHROME_UA},
-        )
+        _session = aiohttp.ClientSession(timeout=timeout)
     return _session
+
+
+def _fetch_headers_for_url(url: str) -> dict[str, str]:
+    """Remnawave / LiderVPN требуют x-hwid, иначе отдают заглушку."""
+    headers = {"User-Agent": CHROME_UA, "Accept": "*/*"}
+    host = url.lower()
+    is_remnawave = any(
+        token in host for token in ("lidervpn.com", "remnawave", "remna.st", "pnl.")
+    )
+    if is_remnawave:
+        headers["User-Agent"] = config.SUB_FETCH_UA or "Happ/3.5.0"
+        if config.SUB_HWID:
+            headers["x-hwid"] = config.SUB_HWID
+            headers["x-device-os"] = config.SUB_DEVICE_OS
+            headers["x-ver-os"] = config.SUB_DEVICE_OS_VER
+            headers["x-device-model"] = config.SUB_DEVICE_MODEL
+    return headers
 
 
 async def close_session() -> None:
@@ -249,10 +263,22 @@ def _sort_lte_whitelist_first(uris: list[str]) -> list[str]:
 async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
     label = _source_label(url)
     session = await _get_session()
+    headers = _fetch_headers_for_url(url)
     try:
-        async with session.get(url, ssl=False) as resp:
+        async with session.get(url, ssl=False, headers=headers) as resp:
             resp.raise_for_status()
             text = await resp.text()
+            hwid_limit = resp.headers.get("X-Hwid-Limit") or resp.headers.get("x-hwid-limit")
+            hwid_nosup = resp.headers.get("X-Hwid-Not-Supported") or resp.headers.get(
+                "x-hwid-not-supported"
+            )
+            if hwid_limit or hwid_nosup:
+                logger.warning(
+                    "Source %s HWID flags: limit=%s not_supported=%s",
+                    label,
+                    hwid_limit,
+                    hwid_nosup,
+                )
     except Exception as exc:
         logger.warning("Fetch failed %s: %s", label, exc)
         return label, None, []

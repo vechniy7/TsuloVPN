@@ -152,9 +152,163 @@ def try_decode_base64(data: str) -> str:
             decoded = base64.b64decode(clean_data).decode("utf-8", errors="ignore")
             if any(prefix in decoded.lower() for prefix in PROTOCOL_PREFIXES):
                 return decoded
+            stripped = decoded.lstrip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                return decoded
         except Exception:
             pass
     return data
+
+
+def _xray_outbound_to_uri(outbound: dict, remark: str = "") -> str | None:
+    """Конвертация Xray outbound (Remnawave JSON) → share-link URI."""
+    protocol = str(outbound.get("protocol") or "").lower()
+    if protocol not in ("vless", "trojan", "vmess", "shadowsocks"):
+        return None
+
+    stream = outbound.get("streamSettings") or {}
+    network = str(stream.get("network") or "tcp").lower()
+    security = str(stream.get("security") or "none").lower()
+    params: dict[str, str] = {"encryption": "none", "type": network, "security": security}
+
+    if network == "ws":
+        ws = stream.get("wsSettings") or {}
+        path = ws.get("path") or "/"
+        params["path"] = str(path)
+        headers = ws.get("headers") or {}
+        if headers.get("Host"):
+            params["host"] = str(headers["Host"])
+    elif network == "grpc":
+        grpc = stream.get("grpcSettings") or {}
+        if grpc.get("serviceName"):
+            params["serviceName"] = str(grpc["serviceName"])
+    elif network == "httpupgrade":
+        hu = stream.get("httpupgradeSettings") or stream.get("httpUpgradeSettings") or {}
+        if hu.get("path"):
+            params["path"] = str(hu["path"])
+        if hu.get("host"):
+            params["host"] = str(hu["host"])
+
+    if security == "reality":
+        rs = stream.get("realitySettings") or {}
+        sni = rs.get("serverName") or rs.get("server_name") or ""
+        if sni:
+            params["sni"] = str(sni)
+        pbk = rs.get("publicKey") or rs.get("public_key") or ""
+        if pbk:
+            params["pbk"] = str(pbk)
+        sid = rs.get("shortId") or rs.get("short_id") or ""
+        if sid:
+            params["sid"] = str(sid)
+        fp = rs.get("fingerprint") or "chrome"
+        params["fp"] = str(fp)
+        spx = rs.get("spiderX") or rs.get("spider_x") or ""
+        if spx:
+            params["spx"] = str(spx)
+    elif security in ("tls", "xtls"):
+        ts = stream.get("tlsSettings") or {}
+        sni = ts.get("serverName") or ""
+        if sni:
+            params["sni"] = str(sni)
+        fp = ts.get("fingerprint") or ""
+        if fp:
+            params["fp"] = str(fp)
+        alpn = ts.get("alpn")
+        if isinstance(alpn, list) and alpn:
+            params["alpn"] = ",".join(str(x) for x in alpn)
+
+    host = ""
+    port = 0
+    userinfo = ""
+
+    if protocol == "vless":
+        settings = outbound.get("settings") or {}
+        vnext = (settings.get("vnext") or [{}])[0]
+        host = str(vnext.get("address") or "")
+        port = int(vnext.get("port") or 0)
+        user = (vnext.get("users") or [{}])[0]
+        userinfo = str(user.get("id") or "")
+        if user.get("encryption"):
+            params["encryption"] = str(user["encryption"])
+        if user.get("flow"):
+            params["flow"] = str(user["flow"])
+        scheme = "vless"
+    elif protocol == "trojan":
+        settings = outbound.get("settings") or {}
+        server = (settings.get("servers") or [{}])[0]
+        host = str(server.get("address") or "")
+        port = int(server.get("port") or 0)
+        userinfo = str(server.get("password") or "")
+        scheme = "trojan"
+    elif protocol == "vmess":
+        settings = outbound.get("settings") or {}
+        vnext = (settings.get("vnext") or [{}])[0]
+        host = str(vnext.get("address") or "")
+        port = int(vnext.get("port") or 0)
+        user = (vnext.get("users") or [{}])[0]
+        userinfo = str(user.get("id") or "")
+        if user.get("alterId") is not None:
+            params["aid"] = str(user.get("alterId"))
+        if user.get("security"):
+            params["scy"] = str(user.get("security"))
+        scheme = "vmess"
+    else:
+        return None
+
+    if not host or not port or not userinfo:
+        return None
+    if host in ("0.0.0.0", "127.0.0.1", "localhost"):
+        return None
+
+    query = urllib.parse.urlencode(params, safe=",:/")
+    label = urllib.parse.quote(remark or outbound.get("tag") or host, safe="")
+    return f"{scheme}://{userinfo}@{host}:{port}?{query}#{label}"
+
+
+def extract_uris_from_xray_json(data: str) -> list[str]:
+    """Remnawave / Happ Xray JSON subscription → список share-link."""
+    text = data.strip()
+    if not text or text[0] not in "[{":
+        return []
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return []
+
+    profiles: list[dict]
+    if isinstance(payload, list):
+        profiles = [p for p in payload if isinstance(p, dict)]
+    elif isinstance(payload, dict):
+        profiles = [payload]
+    else:
+        return []
+
+    uris: list[str] = []
+    for profile in profiles:
+        remark = str(profile.get("remarks") or profile.get("remark") or "")
+        outbounds = profile.get("outbounds") or []
+        if not isinstance(outbounds, list):
+            continue
+        for outbound in outbounds:
+            if not isinstance(outbound, dict):
+                continue
+            proto = str(outbound.get("protocol") or "").lower()
+            if proto in ("freedom", "blackhole", "dns", "loopback"):
+                continue
+            uri = _xray_outbound_to_uri(outbound, remark)
+            if uri:
+                uris.append(uri)
+    return uris
+
+
+def _split_config_lines(data: str) -> list[str]:
+    data = try_decode_base64(data)
+    json_uris = extract_uris_from_xray_json(data.strip())
+    if json_uris:
+        return json_uris
+    pattern = "|".join(p.replace("://", "") for p in PROTOCOL_PREFIXES)
+    data = re.sub(rf"({pattern})://", r"\n\1://", data, flags=re.IGNORECASE)
+    return data.splitlines()
 
 
 def _query_params(uri: str) -> dict[str, str]:
@@ -256,13 +410,6 @@ def is_valid_config(uri: str) -> bool:
         if get_security(uri) not in ("tls", "reality"):
             return False
     return True
-
-
-def _split_config_lines(data: str) -> list[str]:
-    data = try_decode_base64(data)
-    pattern = "|".join(p.replace("://", "") for p in PROTOCOL_PREFIXES)
-    data = re.sub(rf"({pattern})://", r"\n\1://", data, flags=re.IGNORECASE)
-    return data.splitlines()
 
 
 def parse_vpn_configs(data: str) -> list[str]:
@@ -719,6 +866,33 @@ def parse_bypass_subscription(data: str) -> list[str]:
     return _parse_bypass_candidates(data, min_score=40)
 
 
+_PLACEHOLDER_MARKERS = (
+    "не поддерживается",
+    "превышено число",
+    "превышено",
+    "device limit",
+    "not supported",
+    "00000000-0000-0000-0000-000000000000",
+)
+
+
+def is_placeholder_config(uri: str) -> bool:
+    """Заглушки Remnawave (HWID / device limit), не рабочие узлы."""
+    if not uri:
+        return True
+    lower = uri.lower()
+    if "00000000-0000-0000-0000-000000000000" in lower:
+        return True
+    hp = extract_host_port(uri)
+    if hp and hp[0] in ("0.0.0.0", "127.0.0.1", "::", "localhost"):
+        return True
+    try:
+        frag = urllib.parse.unquote(uri.split("#", 1)[1]).lower() if "#" in uri else ""
+    except Exception:
+        frag = ""
+    return any(m in frag or m in lower for m in _PLACEHOLDER_MARKERS)
+
+
 def parse_subscription_lines(data: str) -> list[str]:
     """Все поддерживаемые конфиги из файла подписки (без фильтра SNI)."""
     result: list[str] = []
@@ -733,6 +907,8 @@ def parse_subscription_lines(data: str) -> list[str]:
         if INSECURE_PATTERN.search(urllib.parse.unquote(line_stripped)):
             continue
         processed = html.unescape(urllib.parse.unquote(line_stripped))
+        if is_placeholder_config(processed):
+            continue
         if processed in seen:
             continue
         seen.add(processed)

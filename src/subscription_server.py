@@ -43,7 +43,7 @@ async def health():
         "lte_sources": pool.lte_source_counts,
         "limit_per_profile": config.SUBSCRIPTION_CONFIG_LIMIT,
         "visible_configs": pool.subscription_count,
-        "source": "zieng2/vless_universal",
+        "source": "lidervpn+zieng2",
         "format": "classic-vless-base64",
         "wifi_probe": config.WIFI_PROBE_URL,
         "lte_probe": config.LTE_PROBE_URL,

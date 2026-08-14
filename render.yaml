@@ -21,8 +21,22 @@ services:
         sync: false
       - key: SUBSCRIPTION_CONFIG_LIMIT
         value: "45"
-      - key: CONFIG_FILL_SOURCE_URL
-        value: "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile.txt"
+      - key: LIDERVPN_SUB_URL
+        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
+      - key: WIFI_SOURCE_URLS
+        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U,https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
+      - key: LTE_SOURCE_URLS
+        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U,https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
+      - key: SUB_HWID
+        value: "tsulovpn-04fe756bc19238ad"
+      - key: SUB_DEVICE_OS
+        value: "Linux"
+      - key: SUB_DEVICE_OS_VER
+        value: "6.1"
+      - key: SUB_DEVICE_MODEL
+        value: "TsuloVPN-Server"
+      - key: SUB_FETCH_UA
+        value: "Happ/3.5.0"
       - key: POOL_REFRESH_INTERVAL
         value: "300"
       - key: HAPP_ENCRYPT_SUBSCRIPTION
