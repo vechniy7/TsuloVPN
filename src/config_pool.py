@@ -21,6 +21,7 @@ from parser import (
     rank_universal_configs,
     set_whitelist_cidrs,
     speed_score,
+    unique_source_labels,
 )
 from xray_builder import uri_to_outbound
 
@@ -83,11 +84,27 @@ def get_subscription_lines() -> list[str]:
 
 
 def _build_lines(uris: list[str], kind: str) -> list[str]:
+    if config.KEEP_SOURCE_NAMES:
+        return unique_source_labels(uris)
     lines: list[str] = []
     for idx, uri in enumerate(uris, start=1):
         label = build_server_label(kind, uri, idx)
         lines.append(brand_config(uri, label))
     return lines
+
+
+def _is_private_source_url(url: str) -> bool:
+    host = url.lower()
+    return any(
+        token in host
+        for token in (
+            "lidervpn.com",
+            "eu-fffast.com",
+            "remnawave",
+            "remna.st",
+            "subs.",
+        )
+    )
 
 
 def _content_fingerprint(texts: list[str], wifi: list[str], lte: list[str]) -> str:
@@ -109,24 +126,25 @@ async def _get_session() -> aiohttp.ClientSession:
     global _session
     if _session is None or _session.closed:
         timeout = aiohttp.ClientTimeout(total=config.FETCH_TIMEOUT)
-        _session = aiohttp.ClientSession(timeout=timeout)
+        jar = aiohttp.CookieJar(unsafe=True)
+        _session = aiohttp.ClientSession(timeout=timeout, cookie_jar=jar)
     return _session
 
 
 def _fetch_headers_for_url(url: str) -> dict[str, str]:
-    """Remnawave / LiderVPN требуют x-hwid, иначе отдают заглушку."""
+    """Happ UA для приватных подписок; HWID — только Remnawave/LiderVPN."""
     headers = {"User-Agent": CHROME_UA, "Accept": "*/*"}
     host = url.lower()
+    if _is_private_source_url(url):
+        headers["User-Agent"] = config.SUB_FETCH_UA or "Happ/3.5.0"
     is_remnawave = any(
         token in host for token in ("lidervpn.com", "remnawave", "remna.st", "pnl.")
     )
-    if is_remnawave:
-        headers["User-Agent"] = config.SUB_FETCH_UA or "Happ/3.5.0"
-        if config.SUB_HWID:
-            headers["x-hwid"] = config.SUB_HWID
-            headers["x-device-os"] = config.SUB_DEVICE_OS
-            headers["x-ver-os"] = config.SUB_DEVICE_OS_VER
-            headers["x-device-model"] = config.SUB_DEVICE_MODEL
+    if is_remnawave and config.SUB_HWID:
+        headers["x-hwid"] = config.SUB_HWID
+        headers["x-device-os"] = config.SUB_DEVICE_OS
+        headers["x-ver-os"] = config.SUB_DEVICE_OS_VER
+        headers["x-device-model"] = config.SUB_DEVICE_MODEL
     return headers
 
 
@@ -407,12 +425,9 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 total_raw += len(raw)
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
-            # LiderVPN / private Remnawave: отдаём все узлы как есть, без zieng2-ранжирования
-            lider_only = all(
-                "lidervpn.com" in u.lower() or "remna" in u.lower()
-                for u in all_urls
-            )
-            if lider_only:
+            # Приватная подписка: все узлы как есть, без zieng2-ранжирования
+            private_only = bool(all_urls) and all(_is_private_source_url(u) for u in all_urls)
+            if private_only:
                 seen: set[str] = set()
                 picked = []
                 for uri in all_uris:

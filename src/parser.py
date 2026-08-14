@@ -1001,7 +1001,11 @@ def is_russian_config(uri: str) -> bool:
 
 
 def build_server_label(category: str, uri: str, index: int) -> str:
-    """Подпись сервера в подписке — флаг страны и номер."""
+    """Подпись сервера: оригинальное имя из источника или fallback."""
+    if config.KEEP_SOURCE_NAMES and "#" in uri:
+        original = urllib.parse.unquote(uri.split("#", 1)[1]).strip()
+        if original:
+            return original
     flag = extract_country_flag(uri) or "🌐"
     if flag == RUSSIA_FLAG:
         flag = "🌐"
@@ -1011,3 +1015,16 @@ def build_server_label(category: str, uri: str, index: int) -> str:
 def brand_config(uri: str, label: str) -> str:
     base = uri.split("#", 1)[0]
     return f"{base}#{urllib.parse.quote(label, safe='')}"
+
+
+def unique_source_labels(uris: list[str]) -> list[str]:
+    """Сохраняет имена из источника; при дублях добавляет ·2, ·3 (группы АВТО)."""
+    counts: dict[str, int] = {}
+    result: list[str] = []
+    for idx, uri in enumerate(uris, start=1):
+        base_label = build_server_label("vpn", uri, idx)
+        n = counts.get(base_label, 0) + 1
+        counts[base_label] = n
+        label = base_label if n == 1 else f"{base_label} ·{n}"
+        result.append(brand_config(uri, label))
+    return result

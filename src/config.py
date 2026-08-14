@@ -6,13 +6,15 @@ load_dotenv()
 
 ZIENG2_RAW = "https://raw.githubusercontent.com/zieng2/wl/main"
 ZIENG2_UNIVERSAL = f"{ZIENG2_RAW}/vless_universal.txt"
-# Remnawave / LiderVPN private subscription (primary pool)
-LIDERVPN_SUB_URL = os.getenv(
-    "LIDERVPN_SUB_URL",
-    "https://sub.lidervpn.com/yxJC39WYm7Zubz1U",
+# Основной источник конфигов (личная подписка без лимита GB)
+PRIMARY_SUB_URL = os.getenv(
+    "PRIMARY_SUB_URL",
+    "https://subs.eu-fffast.com/3da685c67a5ff43c",
 )
-DEFAULT_WIFI_SOURCES = LIDERVPN_SUB_URL
-DEFAULT_LTE_SOURCES = LIDERVPN_SUB_URL
+# legacy alias
+LIDERVPN_SUB_URL = os.getenv("LIDERVPN_SUB_URL", PRIMARY_SUB_URL)
+DEFAULT_WIFI_SOURCES = PRIMARY_SUB_URL
+DEFAULT_LTE_SOURCES = PRIMARY_SUB_URL
 
 
 class Config(BaseModel):
@@ -25,17 +27,23 @@ class Config(BaseModel):
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )
 
+    PRIMARY_SUB_URL: str = PRIMARY_SUB_URL
     LIDERVPN_SUB_URL: str = LIDERVPN_SUB_URL
     WIFI_SOURCE_URLS: str = os.getenv("WIFI_SOURCE_URLS", DEFAULT_WIFI_SOURCES)
     LTE_SOURCE_URLS: str = os.getenv("LTE_SOURCE_URLS", DEFAULT_LTE_SOURCES)
 
-    # Remnawave HWID (обязателен для lidervpn / Remnawave с device limit)
-    # Зарегистрированный HWID для Remnawave (не менять без очистки устройств в панели)
-    SUB_HWID: str = os.getenv("SUB_HWID", "tsulovpn-04fe756bc19238ad")
+    # Remnawave HWID (нужен только для lidervpn / Remnawave с device limit)
+    SUB_HWID: str = os.getenv("SUB_HWID", "")
     SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", "Linux")
     SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", "6.1")
     SUB_DEVICE_MODEL: str = os.getenv("SUB_DEVICE_MODEL", "TsuloVPN-Server")
     SUB_FETCH_UA: str = os.getenv("SUB_FETCH_UA", "Happ/3.5.0")
+    # Сохранять оригинальные названия серверов из источника
+    KEEP_SOURCE_NAMES: bool = os.getenv("KEEP_SOURCE_NAMES", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "50"))
     LTE_CONFIG_LIMIT: int = int(os.getenv("LTE_CONFIG_LIMIT", "50"))
