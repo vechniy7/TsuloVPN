@@ -5,7 +5,7 @@ import warnings
 import coloredlogs
 import uvicorn
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from bot_notify import set_bot
 from config import config
@@ -22,10 +22,16 @@ logger = logging.getLogger(__name__)
 async def setup_bot_commands(bot: Bot) -> None:
     commands = [
         BotCommand(command="start", description="Главная"),
-        BotCommand(command="key", description="Мой доступ"),
-        BotCommand(command="help", description="Справка"),
+        BotCommand(command="access", description="Мой доступ"),
+        BotCommand(command="help", description="Подключение"),
+        BotCommand(command="donate", description="Поддержать проект"),
     ]
     await bot.set_my_commands(commands)
+    miniapp = config.miniapp_url
+    if miniapp.lower().startswith("https://"):
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="Кабинет", web_app=WebAppInfo(url=miniapp))
+        )
 
 
 async def run_subscription_server() -> None:

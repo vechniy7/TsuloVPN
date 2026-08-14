@@ -2,56 +2,93 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>TsuloVPN</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Tsulo</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/miniapp/static/style.css" />
 </head>
 <body>
-  <div class="app">
-    <div class="hero">
-      <div class="logo">🧿</div>
-      <h1>TsuloVPN</h1>
-      <p class="tagline">VPN и обход белых списков</p>
-    </div>
+  <div class="glow glow-a"></div>
+  <div class="glow glow-b"></div>
 
-    <div class="card">
-      <h2>Что в подписке</h2>
-      <div class="stats-grid">
-        <div class="stat">
-          <span class="stat-num">500</span>
-          <span class="stat-label">VPN серверов</span>
-        </div>
-        <div class="stat">
-          <span class="stat-num">500</span>
-          <span class="stat-label">Обходов БС</span>
-        </div>
+  <main class="app">
+    <header class="hero">
+      <img class="hero-img" src="/miniapp/media/1vpn.PNG" alt="Tsulo" />
+      <div class="hero-fade"></div>
+      <div class="hero-copy">
+        <p class="eyebrow">цифровой доступ</p>
+        <h1>Tsulo</h1>
+        <p class="tag">всегда на связи · без границ</p>
       </div>
-      <p class="muted">Списки обновляются автоматически при изменении источников.</p>
-    </div>
+    </header>
 
-    <div class="card">
-      <h2>Как подключить</h2>
+    <section class="status-card" id="status-card">
+      <div>
+        <p class="label">статус</p>
+        <p class="value" id="status-value">открыт</p>
+      </div>
+      <span class="pulse"></span>
+    </section>
+
+    <section class="grid">
+      <article class="tile">
+        <span class="tile-icon">◆</span>
+        <h3>Обход ограничений</h3>
+        <p>Стабильный контур даже при глушении сети</p>
+      </article>
+      <article class="tile">
+        <span class="tile-icon">⚡</span>
+        <h3>Скорость</h3>
+        <p>Чистый канал и быстрый отклик</p>
+      </article>
+      <article class="tile">
+        <span class="tile-icon">◎</span>
+        <h3>Мир</h3>
+        <p>Профили по странам в одном ключе</p>
+      </article>
+      <article class="tile">
+        <span class="tile-icon">✦</span>
+        <h3>Авто</h3>
+        <p>Ссылка обновляется сама</p>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>Ваш профиль</h2>
+      <p class="muted">Скопируйте ссылку и добавьте её в Happ. Автообновление — включить.</p>
+      <button class="btn primary" id="btn-copy">Скопировать ссылку</button>
+      <p class="hint" id="copy-hint"></p>
+    </section>
+
+    <section class="card">
+      <h2>Подключение</h2>
       <ol class="steps">
-        <li>Получите ключ в боте — кнопка <strong>«Получить ключ»</strong></li>
-        <li>Откройте <strong>Happ</strong> или <strong>Hiddify</strong></li>
-        <li>Добавьте подписку по ссылке или QR</li>
-        <li>Включите автообновление профиля</li>
+        <li>Скопируйте ссылку профиля</li>
+        <li>Happ → добавить подписку</li>
+        <li>Автообновление — вкл.</li>
+        <li>На мобильном берите профиль с ping</li>
       </ol>
-    </div>
+    </section>
 
-    <div class="card">
-      <h2>На мобильном (белые списки)</h2>
-      <p>Используйте серверы <strong>«Обход»</strong> — они для Мегафон, МТС и др.</p>
-      <p class="muted">Обычные <strong>«Сервер»</strong> — для Wi‑Fi и полного интернета.</p>
-    </div>
+    <section class="card donate">
+      <h2>Поддержать автора</h2>
+      <p class="muted">Проект живёт на добровольных переводах. Любая сумма — уже помощь.</p>
+      <div class="paybox">
+        <p class="pay-bank" id="pay-bank">Сбербанк</p>
+        <button class="card-num" id="btn-card" type="button">2202 2081 4103 6609</button>
+        <p class="pay-name" id="pay-name">АЛИ Ц</p>
+      </div>
+      <p class="hint" id="card-hint">Нажмите на номер, чтобы скопировать</p>
+    </section>
 
-    <button id="btn-close" class="btn">Закрыть</button>
-  </div>
-  <script>
-    const tg = window.Telegram?.WebApp;
-    if (tg) { tg.ready(); tg.expand(); }
-    document.getElementById("btn-close").onclick = () => tg?.close();
-  </script>
+    <section class="links">
+      <a class="link-btn" id="link-support" href="https://t.me/tsuloew" target="_blank" rel="noopener">✉  Поддержка</a>
+      <a class="link-btn" id="link-ig" href="https://www.instagram.com/tsulo.it" target="_blank" rel="noopener">Instagram</a>
+    </section>
+
+    <p class="footer">Tsulo · цифровая подписка</p>
+  </main>
+
+  <script src="/miniapp/static/app.js"></script>
 </body>
 </html>

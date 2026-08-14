@@ -90,6 +90,12 @@ class Config(BaseModel):
 
     PAYMENTS_ENFORCE: bool = os.getenv("PAYMENTS_ENFORCE", "false").lower() in ("1", "true", "yes")
 
+    SUPPORT_URL: str = os.getenv("SUPPORT_URL", "https://t.me/tsuloew")
+    INSTAGRAM_URL: str = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/tsulo.it")
+    DONATE_CARD: str = os.getenv("DONATE_CARD", "2202208141036609")
+    DONATE_CARD_NAME: str = os.getenv("DONATE_CARD_NAME", "АЛИ Ц")
+    DONATE_BANK: str = os.getenv("DONATE_BANK", "Сбербанк")
+
     CARDLINK_API_TOKEN: str = os.getenv("CARDLINK_API_TOKEN", "")
     CARDLINK_SHOP_ID: str = os.getenv("CARDLINK_SHOP_ID", "")
     CARDLINK_PAYMENT_METHOD: str = os.getenv("CARDLINK_PAYMENT_METHOD", "")
@@ -132,6 +138,14 @@ class Config(BaseModel):
         if isinstance(value, str):
             return [int(admin) for admin in value.split(",") if admin.strip()]
         return value or []
+
+    @property
+    def miniapp_url(self) -> str:
+        return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/miniapp"
+
+    def donation_card_spaced(self) -> str:
+        digits = "".join(ch for ch in self.DONATE_CARD if ch.isdigit())
+        return " ".join(digits[i : i + 4] for i in range(0, len(digits), 4)) or self.DONATE_CARD
 
     def subscription_url_for_token(self, token: str) -> str:
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")

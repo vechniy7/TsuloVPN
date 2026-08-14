@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import config
 from database import User
-from payments import PLANS, TariffPlan, get_plan, is_subscription_active
+from payments import TariffPlan, is_subscription_active
 
 DIV = "────────"
 
@@ -19,128 +18,115 @@ def _esc(value: str | None) -> str:
     return html.escape(value or "")
 
 
+def _webapp_https() -> bool:
+    return config.miniapp_url.lower().startswith("https://")
+
+
 def status_info(user: User) -> tuple[str, str, bool]:
-    """
-    Returns (badge, detail_line, is_active).
-    badge: АКТИВЕН / НУЖЕН ТАРИФ / ИСТЁК
-    """
+    """badge, detail, is_active — доступ всегда открыт, пока не включена оплата."""
     if not config.payments_active:
-        return "АКТИВЕН", "полный доступ", True
-
-    if not user.expires_at:
-        return "НУЖЕН ТАРИФ", "оформите подписку, чтобы открыть доступ", False
-
-    try:
-        expires = datetime.fromisoformat(user.expires_at)
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        if expires <= datetime.now(timezone.utc):
-            return "ИСТЁК", "продлите подписку, чтобы продолжить", False
-        return "АКТИВЕН", f"доступ до {expires.strftime('%d.%m.%Y')}", True
-    except ValueError:
-        return "АКТИВЕН", "полный доступ", True
+        return "открыт", "полный доступ · без ограничений", True
+    if is_subscription_active(user):
+        return "открыт", "полный доступ", True
+    return "ожидает", "откройте доступ через поддержку", False
 
 
 def format_access_until(user: User) -> str:
-    badge, detail, _ = status_info(user)
-    if badge == "АКТИВЕН" and detail.startswith("доступ до"):
-        return detail.replace("доступ ", "")
-    if badge == "АКТИВЕН":
-        return "активен"
-    if badge == "ИСТЁК":
-        return "истёк — выберите тариф"
-    return "не оплачен — выберите тариф"
-
-
-def plan_per_month(plan: TariffPlan) -> int:
-    return max(1, round(plan.price_rub / max(plan.months, 1)))
-
-
-def plan_is_best(plan: TariffPlan) -> bool:
-    return plan.id == "12m"
-
-
-def plan_button_label(plan: TariffPlan) -> str:
-    short = {1: "1 мес", 3: "3 мес", 12: "12 мес"}.get(plan.months, plan.title)
-    label = f"{short} · {plan.price_rub} ₽"
-    if plan_is_best(plan):
-        label += " · выгода"
-    return label
+    badge, detail, active = status_info(user)
+    if active:
+        return "открыт"
+    return detail
 
 
 def kb_home(*, is_admin: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Получить доступ", callback_data="get_key")
-    b.button(text="Тарифы", callback_data="tariffs")
-    b.button(text="Как подключить", callback_data="help")
+    b.button(text="✦  Мой доступ", callback_data="get_key")
+    b.button(text="♡  Поддержать", callback_data="donate")
+    b.button(text="▸  Подключение", callback_data="help")
+    if _webapp_https():
+        b.button(text="✧  Кабинет", web_app=WebAppInfo(url=config.miniapp_url))
+    b.button(text="✉  Поддержка", url=config.SUPPORT_URL)
+    b.button(text="Instagram", url=config.INSTAGRAM_URL)
     if is_admin:
-        b.button(text="Админ", callback_data="admin_menu")
-    b.adjust(2, 1, 1)
+        b.button(text="⚙  Админ", callback_data="admin_menu")
+    if _webapp_https() and is_admin:
+        b.adjust(2, 2, 2, 1)
+    elif _webapp_https():
+        b.adjust(2, 2, 2)
+    elif is_admin:
+        b.adjust(2, 1, 2, 1)
+    else:
+        b.adjust(2, 1, 2)
     return b.as_markup()
 
 
 def kb_home_nav() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="На главную", callback_data="back_to_menu")
-    return b.as_markup()
-
-
-def kb_tariffs() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    for plan in PLANS.values():
-        b.button(text=plan_button_label(plan), callback_data=f"order:{plan.id}")
-    b.button(text="На главную", callback_data="back_to_menu")
-    b.adjust(1)
-    return b.as_markup()
-
-
-def kb_order(plan_id: str) -> InlineKeyboardMarkup:
-    plan = get_plan(plan_id)
-    price = plan.price_rub if plan else 0
-    b = InlineKeyboardBuilder()
-    b.button(text=f"Оплатить {price} ₽", callback_data=f"pay:{plan_id}")
-    b.button(text="К тарифам", callback_data="tariffs")
-    b.adjust(1)
-    return b.as_markup()
-
-
-def kb_pay(bill_url: str, bill_id: str) -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="Перейти к оплате", url=bill_url))
-    b.button(text="Проверить оплату", callback_data=f"check:{bill_id}")
-    b.button(text="К тарифам", callback_data="tariffs")
-    b.adjust(1)
+    b.button(text="◂  На главную", callback_data="back_to_menu")
     return b.as_markup()
 
 
 def kb_access(*, inactive: bool = False) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if inactive:
-        b.button(text="Выбрать тариф", callback_data="tariffs")
-        b.button(text="На главную", callback_data="back_to_menu")
+        b.button(text="♡  Поддержать", callback_data="donate")
+        b.button(text="✉  Поддержка", url=config.SUPPORT_URL)
+        b.button(text="◂  На главную", callback_data="back_to_menu")
         b.adjust(1)
         return b.as_markup()
-    b.button(text="Обновить ссылку", callback_data="get_key")
-    b.button(text="Тарифы", callback_data="tariffs")
-    b.button(text="На главную", callback_data="back_to_menu")
-    b.adjust(2, 1)
+    if _webapp_https():
+        b.button(text="✧  Открыть кабинет", web_app=WebAppInfo(url=config.miniapp_url))
+    b.button(text="▸  Подключение", callback_data="help")
+    b.button(text="♡  Поддержать", callback_data="donate")
+    b.button(text="◂  На главную", callback_data="back_to_menu")
+    if _webapp_https():
+        b.adjust(1, 2, 1)
+    else:
+        b.adjust(2, 1)
     return b.as_markup()
 
 
 def kb_help() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Получить доступ", callback_data="get_key")
-    b.button(text="Тарифы", callback_data="tariffs")
-    b.button(text="На главную", callback_data="back_to_menu")
-    b.adjust(2, 1)
+    b.button(text="✦  Мой доступ", callback_data="get_key")
+    if _webapp_https():
+        b.button(text="✧  Кабинет", web_app=WebAppInfo(url=config.miniapp_url))
+    b.button(text="✉  Поддержка", url=config.SUPPORT_URL)
+    b.button(text="◂  На главную", callback_data="back_to_menu")
+    if _webapp_https():
+        b.adjust(2, 2)
+    else:
+        b.adjust(2, 1)
     return b.as_markup()
+
+
+def kb_donate() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="✉  Написать автору", url=config.SUPPORT_URL)
+    b.button(text="Instagram", url=config.INSTAGRAM_URL)
+    b.button(text="✦  Мой доступ", callback_data="get_key")
+    b.button(text="◂  На главную", callback_data="back_to_menu")
+    b.adjust(2, 2)
+    return b.as_markup()
+
+
+def kb_tariffs() -> InlineKeyboardMarkup:
+    return kb_donate()
+
+
+def kb_order(_plan_id: str) -> InlineKeyboardMarkup:
+    return kb_donate()
+
+
+def kb_pay(_bill_url: str, _bill_id: str) -> InlineKeyboardMarkup:
+    return kb_donate()
 
 
 def kb_admin() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="Обновить данные", callback_data="admin_refresh")
     b.button(text="Пользователи", callback_data="admin_users")
-    b.button(text="На главную", callback_data="back_to_menu")
+    b.button(text="◂  На главную", callback_data="back_to_menu")
     b.adjust(1)
     return b.as_markup()
 
@@ -172,117 +158,105 @@ def kb_admin_users(*, page: int, pages: int) -> InlineKeyboardMarkup:
 
 def kb_payment_success() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Получить доступ", callback_data="get_key")
-    b.button(text="На главную", callback_data="back_to_menu")
+    b.button(text="✦  Мой доступ", callback_data="get_key")
+    b.button(text="◂  На главную", callback_data="back_to_menu")
     b.adjust(1)
     return b.as_markup()
 
 
 def screen_home(user: User, *, is_admin: bool = False) -> str:
-    badge, detail, active = status_info(user)
+    badge, detail, _ = status_info(user)
     name = _esc(config.BOT_NAME)
-    if active:
-        tip = "Откройте доступ одной кнопкой или продлите подписку."
-    else:
-        tip = "Выберите тариф — доступ откроется сразу после оплаты."
-
     return (
-        f"<b>{name}</b>\n"
-        f"<i>цифровая подписка</i>\n\n"
-        f"{DIV}\n"
-        f"<b>Статус · {badge}</b>\n"
-        f"{_esc(detail)}\n"
-        f"{DIV}\n\n"
-        f"{tip}"
+        f"🧿  <b>{name}</b>\n"
+        f"<i>цифровой доступ · всегда на связи</i>\n\n"
+        f"<blockquote><b>◆  статус · {badge}</b>\n{_esc(detail)}</blockquote>\n\n"
+        f"Обход ограничений · скорость · стабильность.\n"
+        f"Один жест — и профиль у вас."
     )
 
 
 def screen_access_inactive() -> str:
     return (
-        f"<b>Доступ закрыт</b>\n\n"
-        f"{DIV}\n"
-        f"Подписка не активна.\n"
-        f"Оформите тариф — и ссылка появится здесь.\n"
-        f"{DIV}"
+        f"<b>Доступ пока закрыт</b>\n\n"
+        f"<blockquote>Напишите в поддержку — откроем профиль вручную.</blockquote>\n\n"
+        f"Или поддержите проект, если хотите помочь развитию."
     )
 
 
 def screen_access_loading() -> str:
     return (
-        f"<b>Почти готово</b>\n\n"
-        f"Данные ещё подгружаются.\n"
-        f"Подождите минуту и нажмите «Обновить ссылку»."
+        f"<b>Ещё секунда</b>\n\n"
+        f"Профиль собирается. Подождите минуту\n"
+        f"и нажмите «Мой доступ» снова."
     )
 
 
 def screen_access(user: User, import_url: str) -> str:
     badge, detail, _ = status_info(user)
     return (
-        f"<b>Ваш доступ</b>\n\n"
-        f"{DIV}\n"
-        f"<b>Статус · {badge}</b>\n"
-        f"{_esc(detail)}\n"
-        f"{DIV}\n\n"
-        f"<b>Ссылка</b>\n"
+        f"<b>Ваш доступ</b>\n"
+        f"<i>свобода без границ</i>\n\n"
+        f"<blockquote><b>◆  статус · {badge}</b>\n{_esc(detail)}</blockquote>\n\n"
+        f"<b>Ссылка профиля</b>\n"
         f"<code>{_esc(import_url)}</code>\n\n"
-        f"<b>Как подключить</b>\n"
-        f"1. Скопируйте ссылку (тап по тексту)\n"
-        f"2. Вставьте в Happ → автообновление вкл.\n"
-        f"3. На LTE выберите сервер с ping (не N/A)\n\n"
-        f"В ключе до 50 серверов из проверенного списка."
+        f"1. Нажмите на ссылку — скопируется\n"
+        f"2. Happ → добавить подписку\n"
+        f"3. Автообновление — включить"
+    )
+
+
+def screen_access_short(user: User) -> str:
+    badge, detail, _ = status_info(user)
+    return (
+        f"<b>Ваш доступ</b>\n"
+        f"<i>свобода без границ</i>\n\n"
+        f"<blockquote><b>◆  статус · {badge}</b>\n{_esc(detail)}</blockquote>\n\n"
+        f"Ссылка профиля — сообщением ниже.\n"
+        f"Нажмите на неё, чтобы скопировать."
+    )
+
+
+def screen_access_link(import_url: str) -> str:
+    return f"<code>{_esc(import_url)}</code>"
+
+
+def screen_donate() -> str:
+    card = "".join(ch for ch in config.DONATE_CARD if ch.isdigit()) or config.DONATE_CARD
+    spaced = _esc(config.donation_card_spaced())
+    name = _esc(config.DONATE_CARD_NAME)
+    bank = _esc(config.DONATE_BANK)
+    return (
+        f"<b>Поддержать проект</b>\n"
+        f"<i>автор и развитие Tsulo</i>\n\n"
+        f"Сервис живёт на добровольных переводах.\n"
+        f"Любая сумма — уже огромная помощь.\n\n"
+        f"<blockquote><b>{bank}</b>\n"
+        f"<code>{_esc(card)}</code>\n"
+        f"{spaced}\n"
+        f"{name}</blockquote>\n\n"
+        f"Нажмите на номер — чтобы скопировать.\n"
+        f"Спасибо, что вы с нами."
     )
 
 
 def screen_tariffs() -> str:
-    lines = [
-        f"<b>Тарифы</b>",
-        f"<i>цифровая подписка · мгновенная выдача</i>",
-        "",
-        DIV,
-    ]
-    for plan in PLANS.values():
-        per = plan_per_month(plan)
-        mark = " · <b>выгоднее</b>" if plan_is_best(plan) else ""
-        lines.append(f"<b>{_esc(plan.title)}</b>{mark}")
-        lines.append(f"{plan.price_rub} ₽ · ≈ {per} ₽/мес")
-        lines.append("")
-    lines.append(DIV)
-    lines.append("Выберите срок — откроется оформление.")
-    return "\n".join(lines)
+    return screen_donate()
 
 
 def screen_order(plan: TariffPlan) -> str:
-    per = plan_per_month(plan)
-    best = "\nЛучшее соотношение цены и срока." if plan_is_best(plan) else ""
-    return (
-        f"<b>Оформление</b>\n\n"
-        f"{DIV}\n"
-        f"<b>{_esc(plan.title)}</b>\n"
-        f"Цифровая подписка\n"
-        f"{DIV}\n\n"
-        f"К оплате: <b>{plan.price_rub} ₽</b>\n"
-        f"≈ {per} ₽ в месяц{best}"
-    )
+    return screen_donate()
 
 
 def screen_pay(plan: TariffPlan) -> str:
-    return (
-        f"<b>Оплата</b>\n\n"
-        f"{DIV}\n"
-        f"{_esc(plan.title)}\n"
-        f"<b>{plan.price_rub} ₽</b>\n"
-        f"{DIV}\n\n"
-        f"1. Нажмите «Перейти к оплате»\n"
-        f"2. Вернитесь и нажмите «Проверить оплату»\n\n"
-        f"Доступ активируется автоматически."
-    )
+    return screen_donate()
 
 
 def screen_pay_error() -> str:
     return (
-        f"<b>Не удалось создать счёт</b>\n\n"
-        f"Попробуйте ещё раз чуть позже\n"
-        f"или напишите в поддержку."
+        f"<b>Оплата через кассу отключена</b>\n\n"
+        f"Поддержать проект можно переводом на карту\n"
+        f"в разделе «Поддержать»."
     )
 
 
@@ -290,17 +264,14 @@ def screen_help() -> str:
     name = _esc(config.BOT_NAME)
     return (
         f"<b>{name}</b>\n"
-        f"<i>как подключить</i>\n\n"
-        f"{DIV}\n"
-        f"<b>1.</b> Получите ссылку в «Доступ»\n"
-        f"<b>2.</b> Добавьте её в Happ\n"
-        f"<b>3.</b> Включите автообновление\n"
-        f"{DIV}\n\n"
-        f"В ключе до 50 серверов. На мобильном\n"
-        f"берите конфиг с ping, не N/A.\n\n"
-        f"Если связь просела — отключите и снова\n"
-        f"подключите нужный АВТО-профиль (~10–15 сек).\n\n"
-        f"Нужна помощь — напишите администратору."
+        f"<i>как подключить за минуту</i>\n\n"
+        f"<blockquote><b>1.</b>  Откройте «Мой доступ»\n"
+        f"<b>2.</b>  Скопируйте ссылку профиля\n"
+        f"<b>3.</b>  Happ → вставить → автообновление</blockquote>\n\n"
+        f"На мобильном берите профиль с ping, не N/A.\n"
+        f"Связь просела — переключите профиль\n"
+        f"и подождите 10–15 секунд.\n\n"
+        f"Нужна помощь — кнопка «Поддержка»."
     )
 
 
@@ -316,15 +287,13 @@ def screen_admin(
     wifi_count: int = 0,
     lte_count: int = 0,
 ) -> str:
-    sources = f"\nИсточники · {_esc(sources_line)}" if sources_line else ""
+    sources = f"\nисточники · {_esc(sources_line)}" if sources_line else ""
     return (
         f"<b>Админ</b>\n\n"
-        f"{DIV}\n"
-        f"Пользователей · <b>{users}</b>\n"
-        f"В ключе · <b>{sub_count}</b> / {limit}\n"
-        f"В источнике · {source_total}{sources}\n"
-        f"Формат · Happ vless (50 max)\n"
-        f"{DIV}"
+        f"<blockquote>пользователей · <b>{users}</b>\n"
+        f"в профиле · <b>{sub_count}</b> / {limit}\n"
+        f"в источнике · {source_total}{sources}\n"
+        f"формат · Happ JSON</blockquote>"
     )
 
 
@@ -339,33 +308,26 @@ def screen_admin_refresh(
     wifi_count: int = 0,
     lte_count: int = 0,
 ) -> str:
-    sources = f"\nИсточники · {_esc(sources_line)}" if sources_line else ""
+    sources = f"\nисточники · {_esc(sources_line)}" if sources_line else ""
     return (
         f"<b>Данные обновлены</b>\n\n"
-        f"{DIV}\n"
-        f"В ключе · <b>{sub_count}</b> / {limit}\n"
-        f"В источнике · {source_total}{sources}\n"
-        f"{DIV}"
+        f"<blockquote>в профиле · <b>{sub_count}</b> / {limit}\n"
+        f"в источнике · {source_total}{sources}</blockquote>"
     )
 
 
 def screen_payment_success(plan_title: str, user: User) -> str:
     badge, detail, _ = status_info(user)
     return (
-        f"<b>Оплата получена</b>\n\n"
-        f"{DIV}\n"
-        f"Тариф · {_esc(plan_title)}\n"
-        f"Статус · <b>{badge}</b>\n"
-        f"{_esc(detail)}\n"
-        f"{DIV}\n\n"
+        f"<b>Спасибо</b>\n\n"
+        f"<blockquote>статус · <b>{badge}</b>\n{_esc(detail)}</blockquote>\n\n"
         f"Можно открывать доступ."
     )
 
 
-# Compatibility aliases used by payments/other modules
 def format_tariffs_text() -> str:
-    return screen_tariffs()
+    return screen_donate()
 
 
 def format_order_text(plan: TariffPlan) -> str:
-    return screen_order(plan)
+    return screen_donate()
