@@ -82,7 +82,7 @@ async def subscription(token: str):
 
     pool = get_pool_state()
     body = json.dumps(profiles, ensure_ascii=False, separators=(",", ":"))
-    profile_title = f"🧿 {config.BOT_NAME}"
+    profile_title = f"🔮 {config.BOT_NAME}"
 
     headers = {
         "Content-Type": "application/json; charset=utf-8",

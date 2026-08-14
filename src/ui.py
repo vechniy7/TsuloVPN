@@ -168,7 +168,7 @@ def screen_home(user: User, *, is_admin: bool = False) -> str:
     badge, detail, _ = status_info(user)
     name = _esc(config.BOT_NAME)
     return (
-        f"🧿  <b>{name}</b>\n"
+        f"🔮  <b>{name}</b>\n"
         f"<i>цифровой доступ · всегда на связи</i>\n\n"
         f"<blockquote><b>◆  статус · {badge}</b>\n{_esc(detail)}</blockquote>\n\n"
         f"Обход ограничений · скорость · стабильность.\n"
