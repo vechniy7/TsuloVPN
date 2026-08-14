@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import logging
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 
 import aiohttp
@@ -19,7 +20,9 @@ from parser import (
     rank_configs_for_speed,
     rank_lte_configs,
     rank_universal_configs,
+    restyle_server_name,
     set_whitelist_cidrs,
+    should_skip_profile,
     speed_score,
     unique_source_labels,
 )
@@ -428,15 +431,19 @@ async def refresh_pool(force: bool = False) -> PoolState:
             # Приватная подписка: все узлы как есть, без zieng2-ранжирования
             private_only = bool(all_urls) and all(_is_private_source_url(u) for u in all_urls)
             if private_only:
-                seen: set[str] = set()
+                seen_names: set[str] = set()
                 picked = []
                 for uri in all_uris:
+                    name = urllib.parse.unquote(uri.split("#", 1)[1]) if "#" in uri else ""
+                    styled = restyle_server_name(name)
+                    if not styled or should_skip_profile(name):
+                        continue
                     if not uri_to_outbound(uri, "probe"):
                         continue
-                    key = _config_identity(uri)
-                    if key in seen:
+                    name_key = styled.lower()
+                    if name_key in seen_names:
                         continue
-                    seen.add(key)
+                    seen_names.add(name_key)
                     picked.append(uri)
                     if len(picked) >= limit:
                         break
@@ -489,7 +496,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 ", ".join(f"{k}={v}" for k, v in source_counts.items() if v),
                 _pool.last_refresh_duration,
             )
-            if len(picked) < limit:
+            if len(picked) < limit and not private_only:
                 logger.warning(
                     "Fewer than %s unique configs after rank: %s",
                     limit,

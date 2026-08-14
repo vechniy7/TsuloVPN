@@ -265,8 +265,144 @@ def _xray_outbound_to_uri(outbound: dict, remark: str = "") -> str | None:
     return f"{scheme}://{userinfo}@{host}:{port}?{query}#{label}"
 
 
+_FLAG_RE = re.compile(r"[\U0001F1E6-\U0001F1FF]{2}")
+
+_SKIP_NAME_MARKERS = (
+    "[free]",
+    "только tg",
+    "tg бот",
+    "tg bot",
+    "бот + сайт",
+    "бот  сайт",
+    "hysteria",
+)
+
+# Оригинал → своё имя (смысл тот же, текст другой)
+_NAME_RESTYLE: tuple[tuple[str, str], ...] = (
+    ("самый быстрый авто", "⚡ Автовыбор"),
+    ("lte авто", "📱 LTE Авто"),
+    ("lte reserve", "📱 LTE Резерв"),
+    ("lte #1", "📱 LTE 1"),
+    ("lte #2", "📱 LTE 2"),
+    ("lte #3", "📱 LTE 3"),
+    ("обход белых", "🛡 Обход Wi-Fi"),
+    ("обход", "🛡 Обход Wi-Fi"),
+    ("нидерланды", "🇳🇱 Нидерланды"),
+    ("великобритания", "🇬🇧 Британия"),
+    ("германия", "🇩🇪 Германия"),
+    ("финляндия", "🇫🇮 Финляндия"),
+    ("швеция", "🇸🇪 Швеция"),
+    ("эстония", "🇪🇪 Эстония"),
+    ("польша", "🇵🇱 Польша"),
+    ("литва", "🇱🇹 Литва"),
+    ("латвия", "🇱🇻 Латвия"),
+    ("франция", "🇫🇷 Франция"),
+    ("турция", "🇹🇷 Турция"),
+    ("казахстан", "🇰🇿 Казахстан"),
+    ("россия", "🇷🇺 Россия"),
+    ("сша", "🇺🇸 США"),
+)
+
+
+def should_skip_profile(name: str) -> bool:
+    compact = " ".join((name or "").lower().split())
+    return any(marker in compact for marker in _SKIP_NAME_MARKERS)
+
+
+def restyle_server_name(name: str) -> str | None:
+    """Чуть другие названия, тот же смысл. None = не выдавать."""
+    raw = " ".join((name or "").split()).strip()
+    if not raw or should_skip_profile(raw):
+        return None
+
+    compact = raw.lower()
+    noflag = _FLAG_RE.sub(" ", compact)
+    noflag = re.sub(r"\s+", " ", noflag).strip()
+    flags = _FLAG_RE.findall(raw)
+    flag = flags[0] if flags else ""
+
+    if "игровой" in noflag:
+        num = ""
+        match = re.search(r"(\d+)", noflag)
+        if match:
+            num = f" {match.group(1)}"
+        return f"{flag} 🎮 Игровой{num}".strip()
+
+    for needle, styled in _NAME_RESTYLE:
+        if needle in noflag or needle in compact:
+            return styled
+
+    cleaned = _FLAG_RE.sub(" ", raw)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ·-–|")
+    if flag and cleaned:
+        return f"{flag} {cleaned}"
+    return cleaned or raw
+
+
+def _outbound_score(outbound: dict) -> int:
+    """Чем выше — тем стабильнее для Happ (tcp+reality+443+vision)."""
+    proto = str(outbound.get("protocol") or "").lower()
+    if proto not in ("vless", "trojan"):
+        return -1
+
+    stream = outbound.get("streamSettings") or {}
+    network = str(stream.get("network") or "tcp").lower()
+    if network in ("xhttp", "splithttp"):
+        return -1
+    security = str(stream.get("security") or "").lower()
+
+    port = 0
+    flow = ""
+    settings = outbound.get("settings") or {}
+    if proto == "vless":
+        vnext = (settings.get("vnext") or [{}])[0]
+        port = int(vnext.get("port") or 0)
+        user = (vnext.get("users") or [{}])[0]
+        flow = str(user.get("flow") or "").lower()
+    else:
+        server = (settings.get("servers") or [{}])[0]
+        port = int(server.get("port") or 0)
+
+    score = 10
+    if proto == "vless":
+        score += 40
+    if security == "reality":
+        score += 50
+    elif security == "tls":
+        score += 20
+    if network == "tcp":
+        score += 35
+    elif network == "grpc":
+        score += 8
+    elif network == "ws":
+        score += 4
+    if port == 443:
+        score += 20
+    elif port in (8443, 2053, 2083, 2087, 2096):
+        score += 5
+    if "vision" in flow:
+        score += 15
+    return score
+
+
+def _best_outbound(outbounds: list) -> dict | None:
+    best: dict | None = None
+    best_score = -1
+    for outbound in outbounds:
+        if not isinstance(outbound, dict):
+            continue
+        proto = str(outbound.get("protocol") or "").lower()
+        if proto in ("freedom", "blackhole", "dns", "loopback"):
+            continue
+        score = _outbound_score(outbound)
+        if score > best_score:
+            best_score = score
+            best = outbound
+    return best if best_score >= 0 else None
+
+
 def extract_uris_from_xray_json(data: str) -> list[str]:
-    """Remnawave / Happ Xray JSON subscription → список share-link."""
+    """Один рабочий share-link на профиль (как в оригинальном клиенте)."""
     text = data.strip()
     if not text or text[0] not in "[{":
         return []
@@ -284,20 +420,23 @@ def extract_uris_from_xray_json(data: str) -> list[str]:
         return []
 
     uris: list[str] = []
+    seen_names: set[str] = set()
     for profile in profiles:
         remark = str(profile.get("remarks") or profile.get("remark") or "")
+        styled = restyle_server_name(remark)
+        if not styled or styled.lower() in seen_names:
+            continue
         outbounds = profile.get("outbounds") or []
         if not isinstance(outbounds, list):
             continue
-        for outbound in outbounds:
-            if not isinstance(outbound, dict):
-                continue
-            proto = str(outbound.get("protocol") or "").lower()
-            if proto in ("freedom", "blackhole", "dns", "loopback"):
-                continue
-            uri = _xray_outbound_to_uri(outbound, remark)
-            if uri:
-                uris.append(uri)
+        best = _best_outbound(outbounds)
+        if not best:
+            continue
+        uri = _xray_outbound_to_uri(best, styled)
+        if not uri:
+            continue
+        seen_names.add(styled.lower())
+        uris.append(uri)
     return uris
 
 
@@ -909,6 +1048,9 @@ def parse_subscription_lines(data: str) -> list[str]:
         processed = html.unescape(urllib.parse.unquote(line_stripped))
         if is_placeholder_config(processed):
             continue
+        name = urllib.parse.unquote(processed.split("#", 1)[1]) if "#" in processed else ""
+        if should_skip_profile(name) or restyle_server_name(name) is None:
+            continue
         if processed in seen:
             continue
         seen.add(processed)
@@ -1018,13 +1160,19 @@ def brand_config(uri: str, label: str) -> str:
 
 
 def unique_source_labels(uris: list[str]) -> list[str]:
-    """Сохраняет имена из источника; при дублях добавляет ·2, ·3 (группы АВТО)."""
-    counts: dict[str, int] = {}
+    """Одно имя — один конфиг. Без ·2/·3 дублей."""
+    seen: set[str] = set()
     result: list[str] = []
     for idx, uri in enumerate(uris, start=1):
-        base_label = build_server_label("vpn", uri, idx)
-        n = counts.get(base_label, 0) + 1
-        counts[base_label] = n
-        label = base_label if n == 1 else f"{base_label} ·{n}"
+        original = urllib.parse.unquote(uri.split("#", 1)[1]).strip() if "#" in uri else ""
+        label = restyle_server_name(original) if original else None
+        if not label:
+            label = build_server_label("vpn", uri, idx)
+        key = label.lower()
+        if key in seen:
+            continue
+        if should_skip_profile(label) or should_skip_profile(original):
+            continue
+        seen.add(key)
         result.append(brand_config(uri, label))
     return result
