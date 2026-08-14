@@ -407,7 +407,26 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 total_raw += len(raw)
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
-            picked = rank_universal_configs(all_uris, limit=limit)
+            # LiderVPN / private Remnawave: отдаём все узлы как есть, без zieng2-ранжирования
+            lider_only = all(
+                "lidervpn.com" in u.lower() or "remna" in u.lower()
+                for u in all_urls
+            )
+            if lider_only:
+                seen: set[str] = set()
+                picked = []
+                for uri in all_uris:
+                    if not uri_to_outbound(uri, "probe"):
+                        continue
+                    key = _config_identity(uri)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    picked.append(uri)
+                    if len(picked) >= limit:
+                        break
+            else:
+                picked = rank_universal_configs(all_uris, limit=limit)
 
             fingerprint = _content_fingerprint(texts, picked, [])
             global _cached_wifi_lines, _cached_lte_lines

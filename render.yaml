@@ -24,9 +24,9 @@ services:
       - key: LIDERVPN_SUB_URL
         value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
       - key: WIFI_SOURCE_URLS
-        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U,https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
+        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
       - key: LTE_SOURCE_URLS
-        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U,https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
+        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
       - key: SUB_HWID
         value: "tsulovpn-04fe756bc19238ad"
       - key: SUB_DEVICE_OS
