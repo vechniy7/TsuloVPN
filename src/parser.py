@@ -277,16 +277,22 @@ _SKIP_NAME_MARKERS = (
     "hysteria",
 )
 
-# Оригинал → своё имя (смысл тот же, текст другой)
+# Happ ставит иконкой только флаг страны (regional indicators) в начале remark.
+# Обычные ⚡/📱 остаются в тексте, а иконка становится планетой — поэтому тут флаги.
 _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
-    ("самый быстрый авто", "⚡ Автовыбор"),
-    ("lte авто", "📱 LTE Авто"),
-    ("lte reserve", "📱 LTE Резерв"),
-    ("lte #1", "📱 LTE 1"),
-    ("lte #2", "📱 LTE 2"),
-    ("lte #3", "📱 LTE 3"),
-    ("обход белых", "🛡 Обход Wi-Fi"),
-    ("обход", "🛡 Обход Wi-Fi"),
+    ("самый быстрый авто", "🇪🇺 Автовыбор"),
+    ("автовыбор", "🇪🇺 Автовыбор"),
+    ("lte авто", "🇫🇮 LTE Авто"),
+    ("lte reserve", "🇫🇮 LTE Резерв"),
+    ("lte резерв", "🇫🇮 LTE Резерв"),
+    ("lte #1", "🇫🇮 LTE 1"),
+    ("lte #2", "🇫🇮 LTE 2"),
+    ("lte #3", "🇫🇮 LTE 3"),
+    ("lte 1", "🇫🇮 LTE 1"),
+    ("lte 2", "🇫🇮 LTE 2"),
+    ("lte 3", "🇫🇮 LTE 3"),
+    ("обход белых", "🇩🇪 Обход Wi-Fi"),
+    ("обход", "🇩🇪 Обход Wi-Fi"),
     ("нидерланды", "🇳🇱 Нидерланды"),
     ("великобритания", "🇬🇧 Британия"),
     ("германия", "🇩🇪 Германия"),
@@ -326,10 +332,15 @@ def restyle_server_name(name: str) -> str | None:
         match = re.search(r"(\d+)", noflag)
         if match:
             num = f" {match.group(1)}"
-        return f"{flag} 🎮 Игровой{num}".strip()
+        return f"{flag or '🎮'} Игровой{num}".strip()
 
     for needle, styled in _NAME_RESTYLE:
         if needle in noflag or needle in compact:
+            styled_flag = _FLAG_RE.findall(styled)
+            styled_text = _FLAG_RE.sub(" ", styled).strip()
+            use_flag = flag or (styled_flag[0] if styled_flag else "")
+            if use_flag and styled_text:
+                return f"{use_flag} {styled_text}"
             return styled
 
     cleaned = _FLAG_RE.sub(" ", raw)
