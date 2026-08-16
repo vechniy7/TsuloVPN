@@ -19,44 +19,34 @@ services:
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
-      - key: SUBSCRIPTION_CONFIG_LIMIT
-        value: "45"
       - key: PRIMARY_SUB_URL
-        value: "https://subs.eu-fffast.com/3da685c67a5ff43c"
+        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
       - key: WIFI_SOURCE_URLS
-        value: "https://subs.eu-fffast.com/3da685c67a5ff43c"
+        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
       - key: LTE_SOURCE_URLS
-        value: "https://subs.eu-fffast.com/3da685c67a5ff43c"
+        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
+      - key: SUBSCRIPTION_CONFIG_LIMIT
+        value: "50"
+      - key: LTE_CONFIG_LIMIT
+        value: "50"
+      - key: LTE_BALANCER_NODES
+        value: "10"
       - key: KEEP_SOURCE_NAMES
         value: "true"
       - key: SUB_FETCH_UA
         value: "Happ/3.5.0"
-      - key: SUB_HWID
-        value: ""
-      - key: SUB_DEVICE_OS
-        value: "Linux"
-      - key: SUB_DEVICE_OS_VER
-        value: "6.1"
-      - key: SUB_DEVICE_MODEL
-        value: "TsuloVPN-Server"
+      - key: WHITELIST_CIDR_URL
+        value: "https://raw.githubusercontent.com/hxehex/russia-mobile-internet-whitelist/main/cidrwhitelist.txt"
       - key: POOL_REFRESH_INTERVAL
         value: "300"
       - key: HAPP_ENCRYPT_SUBSCRIPTION
         value: "true"
-      - key: CARDLINK_API_TOKEN
-        sync: false
-      - key: CARDLINK_SHOP_ID
-        sync: false
-      - key: CARDLINK_PAYMENT_METHOD
-        value: SBP
       - key: PAYMENTS_ENFORCE
         value: "false"
       - key: SUPPORT_URL
         value: "https://t.me/tsuloew"
       - key: INSTAGRAM_URL
         value: "https://www.instagram.com/tsulo.it"
-      - key: DONATE_CARD
-        value: "2202209226540747"
       - key: DONATE_CARD_NAME
         value: "АЛИ Ц"
       - key: DONATE_BANK

@@ -9,7 +9,7 @@ ZIENG2_UNIVERSAL = f"{ZIENG2_RAW}/vless_universal.txt"
 # Основной источник конфигов (личная подписка без лимита GB)
 PRIMARY_SUB_URL = os.getenv(
     "PRIMARY_SUB_URL",
-    "https://subs.eu-fffast.com/3da685c67a5ff43c",
+    "https://sub.lidervpn.com/yxJC39WYm7Zubz1U",
 )
 # legacy alias
 LIDERVPN_SUB_URL = os.getenv("LIDERVPN_SUB_URL", PRIMARY_SUB_URL)

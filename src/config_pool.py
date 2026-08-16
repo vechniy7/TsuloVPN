@@ -27,7 +27,7 @@ from parser import (
     speed_score,
     unique_source_labels,
 )
-from xray_builder import json_profiles_from_uris, uri_to_outbound
+from xray_builder import build_subscription_json, uri_to_outbound
 
 logger = logging.getLogger(__name__)
 
@@ -489,15 +489,31 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 return _pool
 
             branded = _build_lines(picked, "vpn")
+            wifi_pool: list[str] = []
+            lte_pool: list[str] = []
             if not json_profiles:
-                json_profiles = json_profiles_from_uris(branded)
-            _cached_wifi_lines = []
+                wifi_pool = sorted(picked, key=speed_score, reverse=True)[
+                    : config.SUBSCRIPTION_CONFIG_LIMIT
+                ]
+                lte_pool = _lte_profiles_from_pool(wifi_pool)
+                if len(lte_pool) < 3:
+                    lte_pool = _sort_lte_whitelist_first(wifi_pool)[
+                        : max(3, config.LTE_CONFIG_LIMIT)
+                    ]
+                if config.LTE_TCP_CHECK and lte_pool:
+                    lte_pool = await _rank_by_tcp_latency(lte_pool)
+                lte_pool = lte_pool[: config.LTE_CONFIG_LIMIT]
+                json_profiles = build_subscription_json(wifi_pool, lte_pool)
+            else:
+                wifi_pool = list(picked)
+                lte_pool = list(picked)
+            _cached_wifi_lines = branded if wifi_pool else []
             _cached_lte_lines = branded
             _cached_json_profiles = json_profiles
 
-            _pool.wifi_uris = []
-            _pool.lte_uris = picked
-            _pool.wifi_count = 0
+            _pool.wifi_uris = wifi_pool
+            _pool.lte_uris = lte_pool or picked
+            _pool.wifi_count = len(wifi_pool)
             _pool.lte_count = len(json_profiles)
             _pool.wifi_source_counts = {}
             _pool.lte_source_counts = source_counts
