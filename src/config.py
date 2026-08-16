@@ -6,10 +6,10 @@ load_dotenv()
 
 ZIENG2_RAW = "https://raw.githubusercontent.com/zieng2/wl/main"
 ZIENG2_UNIVERSAL = f"{ZIENG2_RAW}/vless_universal.txt"
-# Основной источник конфигов (LiderVPN Remnawave)
+# Основной источник конфигов
 PRIMARY_SUB_URL = os.getenv(
     "PRIMARY_SUB_URL",
-    "https://sub.lidervpn.com/4vpN9ZJGg-hBnfmT",
+    "https://vpn.ecobuy.ltd/s/RRqPzsUW",
 )
 # legacy alias
 LIDERVPN_SUB_URL = os.getenv("LIDERVPN_SUB_URL", PRIMARY_SUB_URL)
@@ -37,7 +37,7 @@ class Config(BaseModel):
     SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", "Linux")
     SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", "6.1")
     SUB_DEVICE_MODEL: str = os.getenv("SUB_DEVICE_MODEL", "TsuloVPN-Server")
-    SUB_FETCH_UA: str = os.getenv("SUB_FETCH_UA", "Happ/3.5.0")
+    SUB_FETCH_UA: str = os.getenv("SUB_FETCH_UA", "v2rayN/6.45")
     # Сохранять оригинальные названия серверов из источника
     KEEP_SOURCE_NAMES: bool = os.getenv("KEEP_SOURCE_NAMES", "true").lower() in (
         "1",

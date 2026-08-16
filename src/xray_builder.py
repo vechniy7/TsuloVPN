@@ -521,6 +521,87 @@ def json_profiles_from_uris(uris: list[str]) -> list[dict]:
     return entries
 
 
+_AUTO_NAME_MARKERS = (
+    "автовыбор",
+    "самый быстрый",
+    "авто wifi",
+    "авто lte",
+)
+
+
+def _is_auto_profile_name(name: str) -> bool:
+    compact = " ".join((name or "").lower().split())
+    return any(marker in compact for marker in _AUTO_NAME_MARKERS)
+
+
+def build_happ_profiles(
+    uris: list[str],
+    *,
+    existing: list[dict] | None = None,
+    limit: int | None = None,
+) -> list[dict]:
+    """
+    Клиентская подписка TsuloVPN:
+    1) 🇪🇺 Автовыбор — observatory + leastPing (сам выбирает лучший узел)
+    2) отдельные серверы (из исходного JSON или из vless://)
+    """
+    cap = max(1, int(limit or config.SUBSCRIPTION_CONFIG_LIMIT))
+    pool = [uri for uri in uris if uri_to_outbound(uri, "probe")]
+    if not pool and existing:
+        # на всякий случай: если URI нет, всё равно отдадим исходные профили
+        cleaned = [
+            p
+            for p in existing
+            if isinstance(p, dict) and not _is_auto_profile_name(str(p.get("remarks") or ""))
+        ]
+        return cleaned[:cap]
+
+    entries: list[dict] = []
+    auto = build_auto_select_config(
+        pool[:cap],
+        remarks="🇪🇺 Автовыбор",
+        node_prefix="auto-",
+        description="автовыбор · leastPing",
+        probe_url=config.WIFI_PROBE_URL,
+        probe_interval_sec=config.AUTO_PROBE_INTERVAL_SEC,
+    )
+    if auto:
+        entries.append(auto)
+
+    seen: set[str] = {"🇪🇺 автовыбор"}
+    if existing:
+        for profile in existing:
+            if not isinstance(profile, dict):
+                continue
+            rem = str(profile.get("remarks") or "").strip()
+            if not rem or _is_auto_profile_name(rem):
+                continue
+            key = rem.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append(profile)
+            if len(entries) >= cap:
+                break
+    else:
+        for idx, uri in enumerate(pool, start=1):
+            if len(entries) >= cap:
+                break
+            cfg = build_single_server_config(uri, idx)
+            if not cfg:
+                continue
+            rem = str(cfg.get("remarks") or "").strip()
+            if not rem or _is_auto_profile_name(rem):
+                continue
+            key = rem.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append(cfg)
+
+    return entries
+
+
 def subscription_json_bytes(
     wifi_uris: list[str],
     lte_uris: list[str],

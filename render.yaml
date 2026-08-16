@@ -20,11 +20,11 @@ services:
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
       - key: PRIMARY_SUB_URL
-        value: "https://sub.lidervpn.com/4vpN9ZJGg-hBnfmT"
+        value: "https://vpn.ecobuy.ltd/s/RRqPzsUW"
       - key: WIFI_SOURCE_URLS
-        value: "https://sub.lidervpn.com/4vpN9ZJGg-hBnfmT"
+        value: "https://vpn.ecobuy.ltd/s/RRqPzsUW"
       - key: LTE_SOURCE_URLS
-        value: "https://sub.lidervpn.com/4vpN9ZJGg-hBnfmT"
+        value: "https://vpn.ecobuy.ltd/s/RRqPzsUW"
       - key: SUBSCRIPTION_CONFIG_LIMIT
         value: "50"
       - key: LTE_CONFIG_LIMIT
@@ -34,7 +34,7 @@ services:
       - key: KEEP_SOURCE_NAMES
         value: "true"
       - key: SUB_FETCH_UA
-        value: "Happ/3.5.0"
+        value: "v2rayN/6.45"
       - key: SUB_HWID
         value: "TsuloVPN-Server-Render-01"
       - key: SUB_DEVICE_OS

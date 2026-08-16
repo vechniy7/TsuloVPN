@@ -27,7 +27,7 @@ from parser import (
     speed_score,
     unique_source_labels,
 )
-from xray_builder import build_subscription_json, uri_to_outbound
+from xray_builder import build_happ_profiles, uri_to_outbound
 
 logger = logging.getLogger(__name__)
 
@@ -109,11 +109,24 @@ def _is_private_source_url(url: str) -> bool:
         for token in (
             "lidervpn.com",
             "eu-fffast.com",
+            "ecobuy.ltd",
+            "shuka.site",
             "remnawave",
             "remna.st",
             "subs.",
         )
     )
+
+
+def _is_remnawave_url(url: str) -> bool:
+    host = url.lower()
+    return any(token in host for token in ("lidervpn.com", "remnawave", "remna.st", "pnl."))
+
+
+def _is_classic_sub_url(url: str) -> bool:
+    """Панели, которые отдают base64 vless и часто ломаются на Happ UA."""
+    host = url.lower()
+    return any(token in host for token in ("ecobuy.ltd", "shuka.site"))
 
 
 def _content_fingerprint(texts: list[str], wifi: list[str], lte: list[str]) -> str:
@@ -141,20 +154,26 @@ async def _get_session() -> aiohttp.ClientSession:
 
 
 def _fetch_headers_for_url(url: str) -> dict[str, str]:
-    """Happ UA для приватных подписок; HWID — только Remnawave/LiderVPN."""
+    """UA/HWID под тип панели: Remnawave → Happ+HWID, classic → v2rayN."""
     headers = {"User-Agent": CHROME_UA, "Accept": "*/*"}
-    host = url.lower()
-    if _is_private_source_url(url):
-        headers["User-Agent"] = config.SUB_FETCH_UA or "Happ/3.5.0"
-    is_remnawave = any(
-        token in host for token in ("lidervpn.com", "remnawave", "remna.st", "pnl.")
-    )
-    if is_remnawave:
+    configured = (config.SUB_FETCH_UA or "").strip()
+
+    if _is_remnawave_url(url):
+        ua = configured if configured and "happ" in configured.lower() else "Happ/3.5.0"
+        headers["User-Agent"] = ua
         hwid = (config.SUB_HWID or "TsuloVPN-Server-Render-01").strip()
         headers["x-hwid"] = hwid
         headers["x-device-os"] = config.SUB_DEVICE_OS
         headers["x-ver-os"] = config.SUB_DEVICE_OS_VER
         headers["x-device-model"] = config.SUB_DEVICE_MODEL
+        return headers
+
+    if _is_classic_sub_url(url) or _is_private_source_url(url):
+        ua = configured or "v2rayN/6.45"
+        # Happ UA на ecobuy/shuka даёт 500 — подменяем на классический клиент
+        if _is_classic_sub_url(url) and "happ" in ua.lower():
+            ua = "v2rayN/6.45"
+        headers["User-Agent"] = ua
     return headers
 
 
@@ -490,24 +509,14 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 return _pool
 
             branded = _build_lines(picked, "vpn")
-            wifi_pool: list[str] = []
-            lte_pool: list[str] = []
-            if not json_profiles:
-                wifi_pool = sorted(picked, key=speed_score, reverse=True)[
-                    : config.SUBSCRIPTION_CONFIG_LIMIT
-                ]
-                lte_pool = _lte_profiles_from_pool(wifi_pool)
-                if len(lte_pool) < 3:
-                    lte_pool = _sort_lte_whitelist_first(wifi_pool)[
-                        : max(3, config.LTE_CONFIG_LIMIT)
-                    ]
-                if config.LTE_TCP_CHECK and lte_pool:
-                    lte_pool = await _rank_by_tcp_latency(lte_pool)
-                lte_pool = lte_pool[: config.LTE_CONFIG_LIMIT]
-                json_profiles = build_subscription_json(wifi_pool, lte_pool)
-            else:
-                wifi_pool = list(picked)
-                lte_pool = list(picked)
+            # Всегда: 🇪🇺 Автовыбор (leastPing) первым + отдельные серверы
+            json_profiles = build_happ_profiles(
+                branded or picked,
+                existing=json_profiles or None,
+                limit=limit,
+            )
+            wifi_pool = list(picked)
+            lte_pool = list(picked)
             _cached_wifi_lines = branded if wifi_pool else []
             _cached_lte_lines = branded
             _cached_json_profiles = json_profiles
