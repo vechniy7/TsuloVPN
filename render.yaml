@@ -20,11 +20,11 @@ services:
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
       - key: PRIMARY_SUB_URL
-        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
+        value: "https://sub.lidervpn.com/4vpN9ZJGg-hBnfmT"
       - key: WIFI_SOURCE_URLS
-        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
+        value: "https://sub.lidervpn.com/4vpN9ZJGg-hBnfmT"
       - key: LTE_SOURCE_URLS
-        value: "https://sub.lidervpn.com/yxJC39WYm7Zubz1U"
+        value: "https://sub.lidervpn.com/4vpN9ZJGg-hBnfmT"
       - key: SUBSCRIPTION_CONFIG_LIMIT
         value: "50"
       - key: LTE_CONFIG_LIMIT
@@ -35,6 +35,14 @@ services:
         value: "true"
       - key: SUB_FETCH_UA
         value: "Happ/3.5.0"
+      - key: SUB_HWID
+        value: "TsuloVPN-Server-Render-01"
+      - key: SUB_DEVICE_OS
+        value: "Linux"
+      - key: SUB_DEVICE_OS_VER
+        value: "6.1"
+      - key: SUB_DEVICE_MODEL
+        value: "TsuloVPN-Server"
       - key: WHITELIST_CIDR_URL
         value: "https://raw.githubusercontent.com/hxehex/russia-mobile-internet-whitelist/main/cidrwhitelist.txt"
       - key: POOL_REFRESH_INTERVAL
@@ -47,6 +55,8 @@ services:
         value: "https://t.me/tsuloew"
       - key: INSTAGRAM_URL
         value: "https://www.instagram.com/tsulo.it"
+      - key: DONATE_CARD
+        value: "2202209226540747"
       - key: DONATE_CARD_NAME
         value: "АЛИ Ц"
       - key: DONATE_BANK

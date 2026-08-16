@@ -149,8 +149,9 @@ def _fetch_headers_for_url(url: str) -> dict[str, str]:
     is_remnawave = any(
         token in host for token in ("lidervpn.com", "remnawave", "remna.st", "pnl.")
     )
-    if is_remnawave and config.SUB_HWID:
-        headers["x-hwid"] = config.SUB_HWID
+    if is_remnawave:
+        hwid = (config.SUB_HWID or "TsuloVPN-Server-Render-01").strip()
+        headers["x-hwid"] = hwid
         headers["x-device-os"] = config.SUB_DEVICE_OS
         headers["x-ver-os"] = config.SUB_DEVICE_OS_VER
         headers["x-device-model"] = config.SUB_DEVICE_MODEL

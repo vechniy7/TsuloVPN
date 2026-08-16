@@ -280,6 +280,10 @@ _SKIP_NAME_MARKERS = (
 
 # Happ ставит иконкой только флаг страны (regional indicators) в начале remark.
 # Обычные ⚡/📱 остаются в тексте, а иконка становится планетой — поэтому тут флаги.
+_DECOR_RE = re.compile(
+    r"[\U000026A1\U0000FE0F\U00002728\U0001F4A1\U0001F525\U00002B50]+"
+)
+
 _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
     ("самый быстрый авто", "🇪🇺 Автовыбор"),
     ("автовыбор", "🇪🇺 Автовыбор"),
@@ -308,6 +312,13 @@ _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
     ("казахстан", "🇰🇿 Казахстан"),
     ("россия", "🇷🇺 Россия"),
     ("сша", "🇺🇸 США"),
+    ("кипр", "🇨🇾 Кипр"),
+    ("норвегия", "🇳🇴 Норвегия"),
+    ("монако", "🇲🇨 Монако"),
+    ("швейцария", "🇨🇭 Швейцария"),
+    ("италия", "🇮🇹 Италия"),
+    ("болгария", "🇧🇬 Болгария"),
+    ("чехия", "🇨🇿 Чехия"),
 )
 
 
@@ -324,6 +335,7 @@ def restyle_server_name(name: str) -> str | None:
 
     compact = raw.lower()
     noflag = _FLAG_RE.sub(" ", compact)
+    noflag = _DECOR_RE.sub(" ", noflag)
     noflag = re.sub(r"\s+", " ", noflag).strip()
     flags = _FLAG_RE.findall(raw)
     flag = flags[0] if flags else ""
@@ -339,12 +351,14 @@ def restyle_server_name(name: str) -> str | None:
         if needle in noflag or needle in compact:
             styled_flag = _FLAG_RE.findall(styled)
             styled_text = _FLAG_RE.sub(" ", styled).strip()
+            styled_text = _DECOR_RE.sub(" ", styled_text).strip()
             use_flag = flag or (styled_flag[0] if styled_flag else "")
             if use_flag and styled_text:
                 return f"{use_flag} {styled_text}"
             return styled
 
     cleaned = _FLAG_RE.sub(" ", raw)
+    cleaned = _DECOR_RE.sub(" ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ·-–|")
     if flag and cleaned:
         return f"{flag} {cleaned}"

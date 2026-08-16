@@ -6,10 +6,10 @@ load_dotenv()
 
 ZIENG2_RAW = "https://raw.githubusercontent.com/zieng2/wl/main"
 ZIENG2_UNIVERSAL = f"{ZIENG2_RAW}/vless_universal.txt"
-# Основной источник конфигов (личная подписка без лимита GB)
+# Основной источник конфигов (LiderVPN Remnawave)
 PRIMARY_SUB_URL = os.getenv(
     "PRIMARY_SUB_URL",
-    "https://sub.lidervpn.com/yxJC39WYm7Zubz1U",
+    "https://sub.lidervpn.com/4vpN9ZJGg-hBnfmT",
 )
 # legacy alias
 LIDERVPN_SUB_URL = os.getenv("LIDERVPN_SUB_URL", PRIMARY_SUB_URL)
@@ -32,8 +32,8 @@ class Config(BaseModel):
     WIFI_SOURCE_URLS: str = os.getenv("WIFI_SOURCE_URLS", DEFAULT_WIFI_SOURCES)
     LTE_SOURCE_URLS: str = os.getenv("LTE_SOURCE_URLS", DEFAULT_LTE_SOURCES)
 
-    # Remnawave HWID (нужен только для lidervpn / Remnawave с device limit)
-    SUB_HWID: str = os.getenv("SUB_HWID", "")
+    # Remnawave HWID обязателен для lidervpn — без него панель отдаёт заглушку
+    SUB_HWID: str = os.getenv("SUB_HWID", "TsuloVPN-Server-Render-01")
     SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", "Linux")
     SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", "6.1")
     SUB_DEVICE_MODEL: str = os.getenv("SUB_DEVICE_MODEL", "TsuloVPN-Server")
@@ -92,7 +92,7 @@ class Config(BaseModel):
 
     SUPPORT_URL: str = os.getenv("SUPPORT_URL", "https://t.me/tsuloew")
     INSTAGRAM_URL: str = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/tsulo.it")
-    DONATE_CARD: str = "2202209226540747"
+    DONATE_CARD: str = os.getenv("DONATE_CARD", "2202209226540747")
     DONATE_CARD_NAME: str = os.getenv("DONATE_CARD_NAME", "АЛИ Ц")
     DONATE_BANK: str = os.getenv("DONATE_BANK", "Сбербанк")
 
