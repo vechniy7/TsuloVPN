@@ -478,9 +478,16 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 if len(json_profiles) >= limit:
                     break
 
-            if private_only:
+            source_json_profiles = list(json_profiles)
+            picked: list[str] = []
+            branded: list[str] = []
+
+            if private_only and source_json_profiles:
+                # ShadowNet/Remnawave JSON: отдаём профили источника без пересборки
+                json_profiles = source_json_profiles[:limit]
+                picked = all_uris[:limit]
+            elif private_only:
                 seen_names: set[str] = set()
-                picked = []
                 for uri in all_uris:
                     name = urllib.parse.unquote(uri.split("#", 1)[1]) if "#" in uri else ""
                     styled = restyle_server_name(name)
@@ -495,10 +502,22 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     picked.append(uri)
                     if len(picked) >= limit:
                         break
+                branded = _build_lines(picked, "vpn")
+                json_profiles = build_happ_profiles(
+                    branded or picked,
+                    existing=source_json_profiles or None,
+                    limit=limit,
+                )
             else:
                 picked = rank_universal_configs(all_uris, limit=limit)
+                branded = _build_lines(picked, "vpn")
+                json_profiles = build_happ_profiles(
+                    branded or picked,
+                    existing=source_json_profiles or None,
+                    limit=limit,
+                )
 
-            fingerprint = _content_fingerprint(texts, picked, [])
+            fingerprint = _content_fingerprint(texts, picked, json_profiles)
             global _cached_wifi_lines, _cached_lte_lines, _cached_json_profiles
 
             if (
@@ -515,18 +534,6 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 _pool.last_error = None
                 return _pool
 
-            branded = _build_lines(picked, "vpn")
-            source_json_profiles = list(json_profiles)
-            if private_only and source_json_profiles:
-                # ShadowNet/Remnawave: отдаём оригинальные JSON-профили источника
-                json_profiles = source_json_profiles[:limit]
-            else:
-                # Публичные источники: 🇪🇺 Автовыбор + отдельные серверы
-                json_profiles = build_happ_profiles(
-                    branded or picked,
-                    existing=source_json_profiles or None,
-                    limit=limit,
-                )
             wifi_pool = list(picked)
             lte_pool = list(picked)
             _cached_wifi_lines = branded if wifi_pool else []

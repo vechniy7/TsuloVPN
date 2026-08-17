@@ -75,6 +75,7 @@ async def main() -> None:
         config.SUBSCRIPTION_CONFIG_LIMIT,
         ", Cardlink ON" if config.use_cardlink else "",
     )
+    logger.info("Pool engine v2 — private JSON passthrough enabled")
     try:
         await dp.start_polling(bot, drop_pending_updates=True)
     finally:
