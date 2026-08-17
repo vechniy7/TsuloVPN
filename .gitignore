@@ -1,6 +1,10 @@
 .env
 src/.env
+env.env
+!env*.txt
 __pycache__/
 *.db
 .venv/
 venv/
+*.tgz
+tmp_sub.txt
