@@ -1,23 +1,32 @@
-"""Fail Amvera build if config_pool.py is from a bad merge."""
+"""Fail Amvera build if pool engine or entrypoints are from a bad merge."""
 from __future__ import annotations
 
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-POOL = ROOT / "src" / "config_pool.py"
-text = POOL.read_text(encoding="utf-8")
+ENGINE = ROOT / "src" / "pool_engine_v3.py"
+APP = ROOT / "src" / "app.py"
+LEGACY = ROOT / "src" / "config_pool.py"
+
+engine = ENGINE.read_text(encoding="utf-8")
+app = APP.read_text(encoding="utf-8")
+legacy = LEGACY.read_text(encoding="utf-8")
 
 errors: list[str] = []
-if "POOL_ENGINE_VERSION = 3" not in text:
-    errors.append("missing POOL_ENGINE_VERSION = 3")
-if "LTE(bypass)" in text:
-    errors.append("stale Amvera merge marker LTE(bypass)")
-if "all_urls = list(dict.fromkeys(wifi_urls + lte_urls))" not in text:
+if "POOL_ENGINE_VERSION = 4" not in engine:
+    errors.append("pool_engine_v3 missing POOL_ENGINE_VERSION = 4")
+if "LTE(bypass)" in engine:
+    errors.append("stale merge marker LTE(bypass) in pool_engine_v3")
+if "all_urls = list(dict.fromkeys(wifi_urls + lte_urls))" not in engine:
     errors.append("all_urls must be defined in refresh_pool")
-if "private_only = bool(all_urls)" not in text:
-    errors.append("private JSON passthrough block missing")
+if "pool_engine_v3: sources WIFI=" not in engine:
+    errors.append("pool_engine_v3 log marker missing")
+if "from pool_engine_v3 import" not in app:
+    errors.append("app.py must import pool_engine_v3 directly")
+if len(legacy.splitlines()) > 5:
+    errors.append("config_pool.py must stay a short shim")
 
 if errors:
-    raise SystemExit("Broken config_pool.py:\n- " + "\n- ".join(errors))
+    raise SystemExit("Broken deploy:\n- " + "\n- ".join(errors))
 
-print("deploy verify ok: config_pool v3")
+print("deploy verify ok: pool_engine_v3")

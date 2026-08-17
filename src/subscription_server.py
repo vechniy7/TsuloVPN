@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Response
 
 from config import config
-from config_pool import get_happ_json_profiles, get_pool_state
+from pool_engine_v3 import get_happ_json_profiles, get_pool_state
 from database import get_user_by_token
 from miniapp_routes import router as miniapp_router
 from cardlink_routes import router as cardlink_router

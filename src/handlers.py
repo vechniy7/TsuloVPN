@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message
 
 from bot_notify import notify_payment_success
 from config import config
-from config_pool import get_pool_state, refresh_pool
+from pool_engine_v3 import get_pool_state, refresh_pool
 from database import User, create_user, get_all_users, get_user, get_user_count
 from happ_crypto import encrypt_subscription_url
 from payments import is_subscription_active, try_activate_from_bill
