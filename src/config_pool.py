@@ -31,6 +31,8 @@ from xray_builder import build_happ_profiles, uri_to_outbound
 
 logger = logging.getLogger(__name__)
 
+POOL_ENGINE_VERSION = 3
+
 CHROME_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"

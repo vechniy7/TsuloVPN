@@ -9,7 +9,7 @@ from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from bot_notify import set_bot
 from config import config
-from config_pool import close_session, start_refresh_loop
+from config_pool import POOL_ENGINE_VERSION, close_session, start_refresh_loop
 from database import init_db, update_admins_status
 from handlers import setup_handlers
 from subscription_server import app as subscription_app
@@ -47,6 +47,13 @@ async def run_subscription_server() -> None:
 
 
 async def main() -> None:
+    if POOL_ENGINE_VERSION < 3:
+        logger.error(
+            "Stale config_pool.py on server (v%s). Redeploy from GitHub main without merge.",
+            POOL_ENGINE_VERSION,
+        )
+        return
+
     if not config.BOT_TOKEN:
         logger.error("BOT_TOKEN is not set in .env")
         return
@@ -75,7 +82,7 @@ async def main() -> None:
         config.SUBSCRIPTION_CONFIG_LIMIT,
         ", Cardlink ON" if config.use_cardlink else "",
     )
-    logger.info("Pool engine v2 — private JSON passthrough enabled")
+    logger.info("Pool engine v%s — private JSON passthrough enabled", POOL_ENGINE_VERSION)
     try:
         await dp.start_polling(bot, drop_pending_updates=True)
     finally:
