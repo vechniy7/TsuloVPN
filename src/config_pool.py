@@ -516,12 +516,17 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 return _pool
 
             branded = _build_lines(picked, "vpn")
-            # Всегда: 🇪🇺 Автовыбор (leastPing) первым + отдельные серверы
-            json_profiles = build_happ_profiles(
-                branded or picked,
-                existing=json_profiles or None,
-                limit=limit,
-            )
+            source_json_profiles = list(json_profiles)
+            if private_only and source_json_profiles:
+                # ShadowNet/Remnawave: отдаём оригинальные JSON-профили источника
+                json_profiles = source_json_profiles[:limit]
+            else:
+                # Публичные источники: 🇪🇺 Автовыбор + отдельные серверы
+                json_profiles = build_happ_profiles(
+                    branded or picked,
+                    existing=source_json_profiles or None,
+                    limit=limit,
+                )
             wifi_pool = list(picked)
             lte_pool = list(picked)
             _cached_wifi_lines = branded if wifi_pool else []
@@ -553,7 +558,17 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 ", ".join(f"{k}={v}" for k, v in source_counts.items() if v),
                 _pool.last_refresh_duration,
             )
-            if len(json_profiles) < limit and not private_only:
+            if not json_profiles:
+                logger.warning(
+                    "Subscription pool empty — check source URLs and HWID headers"
+                )
+            elif private_only and len(json_profiles) < min(3, limit):
+                logger.warning(
+                    "Private source returned only %s json profiles (raw=%s)",
+                    len(json_profiles),
+                    total_raw,
+                )
+            elif len(json_profiles) < limit and not private_only:
                 logger.warning(
                     "Fewer than %s unique configs after rank: %s",
                     limit,

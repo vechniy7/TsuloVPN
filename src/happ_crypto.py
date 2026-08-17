@@ -1,3 +1,4 @@
+import json
 import logging
 
 import aiohttp
@@ -7,6 +8,25 @@ from config import config
 logger = logging.getLogger(__name__)
 
 HAPP_CRYPTO_API = "https://crypto.happ.su/api-v2.php"
+
+
+def _parse_crypto_response(raw: str) -> str | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if text.startswith("happ://"):
+        return text
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    for key in ("encrypted_link", "link", "url", "result"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.startswith("happ://"):
+            return value.strip()
+    return None
 
 
 async def encrypt_subscription_url(subscription_url: str) -> str:
@@ -28,8 +48,9 @@ async def encrypt_subscription_url(subscription_url: str) -> str:
         logger.warning("Happ crypto API failed, using plain URL: %s", exc)
         return subscription_url
 
-    if text.startswith("happ://"):
-        return text
+    encrypted = _parse_crypto_response(text)
+    if encrypted:
+        return encrypted
 
     logger.warning("Happ crypto API returned unexpected response, using plain URL")
     return subscription_url
