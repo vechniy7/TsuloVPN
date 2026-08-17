@@ -111,6 +111,7 @@ def _is_private_source_url(url: str) -> bool:
             "eu-fffast.com",
             "ecobuy.ltd",
             "shuka.site",
+            "shadow-net.site",
             "remnawave",
             "remna.st",
             "subs.",
@@ -121,6 +122,12 @@ def _is_private_source_url(url: str) -> bool:
 def _is_remnawave_url(url: str) -> bool:
     host = url.lower()
     return any(token in host for token in ("lidervpn.com", "remnawave", "remna.st", "pnl."))
+
+
+def _is_happ_hwid_url(url: str) -> bool:
+    """Панели, которые отдают конфиги только с Happ UA + HWID."""
+    host = url.lower()
+    return _is_remnawave_url(url) or "shadow-net.site" in host
 
 
 def _is_classic_sub_url(url: str) -> bool:
@@ -158,7 +165,7 @@ def _fetch_headers_for_url(url: str) -> dict[str, str]:
     headers = {"User-Agent": CHROME_UA, "Accept": "*/*"}
     configured = (config.SUB_FETCH_UA or "").strip()
 
-    if _is_remnawave_url(url):
+    if _is_happ_hwid_url(url):
         ua = configured if configured and "happ" in configured.lower() else "Happ/3.5.0"
         headers["User-Agent"] = ua
         hwid = (config.SUB_HWID or "TsuloVPN-Server-Render-01").strip()

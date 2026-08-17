@@ -20,11 +20,11 @@ services:
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
       - key: PRIMARY_SUB_URL
-        value: "https://vpn.ecobuy.ltd/s/RRqPzsUW"
+        value: "https://sub.shadow-net.site/sub/aD8WEfTdIimbF1yE-M2w-LWK5w9kWBEur4jTVPvkGnE"
       - key: WIFI_SOURCE_URLS
-        value: "https://vpn.ecobuy.ltd/s/RRqPzsUW"
+        value: "https://sub.shadow-net.site/sub/aD8WEfTdIimbF1yE-M2w-LWK5w9kWBEur4jTVPvkGnE"
       - key: LTE_SOURCE_URLS
-        value: "https://vpn.ecobuy.ltd/s/RRqPzsUW"
+        value: "https://sub.shadow-net.site/sub/aD8WEfTdIimbF1yE-M2w-LWK5w9kWBEur4jTVPvkGnE"
       - key: SUBSCRIPTION_CONFIG_LIMIT
         value: "50"
       - key: LTE_CONFIG_LIMIT

@@ -1,4 +1,7 @@
 import os
+import re
+from urllib.parse import parse_qs, urlparse
+
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
@@ -6,13 +9,40 @@ load_dotenv()
 
 ZIENG2_RAW = "https://raw.githubusercontent.com/zieng2/wl/main"
 ZIENG2_UNIVERSAL = f"{ZIENG2_RAW}/vless_universal.txt"
-# Основной источник конфигов
-PRIMARY_SUB_URL = os.getenv(
-    "PRIMARY_SUB_URL",
-    "https://vpn.ecobuy.ltd/s/RRqPzsUW",
-)
+
+SHADOWNET_DEFAULT_TOKEN = "aD8WEfTdIimbF1yE-M2w-LWK5w9kWBEur4jTVPvkGnE"
+
+
+def normalize_subscription_url(url: str) -> str:
+    """connect?token=… → sub.shadow-net.site/sub/{token}; остальное без изменений."""
+    raw = (url or "").strip()
+    if not raw:
+        return raw
+    lower = raw.lower()
+    if "shadow-net.site" in lower and "token=" in lower:
+        parsed = urlparse(raw)
+        token = (parse_qs(parsed.query).get("token") or [None])[0]
+        if token:
+            return f"https://sub.shadow-net.site/sub/{token.strip()}"
+    match = re.search(r"shadow-net\.site/connect[^?]*\?token=([^&\s#]+)", raw, re.I)
+    if match:
+        return f"https://sub.shadow-net.site/sub/{match.group(1).strip()}"
+    return raw
+
+
+def _default_primary_sub_url() -> str:
+    for key in ("PRIMARY_SUB_URL", "SHADOWNET_CONNECT_URL", "WIFI_SOURCE_URLS"):
+        val = normalize_subscription_url(os.getenv(key, ""))
+        if val:
+            return val
+    token = os.getenv("SHADOWNET_TOKEN", SHADOWNET_DEFAULT_TOKEN).strip()
+    return f"https://sub.shadow-net.site/sub/{token}"
+
+
+# Основной источник конфигов (ShadowNet)
+PRIMARY_SUB_URL = _default_primary_sub_url()
 # legacy alias
-LIDERVPN_SUB_URL = os.getenv("LIDERVPN_SUB_URL", PRIMARY_SUB_URL)
+LIDERVPN_SUB_URL = normalize_subscription_url(os.getenv("LIDERVPN_SUB_URL", "")) or PRIMARY_SUB_URL
 DEFAULT_WIFI_SOURCES = PRIMARY_SUB_URL
 DEFAULT_LTE_SOURCES = PRIMARY_SUB_URL
 
@@ -37,7 +67,7 @@ class Config(BaseModel):
     SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", "Linux")
     SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", "6.1")
     SUB_DEVICE_MODEL: str = os.getenv("SUB_DEVICE_MODEL", "TsuloVPN-Server")
-    SUB_FETCH_UA: str = os.getenv("SUB_FETCH_UA", "v2rayN/6.45")
+    SUB_FETCH_UA: str = os.getenv("SUB_FETCH_UA", "Happ/3.5.0")
     # Сохранять оригинальные названия серверов из источника
     KEEP_SOURCE_NAMES: bool = os.getenv("KEEP_SOURCE_NAMES", "true").lower() in (
         "1",
@@ -157,7 +187,11 @@ class Config(BaseModel):
 
     @staticmethod
     def _split_urls(raw: str) -> list[str]:
-        return [u.strip() for u in raw.split(",") if u.strip()]
+        return [
+            normalize_subscription_url(u.strip())
+            for u in raw.split(",")
+            if u.strip()
+        ]
 
     def wifi_source_urls(self) -> list[str]:
         return self._split_urls(self.WIFI_SOURCE_URLS)
