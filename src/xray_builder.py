@@ -8,7 +8,14 @@ import logging
 import urllib.parse
 
 from config import config
-from parser import extract_country_flag, extract_host_port, get_sni
+from parser import (
+    extract_country_flag,
+    extract_host_port,
+    get_sni,
+    is_placeholder_config,
+    rank_configs_for_speed,
+    renumber_mobile_profiles,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +287,7 @@ def build_auto_select_config(
         return None
 
     probe = (probe_url or PROBE_URL).strip() or PROBE_URL
-    probe_sec = max(8, int(probe_interval_sec or config.AUTO_PROBE_INTERVAL_SEC))
+    probe_sec = max(6, int(probe_interval_sec or config.AUTO_PROBE_INTERVAL_SEC))
 
     # Single node: still a valid profile (no balancer needed)
     if len(outbounds) == 1:
@@ -336,7 +343,7 @@ def build_auto_select_config(
         strategy = {"type": "leastPing"}
         strategy_label = f"leastPing→{host_hint}"
 
-    return {
+    profile: dict = {
         "remarks": remarks,
         "meta": {
             "serverDescription": base64.b64encode(
@@ -376,6 +383,17 @@ def build_auto_select_config(
             "enableConcurrency": True,
         },
     }
+    if not max_rtt_ms:
+        profile["burstObservatory"] = {
+            "subjectSelector": [node_prefix],
+            "pingConfig": {
+                "destination": probe,
+                "interval": f"{probe_sec}s",
+                "sampling": 3,
+                "timeout": "4s",
+            },
+        }
+    return profile
 
 
 def build_lte_simple_config(uri: str, remarks: str) -> dict | None:
@@ -534,6 +552,13 @@ def _is_auto_profile_name(name: str) -> bool:
     return any(marker in compact for marker in _AUTO_NAME_MARKERS)
 
 
+def _rank_auto_pool(uris: list[str]) -> list[str]:
+    """Лучшие узлы первыми — fallback и балансировщик стартуют с быстрых серверов."""
+    valid = [uri for uri in uris if not is_placeholder_config(uri)]
+    ranked = rank_configs_for_speed(valid)
+    return ranked if ranked else valid
+
+
 def build_happ_profiles(
     uris: list[str],
     *,
@@ -546,22 +571,23 @@ def build_happ_profiles(
     2) отдельные серверы (из исходного JSON или из vless://)
     """
     cap = max(1, int(limit or config.SUBSCRIPTION_CONFIG_LIMIT))
-    pool = [uri for uri in uris if uri_to_outbound(uri, "probe")]
-    if not pool and existing:
+    pool = [uri for uri in uris if uri_to_outbound(uri, "probe") and not is_placeholder_config(uri)]
+    auto_pool = _rank_auto_pool(pool[:cap])
+    if not auto_pool and existing:
         # на всякий случай: если URI нет, всё равно отдадим исходные профили
         cleaned = [
             p
             for p in existing
             if isinstance(p, dict) and not _is_auto_profile_name(str(p.get("remarks") or ""))
         ]
-        return cleaned[:cap]
+        return renumber_mobile_profiles(cleaned[:cap])
 
     entries: list[dict] = []
     auto = build_auto_select_config(
-        pool[:cap],
+        auto_pool,
         remarks="🇪🇺 Автовыбор",
         node_prefix="auto-",
-        description="автовыбор · leastPing",
+        description="автовыбор · лучший узел",
         probe_url=config.WIFI_PROBE_URL,
         probe_interval_sec=config.AUTO_PROBE_INTERVAL_SEC,
     )
@@ -599,7 +625,7 @@ def build_happ_profiles(
             seen.add(key)
             entries.append(cfg)
 
-    return entries
+    return renumber_mobile_profiles(entries)
 
 
 def subscription_json_bytes(

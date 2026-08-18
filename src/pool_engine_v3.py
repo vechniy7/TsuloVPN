@@ -14,6 +14,8 @@ from parser import (
     extract_happ_json_profiles,
     extract_host_port,
     get_sni,
+    is_mobile_internet_name,
+    is_placeholder_config,
     is_ru_whitelist_sni,
     is_whitelist_host_ip,
     lte_speed_score,
@@ -465,22 +467,30 @@ async def refresh_pool(force: bool = False) -> PoolState:
             branded: list[str] = []
 
             if private_only and source_json_profiles:
-                # ShadowNet/Remnawave JSON: отдаём профили источника без пересборки
-                json_profiles = source_json_profiles[:limit]
-                picked = all_uris[:limit]
+                picked = [
+                    u for u in all_uris if not is_placeholder_config(u)
+                ][:limit] or all_uris[:limit]
+                json_profiles = build_happ_profiles(
+                    picked,
+                    existing=source_json_profiles,
+                    limit=limit,
+                )
             elif private_only:
-                seen_names: set[str] = set()
+                seen_id: set[str] = set()
                 for uri in all_uris:
                     name = urllib.parse.unquote(uri.split("#", 1)[1]) if "#" in uri else ""
-                    styled = restyle_server_name(name)
-                    if not styled or should_skip_profile(name):
+                    if should_skip_profile(name) or is_placeholder_config(uri):
                         continue
+                    if not is_mobile_internet_name(name):
+                        styled = restyle_server_name(name)
+                        if not styled:
+                            continue
                     if not uri_to_outbound(uri, "probe"):
                         continue
-                    name_key = styled.lower()
-                    if name_key in seen_names:
+                    ident = _config_identity(uri)
+                    if ident in seen_id:
                         continue
-                    seen_names.add(name_key)
+                    seen_id.add(ident)
                     picked.append(uri)
                     if len(picked) >= limit:
                         break

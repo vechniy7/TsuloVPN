@@ -301,9 +301,6 @@ _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
     ("lte 1", "🇫🇮 LTE 1"),
     ("lte 2", "🇫🇮 LTE 2"),
     ("lte 3", "🇫🇮 LTE 3"),
-    ("белые списки", "🇩🇪 Обход Wi-Fi"),
-    ("обход белых", "🇩🇪 Обход Wi-Fi"),
-    ("обход", "🇩🇪 Обход Wi-Fi"),
     ("нидерланды", "🇳🇱 Нидерланды"),
     ("великобритания", "🇬🇧 Британия"),
     ("германия", "🇩🇪 Германия"),
@@ -328,6 +325,51 @@ _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
     ("болгария", "🇧🇬 Болгария"),
     ("чехия", "🇨🇿 Чехия"),
 )
+
+_MOBILE_INTERNET_MARKERS = (
+    "белые списки",
+    "белый список",
+    "обход белых",
+    "white list",
+    "whitelist",
+    "[bl]",
+    "*cidr*",
+    "cidr]",
+    "мобильный интернет",
+)
+
+
+def is_mobile_internet_name(name: str) -> bool:
+    """Серверы обхода белых списков (бывш. «Белые списки» / «Обход Wi-Fi»)."""
+    compact = " ".join((name or "").lower().split())
+    noflag = _FLAG_RE.sub(" ", compact)
+    noflag = _DECOR_RE.sub(" ", noflag)
+    noflag = re.sub(r"\s+", " ", noflag).strip()
+    if re.search(r"обход\s*wi", noflag):
+        return True
+    return any(marker in noflag for marker in _MOBILE_INTERNET_MARKERS)
+
+
+def mobile_internet_label(index: int) -> str:
+    return f"📱 Мобильный Интернет #{index}"
+
+
+def renumber_mobile_profiles(profiles: list[dict]) -> list[dict]:
+    """Переименовать обходные серверы в «Мобильный Интернет #N»."""
+    mobile_idx = 0
+    result: list[dict] = []
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        remark = str(profile.get("remarks") or profile.get("remark") or "")
+        if is_mobile_internet_name(remark):
+            mobile_idx += 1
+            cloned = copy.deepcopy(profile)
+            cloned["remarks"] = mobile_internet_label(mobile_idx)
+            result.append(cloned)
+        else:
+            result.append(profile)
+    return result
 
 
 def should_skip_profile(name: str) -> bool:
@@ -496,9 +538,14 @@ def extract_happ_json_profiles(data: str) -> list[dict]:
 
     result: list[dict] = []
     seen_names: set[str] = set()
+    mobile_idx = 0
     for profile in profiles:
         remark = str(profile.get("remarks") or profile.get("remark") or "")
-        styled = restyle_server_name(remark)
+        if is_mobile_internet_name(remark):
+            mobile_idx += 1
+            styled = mobile_internet_label(mobile_idx)
+        else:
+            styled = restyle_server_name(remark)
         if not styled or styled.lower() in seen_names:
             continue
         outbounds = profile.get("outbounds") or []
@@ -1245,11 +1292,16 @@ def unique_source_labels(uris: list[str]) -> list[str]:
     """Одно имя — один конфиг. Без ·2/·3 дублей."""
     seen: set[str] = set()
     result: list[str] = []
+    mobile_idx = 0
     for idx, uri in enumerate(uris, start=1):
         original = urllib.parse.unquote(uri.split("#", 1)[1]).strip() if "#" in uri else ""
-        label = restyle_server_name(original) if original else None
-        if not label:
-            label = build_server_label("vpn", uri, idx)
+        if original and is_mobile_internet_name(original):
+            mobile_idx += 1
+            label = mobile_internet_label(mobile_idx)
+        else:
+            label = restyle_server_name(original) if original else None
+            if not label:
+                label = build_server_label("vpn", uri, idx)
         key = label.lower()
         if key in seen:
             continue

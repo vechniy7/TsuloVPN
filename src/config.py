@@ -129,7 +129,7 @@ class Config(BaseModel):
 
     POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "300"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
-    AUTO_PROBE_INTERVAL_SEC: int = int(os.getenv("AUTO_PROBE_INTERVAL_SEC", "12"))
+    AUTO_PROBE_INTERVAL_SEC: int = int(os.getenv("AUTO_PROBE_INTERVAL_SEC", "8"))
     WIFI_PROBE_URL: str = os.getenv(
         "WIFI_PROBE_URL",
         "https://www.gstatic.com/generate_204",
