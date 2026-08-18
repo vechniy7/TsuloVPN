@@ -12,6 +12,7 @@ from config import config
 from pool_engine_v3 import POOL_ENGINE_VERSION, close_session, start_refresh_loop
 from database import init_db, update_admins_status
 from handlers import setup_handlers
+from ssl_check import log_public_url_ssl
 from subscription_server import app as subscription_app
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -61,6 +62,8 @@ async def main() -> None:
     if not config.use_upstash:
         logger.error("Configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN")
         return
+
+    log_public_url_ssl(config.SUBSCRIPTION_PUBLIC_URL)
 
     await init_db()
     await update_admins_status()
