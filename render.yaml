@@ -21,35 +21,6 @@ services:
         sync: false
       - key: VPN_SOURCE_URL
         sync: false
-        sync: false
-      - key: LTE_SOURCE_URLS
-        sync: false
-      - key: SUBSCRIPTION_CONFIG_LIMIT
-        value: "50"
-      - key: LTE_CONFIG_LIMIT
-        value: "50"
-      - key: LTE_BALANCER_NODES
-        value: "10"
-      - key: KEEP_SOURCE_NAMES
-        value: "true"
-      - key: SUB_FETCH_UA
-        value: "Happ/3.5.0"
-      - key: SUB_HWID
-        value: "TsuloVPN-Server-Render-01"
-      - key: SUB_DEVICE_OS
-        value: "Linux"
-      - key: SUB_DEVICE_OS_VER
-        value: "6.1"
-      - key: SUB_DEVICE_MODEL
-        value: "TsuloVPN-Server"
-      - key: WHITELIST_CIDR_URL
-        value: "https://raw.githubusercontent.com/hxehex/russia-mobile-internet-whitelist/main/cidrwhitelist.txt"
-      - key: POOL_REFRESH_INTERVAL
-        value: "300"
-      - key: HAPP_ENCRYPT_SUBSCRIPTION
-        value: "true"
-      - key: PAYMENTS_ENFORCE
-        value: "false"
       - key: SUPPORT_URL
         value: "https://t.me/tsuloew"
       - key: INSTAGRAM_URL
