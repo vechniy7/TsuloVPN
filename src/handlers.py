@@ -10,7 +10,7 @@ from pool_engine_v3 import get_pool_state, refresh_pool
 from database import User, create_user, get_all_users, get_user, get_user_count
 from happ_crypto import bot_subscription_import_url
 from payments import is_subscription_active, try_activate_from_bill
-from render import render_screen, send_screen
+from render import CAPTION_LIMIT, render_screen, send_screen
 import ui
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,16 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
 
     sub_url = config.subscription_url_for_token(user.subscription_token)
     import_url = await bot_subscription_import_url(sub_url)
+    full = ui.screen_access(user, import_url)
+    if len(full) <= CAPTION_LIMIT:
+        await render_screen(
+            target,
+            caption=full,
+            markup=ui.kb_access(),
+            screen="access",
+            edit=edit,
+        )
+        return
 
     await render_screen(
         target,
@@ -74,8 +84,11 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
         screen="access",
         edit=edit,
     )
-    # Plain text — без HTML, чтобы ссылка копировалась целиком в Telegram
-    await target.answer(import_url, disable_web_page_preview=True)
+    await target.answer(
+        ui.screen_access_link(import_url),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
 
 @router.message(Command("start"))
