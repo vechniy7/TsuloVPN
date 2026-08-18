@@ -117,6 +117,12 @@ class Config(BaseModel):
         "true",
         "yes",
     )
+    # В боте plain https надёжнее: crypt5 ~850 символов, Telegram плохо копирует из <code>
+    BOT_ENCRYPT_SUBSCRIPTION: bool = os.getenv("BOT_ENCRYPT_SUBSCRIPTION", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     PAYMENTS_ENFORCE: bool = os.getenv("PAYMENTS_ENFORCE", "false").lower() in ("1", "true", "yes")
 

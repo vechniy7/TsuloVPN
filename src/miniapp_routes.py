@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from config import config
 from database import get_user
-from happ_crypto import encrypt_subscription_url
+from happ_crypto import bot_subscription_import_url
 from webapp_auth import parse_webapp_user
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ async def miniapp_access(body: AccessRequest):
         return JSONResponse({"ok": False, "error": "start_bot"}, status_code=404)
 
     sub_url = config.subscription_url_for_token(user.subscription_token)
-    import_url = await encrypt_subscription_url(sub_url)
+    import_url = await bot_subscription_import_url(sub_url)
     return {
         "ok": True,
         "url": import_url,

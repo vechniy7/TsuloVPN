@@ -33,7 +33,17 @@ async def encrypt_subscription_url(subscription_url: str) -> str:
     """Шифрует ссылку подписки в happ://crypt5/... — скрывает URL и конфиги в Happ."""
     if not config.HAPP_ENCRYPT_SUBSCRIPTION:
         return subscription_url
+    return await _encrypt_or_plain(subscription_url)
 
+
+async def bot_subscription_import_url(subscription_url: str) -> str:
+    """Ссылка для «Мой доступ» в Telegram: по умолчанию plain https."""
+    if not config.BOT_ENCRYPT_SUBSCRIPTION:
+        return subscription_url
+    return await _encrypt_or_plain(subscription_url)
+
+
+async def _encrypt_or_plain(subscription_url: str) -> str:
     try:
         timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
