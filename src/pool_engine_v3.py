@@ -115,6 +115,7 @@ def _is_private_source_url(url: str) -> bool:
             "ecobuy.ltd",
             "shuka.site",
             "shadow-net.site",
+            "mystatic-cdn.ru",
             "remnawave",
             "remna.st",
             "subs.",
@@ -130,7 +131,11 @@ def _is_remnawave_url(url: str) -> bool:
 def _is_happ_hwid_url(url: str) -> bool:
     """Панели, которые отдают конфиги только с Happ UA + HWID."""
     host = url.lower()
-    return _is_remnawave_url(url) or "shadow-net.site" in host
+    return (
+        _is_remnawave_url(url)
+        or "shadow-net.site" in host
+        or "mystatic-cdn.ru" in host
+    )
 
 
 def _is_classic_sub_url(url: str) -> bool:

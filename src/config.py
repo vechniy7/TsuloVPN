@@ -39,7 +39,7 @@ def _default_primary_sub_url() -> str:
     return f"https://sub.shadow-net.site/sub/{token}"
 
 
-# Основной источник конфигов (ShadowNet)
+# Основной источник конфигов (PRIMARY_SUB_URL / SHADOWNET_CONNECT_URL / WIFI_SOURCE_URLS)
 PRIMARY_SUB_URL = _default_primary_sub_url()
 # legacy alias
 LIDERVPN_SUB_URL = normalize_subscription_url(os.getenv("LIDERVPN_SUB_URL", "")) or PRIMARY_SUB_URL
