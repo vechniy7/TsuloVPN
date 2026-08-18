@@ -7,10 +7,32 @@ from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
-ZIENG2_RAW = "https://raw.githubusercontent.com/zieng2/wl/main"
-ZIENG2_UNIVERSAL = f"{ZIENG2_RAW}/vless_universal.txt"
+# Панели, которые отдают конфиги только с Happ UA + HWID (маскируемся под Android-телефон)
+HAPP_HWID_HOST_MARKERS = (
+    "shadow-net.site",
+    "mystatic-cdn.ru",
+    "eu-fffast.com",
+    "disketa.net",
+    "lidervpn.com",
+    "remnawave",
+    "remna.st",
+    "pnl.",
+)
 
-SHADOWNET_DEFAULT_TOKEN = "aD8WEfTdIimbF1yE-M2w-LWK5w9kWBEur4jTVPvkGnE"
+PRIVATE_SOURCE_HOST_MARKERS = HAPP_HWID_HOST_MARKERS + (
+    "ecobuy.ltd",
+    "shuka.site",
+    "subs.",
+)
+
+CLASSIC_SUB_HOST_MARKERS = ("ecobuy.ltd", "shuka.site")
+
+# Стабильный профиль «одного Android-устройства» — не менять без причины (слот HWID в панели)
+DEFAULT_DEVICE_HWID = "8f3a2c1d-4b5e-6f70-8a9b-0c1d2e3f4a5b"
+DEFAULT_DEVICE_OS = "Android"
+DEFAULT_DEVICE_OS_VER = "14"
+DEFAULT_DEVICE_MODEL = "SM-S918B"
+DEFAULT_FETCH_UA = "Happ/3.5.0"
 
 
 def normalize_subscription_url(url: str) -> str:
@@ -30,21 +52,31 @@ def normalize_subscription_url(url: str) -> str:
     return raw
 
 
-def _default_primary_sub_url() -> str:
-    for key in ("PRIMARY_SUB_URL", "SHADOWNET_CONNECT_URL", "WIFI_SOURCE_URLS"):
+def requires_happ_hwid(url: str) -> bool:
+    host = (url or "").lower()
+    return any(marker in host for marker in HAPP_HWID_HOST_MARKERS)
+
+
+def is_private_source(url: str) -> bool:
+    host = (url or "").lower()
+    return any(marker in host for marker in PRIVATE_SOURCE_HOST_MARKERS)
+
+
+def is_classic_sub_url(url: str) -> bool:
+    host = (url or "").lower()
+    return any(marker in host for marker in CLASSIC_SUB_HOST_MARKERS)
+
+
+def resolve_vpn_source_url() -> str:
+    """Одна точка смены ключа: VPN_SOURCE_URL (или legacy PRIMARY_SUB_URL / WIFI_SOURCE_URLS)."""
+    for key in ("VPN_SOURCE_URL", "PRIMARY_SUB_URL", "SHADOWNET_CONNECT_URL", "WIFI_SOURCE_URLS"):
         val = normalize_subscription_url(os.getenv(key, ""))
         if val:
             return val
-    token = os.getenv("SHADOWNET_TOKEN", SHADOWNET_DEFAULT_TOKEN).strip()
-    return f"https://sub.shadow-net.site/sub/{token}"
+    return ""
 
 
-# Основной источник конфигов (PRIMARY_SUB_URL / SHADOWNET_CONNECT_URL / WIFI_SOURCE_URLS)
-PRIMARY_SUB_URL = _default_primary_sub_url()
-# legacy alias
-LIDERVPN_SUB_URL = normalize_subscription_url(os.getenv("LIDERVPN_SUB_URL", "")) or PRIMARY_SUB_URL
-DEFAULT_WIFI_SOURCES = PRIMARY_SUB_URL
-DEFAULT_LTE_SOURCES = PRIMARY_SUB_URL
+VPN_SOURCE_URL = resolve_vpn_source_url()
 
 
 class Config(BaseModel):
@@ -57,18 +89,20 @@ class Config(BaseModel):
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )
 
-    PRIMARY_SUB_URL: str = PRIMARY_SUB_URL
-    LIDERVPN_SUB_URL: str = LIDERVPN_SUB_URL
-    WIFI_SOURCE_URLS: str = os.getenv("WIFI_SOURCE_URLS", DEFAULT_WIFI_SOURCES)
-    LTE_SOURCE_URLS: str = os.getenv("LTE_SOURCE_URLS", DEFAULT_LTE_SOURCES)
+    # Единственное поле для смены источника конфигов
+    VPN_SOURCE_URL: str = VPN_SOURCE_URL
+    # legacy aliases (читаются, но не нужны в env)
+    PRIMARY_SUB_URL: str = VPN_SOURCE_URL
+    LIDERVPN_SUB_URL: str = normalize_subscription_url(os.getenv("LIDERVPN_SUB_URL", "")) or VPN_SOURCE_URL
+    WIFI_SOURCE_URLS: str = os.getenv("WIFI_SOURCE_URLS", VPN_SOURCE_URL)
+    LTE_SOURCE_URLS: str = os.getenv("LTE_SOURCE_URLS", VPN_SOURCE_URL)
 
-    # Remnawave HWID — без него панель отдаёт заглушку; в панели видно как обычный телефон
-    SUB_HWID: str = os.getenv("SUB_HWID", "8f3a2c1d-4b5e-6f70-8a9b-0c1d2e3f4a5b")
-    SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", "Android")
-    SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", "14")
-    SUB_DEVICE_MODEL: str = os.getenv("SUB_DEVICE_MODEL", "SM-S918B")
-    SUB_FETCH_UA: str = os.getenv("SUB_FETCH_UA", "Happ/3.5.0")
-    # Сохранять оригинальные названия серверов из источника
+    # Профиль устройства для панели подписки (по умолчанию — обычный Samsung Android)
+    SUB_HWID: str = os.getenv("SUB_HWID", DEFAULT_DEVICE_HWID)
+    SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", DEFAULT_DEVICE_OS)
+    SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", DEFAULT_DEVICE_OS_VER)
+    SUB_DEVICE_MODEL: str = os.getenv("SUB_DEVICE_MODEL", DEFAULT_DEVICE_MODEL)
+    SUB_FETCH_UA: str = os.getenv("SUB_FETCH_UA", DEFAULT_FETCH_UA)
     KEEP_SOURCE_NAMES: bool = os.getenv("KEEP_SOURCE_NAMES", "true").lower() in (
         "1",
         "true",
@@ -78,17 +112,12 @@ class Config(BaseModel):
     SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "50"))
     LTE_CONFIG_LIMIT: int = int(os.getenv("LTE_CONFIG_LIMIT", "50"))
     LTE_BALANCER_NODES: int = int(os.getenv("LTE_BALANCER_NODES", "10"))
-    # happ_ping = отдельные минимальные профили; balancer = observatory
     LTE_DELIVERY: str = os.getenv("LTE_DELIVERY", "happ_ping").strip().lower()
-    # В подписку только IP из whitelist CIDR (критично для Билайн/МТС/Мегафон на LTE)
     LTE_REQUIRE_WHITELIST_IP: bool = os.getenv(
         "LTE_REQUIRE_WHITELIST_IP", "true"
     ).lower() in ("1", "true", "yes")
-    # Мин. bypass-score для попадания в LTE-пул (отсекает мусор из агрегаторов)
     LTE_MIN_BYPASS_SCORE: int = int(os.getenv("LTE_MIN_BYPASS_SCORE", "55"))
-    # 0 = leastPing (совместимее с Happ); >0 = leastLoad+maxRTT
     LTE_MAX_RTT_MS: int = int(os.getenv("LTE_MAX_RTT_MS", "0"))
-    # TCP-проверка :443 с сервера перед выдачей в подписку
     LTE_TCP_CHECK: bool = os.getenv("LTE_TCP_CHECK", "false").lower() in ("1", "true", "yes")
     WHITELIST_CIDR_URL: str = os.getenv(
         "WHITELIST_CIDR_URL",
@@ -105,7 +134,6 @@ class Config(BaseModel):
         "WIFI_PROBE_URL",
         "https://www.gstatic.com/generate_204",
     )
-    # gstatic — стабильный probe; при fail observatory Happ не уводит трафик в direct так долго
     LTE_PROBE_URL: str = os.getenv(
         "LTE_PROBE_URL",
         "https://www.gstatic.com/generate_204",
@@ -117,7 +145,6 @@ class Config(BaseModel):
         "true",
         "yes",
     )
-    # В боте plain https надёжнее: crypt5 ~850 символов, Telegram плохо копирует из <code>
     BOT_ENCRYPT_SUBSCRIPTION: bool = os.getenv("BOT_ENCRYPT_SUBSCRIPTION", "false").lower() in (
         "1",
         "true",
@@ -179,6 +206,26 @@ class Config(BaseModel):
     def miniapp_url(self) -> str:
         return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/miniapp"
 
+    def resolved_source_url(self) -> str:
+        for candidate in (
+            self.VPN_SOURCE_URL,
+            self.PRIMARY_SUB_URL,
+            normalize_subscription_url(self.WIFI_SOURCE_URLS.split(",")[0] if self.WIFI_SOURCE_URLS else ""),
+        ):
+            url = normalize_subscription_url((candidate or "").strip())
+            if url:
+                return url
+        return ""
+
+    def fetch_hwid_headers(self) -> dict[str, str]:
+        """Заголовки Happ HWID — панель видит одно Android-устройство."""
+        return {
+            "x-hwid": (self.SUB_HWID or DEFAULT_DEVICE_HWID).strip(),
+            "x-device-os": self.SUB_DEVICE_OS or DEFAULT_DEVICE_OS,
+            "x-ver-os": self.SUB_DEVICE_OS_VER or DEFAULT_DEVICE_OS_VER,
+            "x-device-model": self.SUB_DEVICE_MODEL or DEFAULT_DEVICE_MODEL,
+        }
+
     def donation_card_spaced(self) -> str:
         digits = "".join(ch for ch in self.DONATE_CARD if ch.isdigit())
         return " ".join(digits[i : i + 4] for i in range(0, len(digits), 4)) or self.DONATE_CARD
@@ -191,28 +238,15 @@ class Config(BaseModel):
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
         return f"{base}/sub/{token}/lte"
 
-    @staticmethod
-    def _split_urls(raw: str) -> list[str]:
-        return [
-            normalize_subscription_url(u.strip())
-            for u in raw.split(",")
-            if u.strip()
-        ]
-
     def wifi_source_urls(self) -> list[str]:
-        return self._split_urls(self.WIFI_SOURCE_URLS)
+        url = self.resolved_source_url()
+        return [url] if url else []
 
     def lte_source_urls(self) -> list[str]:
-        return self._split_urls(self.LTE_SOURCE_URLS)
+        return self.wifi_source_urls()
 
     def all_source_urls(self) -> list[str]:
-        seen: set[str] = set()
-        out: list[str] = []
-        for url in self.wifi_source_urls() + self.lte_source_urls():
-            if url not in seen:
-                seen.add(url)
-                out.append(url)
-        return out
+        return self.wifi_source_urls()
 
 
 config = Config(ADMINS=os.getenv("ADMINS", ""))

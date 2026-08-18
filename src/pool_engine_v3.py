@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import aiohttp
 
-from config import config
+from config import config, is_classic_sub_url, is_private_source, requires_happ_hwid
 from parser import (
     brand_config,
     build_server_label,
@@ -106,21 +106,7 @@ def _build_lines(uris: list[str], kind: str) -> list[str]:
 
 
 def _is_private_source_url(url: str) -> bool:
-    host = url.lower()
-    return any(
-        token in host
-        for token in (
-            "lidervpn.com",
-            "eu-fffast.com",
-            "ecobuy.ltd",
-            "shuka.site",
-            "shadow-net.site",
-            "mystatic-cdn.ru",
-            "remnawave",
-            "remna.st",
-            "subs.",
-        )
-    )
+    return is_private_source(url)
 
 
 def _is_remnawave_url(url: str) -> bool:
@@ -129,20 +115,11 @@ def _is_remnawave_url(url: str) -> bool:
 
 
 def _is_happ_hwid_url(url: str) -> bool:
-    """Панели, которые отдают конфиги только с Happ UA + HWID."""
-    host = url.lower()
-    return (
-        _is_remnawave_url(url)
-        or "shadow-net.site" in host
-        or "mystatic-cdn.ru" in host
-        or "eu-fffast.com" in host
-    )
+    return requires_happ_hwid(url)
 
 
 def _is_classic_sub_url(url: str) -> bool:
-    """Панели, которые отдают base64 vless и часто ломаются на Happ UA."""
-    host = url.lower()
-    return any(token in host for token in ("ecobuy.ltd", "shuka.site"))
+    return is_classic_sub_url(url)
 
 
 def _content_fingerprint(texts: list[str], wifi: list[str], lte: list[str]) -> str:
@@ -175,13 +152,9 @@ def _fetch_headers_for_url(url: str) -> dict[str, str]:
     configured = (config.SUB_FETCH_UA or "").strip()
 
     if _is_happ_hwid_url(url):
-        ua = configured if configured and "happ" in configured.lower() else "Happ/3.5.0"
+        ua = configured if configured and "happ" in configured.lower() else config.SUB_FETCH_UA
         headers["User-Agent"] = ua
-        hwid = (config.SUB_HWID or "8f3a2c1d-4b5e-6f70-8a9b-0c1d2e3f4a5b").strip()
-        headers["x-hwid"] = hwid
-        headers["x-device-os"] = config.SUB_DEVICE_OS
-        headers["x-ver-os"] = config.SUB_DEVICE_OS_VER
-        headers["x-device-model"] = config.SUB_DEVICE_MODEL
+        headers.update(config.fetch_hwid_headers())
         return headers
 
     if _is_classic_sub_url(url) or _is_private_source_url(url):
@@ -439,9 +412,9 @@ async def refresh_pool(force: bool = False) -> PoolState:
         all_urls = list(dict.fromkeys(wifi_urls + lte_urls))
 
         logger.info(
-            "pool_engine_v3: sources WIFI=%s LTE=%s",
-            ", ".join(_source_label(u) for u in wifi_urls) or "none",
-            ", ".join(_source_label(u) for u in lte_urls) or "none",
+            "pool_engine_v3: source=%s (happ_hwid=%s)",
+            config.resolved_source_url() or "none",
+            requires_happ_hwid(config.resolved_source_url() or ""),
         )
 
         try:
@@ -576,7 +549,8 @@ async def refresh_pool(force: bool = False) -> PoolState:
             )
             if not json_profiles:
                 logger.warning(
-                    "Subscription pool empty — check source URLs and HWID headers"
+                    "Subscription pool empty — check VPN_SOURCE_URL and HWID headers (%s)",
+                    config.resolved_source_url() or "unset",
                 )
             elif private_only and len(json_profiles) < min(3, limit):
                 logger.warning(

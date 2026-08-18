@@ -19,9 +19,8 @@ services:
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
-      - key: PRIMARY_SUB_URL
+      - key: VPN_SOURCE_URL
         sync: false
-      - key: WIFI_SOURCE_URLS
         sync: false
       - key: LTE_SOURCE_URLS
         sync: false
