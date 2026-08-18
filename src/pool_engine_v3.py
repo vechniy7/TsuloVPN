@@ -135,6 +135,7 @@ def _is_happ_hwid_url(url: str) -> bool:
         _is_remnawave_url(url)
         or "shadow-net.site" in host
         or "mystatic-cdn.ru" in host
+        or "eu-fffast.com" in host
     )
 
 
@@ -176,7 +177,7 @@ def _fetch_headers_for_url(url: str) -> dict[str, str]:
     if _is_happ_hwid_url(url):
         ua = configured if configured and "happ" in configured.lower() else "Happ/3.5.0"
         headers["User-Agent"] = ua
-        hwid = (config.SUB_HWID or "TsuloVPN-Server-Render-01").strip()
+        hwid = (config.SUB_HWID or "8f3a2c1d-4b5e-6f70-8a9b-0c1d2e3f4a5b").strip()
         headers["x-hwid"] = hwid
         headers["x-device-os"] = config.SUB_DEVICE_OS
         headers["x-ver-os"] = config.SUB_DEVICE_OS_VER

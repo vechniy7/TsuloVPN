@@ -62,11 +62,11 @@ class Config(BaseModel):
     WIFI_SOURCE_URLS: str = os.getenv("WIFI_SOURCE_URLS", DEFAULT_WIFI_SOURCES)
     LTE_SOURCE_URLS: str = os.getenv("LTE_SOURCE_URLS", DEFAULT_LTE_SOURCES)
 
-    # Remnawave HWID обязателен для lidervpn — без него панель отдаёт заглушку
-    SUB_HWID: str = os.getenv("SUB_HWID", "TsuloVPN-Server-Render-01")
-    SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", "Linux")
-    SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", "6.1")
-    SUB_DEVICE_MODEL: str = os.getenv("SUB_DEVICE_MODEL", "TsuloVPN-Server")
+    # Remnawave HWID — без него панель отдаёт заглушку; в панели видно как обычный телефон
+    SUB_HWID: str = os.getenv("SUB_HWID", "8f3a2c1d-4b5e-6f70-8a9b-0c1d2e3f4a5b")
+    SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", "Android")
+    SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", "14")
+    SUB_DEVICE_MODEL: str = os.getenv("SUB_DEVICE_MODEL", "SM-S918B")
     SUB_FETCH_UA: str = os.getenv("SUB_FETCH_UA", "Happ/3.5.0")
     # Сохранять оригинальные названия серверов из источника
     KEEP_SOURCE_NAMES: bool = os.getenv("KEEP_SOURCE_NAMES", "true").lower() in (
