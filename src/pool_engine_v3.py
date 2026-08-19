@@ -1,12 +1,15 @@
 import asyncio
 import hashlib
 import logging
+import random
 import time
 import urllib.parse
 from dataclasses import dataclass, field
 
 import aiohttp
+from aiohttp import ClientResponseError
 
+from bot_notify import notify_admins_source_alert
 from config import config, is_classic_sub_url, is_private_source, requires_happ_hwid
 from parser import (
     brand_config,
@@ -62,6 +65,10 @@ class PoolState:
     last_error: str | None = None
     is_refreshing: bool = False
     content_fingerprint: str = ""
+    source_status: str = "unknown"
+    last_fetch_status: int | None = None
+    consecutive_fetch_failures: int = 0
+    source_real_count: int = 0
 
 
 _pool = PoolState()
@@ -298,14 +305,35 @@ def _sort_lte_whitelist_first(uris: list[str]) -> list[str]:
     return wl + rest
 
 
-async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
+def _real_uris(uris: list[str]) -> list[str]:
+    return [uri for uri in uris if not is_placeholder_config(uri)]
+
+
+def _hwid_blocked(headers: aiohttp.typedefs.LooseHeaders) -> bool:
+    keys = (
+        "x-hwid-limit",
+        "x-hwid-max-devices-reached",
+        "x-hwid-not-supported",
+    )
+    for key in keys:
+        val = headers.get(key) or headers.get(key.title()) or headers.get(key.upper())
+        if str(val or "").lower() in ("1", "true", "yes"):
+            return True
+    return False
+
+
+async def _fetch_url(url: str) -> tuple[str, str | None, list[str], str | None, int | None]:
     label = _source_label(url)
     session = await _get_session()
     headers = _fetch_headers_for_url(url)
+    status: int | None = None
     try:
         async with session.get(url, ssl=False, headers=headers) as resp:
-            resp.raise_for_status()
+            status = resp.status
             text = await resp.text()
+            if _hwid_blocked(resp.headers):
+                logger.warning("Source %s HWID blocked (headers)", label)
+                return label, None, [], "hwid_limit", status
             hwid_limit = resp.headers.get("X-Hwid-Limit") or resp.headers.get("x-hwid-limit")
             hwid_nosup = resp.headers.get("X-Hwid-Not-Supported") or resp.headers.get(
                 "x-hwid-not-supported"
@@ -317,19 +345,25 @@ async def _fetch_url(url: str) -> tuple[str, str | None, list[str]]:
                     hwid_limit,
                     hwid_nosup,
                 )
+            resp.raise_for_status()
+    except ClientResponseError as exc:
+        detail = f"http_{exc.status}"
+        logger.warning("Fetch failed %s: %s", label, exc)
+        return label, None, [], detail, exc.status
     except Exception as exc:
         logger.warning("Fetch failed %s: %s", label, exc)
-        return label, None, []
+        return label, None, [], "network_error", status
 
     parsed = parse_subscription_lines(text)
-    uris = [uri for uri in parsed if extract_host_port(uri)]
+    uris = _real_uris([uri for uri in parsed if extract_host_port(uri)])
     logger.info(
-        "Loaded %s configs from %s (%s valid)",
+        "Loaded %s configs from %s (%s real, status=%s)",
         len(parsed),
         label,
         len(uris),
+        status,
     )
-    return label, text, uris
+    return label, text, uris, None, status
 
 
 def _prepare_pool(
@@ -422,12 +456,43 @@ async def refresh_pool(force: bool = False) -> PoolState:
         try:
             await _fetch_cidr_list()
             results = await asyncio.gather(*[_fetch_url(url) for url in all_urls])
-            by_label: dict[str, tuple[str | None, list[str]]] = {}
-            for label, text, uris in results:
-                by_label[label] = (text, uris)
+            by_label: dict[str, tuple[str | None, list[str], str | None, int | None]] = {}
+            fetch_errors: list[str] = []
+            last_status: int | None = None
+            for label, text, uris, err, status in results:
+                by_label[label] = (text, uris, err, status)
+                if err:
+                    fetch_errors.append(err)
+                if status is not None:
+                    last_status = status
 
-            if all(text is None for text, _ in by_label.values()):
-                _pool.last_error = "Failed to fetch all config sources"
+            if all(text is None for text, _, _, _ in by_label.values()):
+                _pool.consecutive_fetch_failures += 1
+                _pool.last_fetch_status = last_status
+                err_hint = fetch_errors[0] if fetch_errors else "unknown"
+                if err_hint == "http_404":
+                    _pool.last_error = "VPN key revoked or not found (HTTP 404)"
+                    _pool.source_status = "degraded" if _cached_json_profiles else "failed"
+                    await notify_admins_source_alert(
+                        "http_404",
+                        "Ключ <b>удалён или сброшен</b> (HTTP 404).\n"
+                        "Пользователи получают закэшированные конфиги, пока кэш не протухнет.",
+                    )
+                elif err_hint == "hwid_limit":
+                    _pool.last_error = "HWID device limit reached on upstream panel"
+                    _pool.source_status = "degraded" if _cached_json_profiles else "failed"
+                    await notify_admins_source_alert(
+                        "hwid_limit",
+                        "Панель подписки вернула <b>лимит HWID</b>.\n"
+                        "Отвяжите лишние устройства в панели или смените ключ.",
+                    )
+                else:
+                    _pool.last_error = f"Failed to fetch source ({err_hint})"
+                    _pool.source_status = "degraded" if _cached_json_profiles else "failed"
+                    await notify_admins_source_alert(
+                        f"fetch_{err_hint}",
+                        f"Не удалось загрузить конфиги: <code>{err_hint}</code>.",
+                    )
                 return _pool
 
             texts: list[str] = []
@@ -437,12 +502,40 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
             for url in all_urls:
                 label = _source_label(url)
-                text, uris = by_label.get(label, (None, []))
+                text, uris, _, _ = by_label.get(label, (None, [], None, None))
                 texts.append(text or "")
                 raw = list(uris or [])
                 all_uris.extend(raw)
                 source_counts[label] = len(raw)
                 total_raw += len(raw)
+
+            _pool.source_real_count = len(all_uris)
+            _pool.last_fetch_status = last_status
+
+            if len(all_uris) < config.SOURCE_MIN_REAL_CONFIGS:
+                _pool.consecutive_fetch_failures += 1
+                _pool.last_error = (
+                    f"Source returned only {len(all_uris)} real configs "
+                    f"(min {config.SOURCE_MIN_REAL_CONFIGS})"
+                )
+                _pool.source_status = "degraded" if _cached_json_profiles else "failed"
+                if _cached_json_profiles:
+                    logger.warning(
+                        "Keeping %s cached profiles — upstream returned %s real configs",
+                        len(_cached_json_profiles),
+                        len(all_uris),
+                    )
+                    await notify_admins_source_alert(
+                        "empty_real_cached",
+                        "Источник отдал заглушки или мало серверов — "
+                        f"работаем на кэше ({len(_cached_json_profiles)} профилей).",
+                    )
+                else:
+                    await notify_admins_source_alert(
+                        "empty_real",
+                        "Источник отдал только заглушки HWID — рабочих серверов нет.",
+                    )
+                return _pool
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
             # Приватная подписка: все узлы как есть, без zieng2-ранжирования
@@ -524,6 +617,17 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 )
                 _pool.last_refresh_at = time.time()
                 _pool.last_error = None
+                _pool.source_status = "ok"
+                _pool.consecutive_fetch_failures = 0
+                return _pool
+
+            if not json_profiles and _cached_json_profiles:
+                _pool.last_error = "Rebuild produced empty profile list — keeping cache"
+                _pool.source_status = "degraded"
+                logger.warning(
+                    "Rejecting empty rebuild, keeping %s cached profiles",
+                    len(_cached_json_profiles),
+                )
                 return _pool
 
             wifi_pool = list(picked)
@@ -548,6 +652,8 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.last_refresh_at = time.time()
             _pool.last_refresh_duration = time.perf_counter() - started
             _pool.last_error = None
+            _pool.source_status = "ok"
+            _pool.consecutive_fetch_failures = 0
 
             logger.info(
                 "Pool updated: %s json profiles (limit=%s) from %s raw (%s) in %.1fs",
@@ -586,7 +692,8 @@ async def refresh_pool(force: bool = False) -> PoolState:
 async def start_refresh_loop() -> None:
     await refresh_pool(force=True)
     while True:
-        await asyncio.sleep(config.POOL_REFRESH_INTERVAL)
+        jitter = random.randint(0, max(0, config.POOL_REFRESH_JITTER_SEC))
+        await asyncio.sleep(config.POOL_REFRESH_INTERVAL + jitter)
         try:
             await refresh_pool(force=False)
         except Exception as exc:

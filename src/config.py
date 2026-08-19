@@ -127,7 +127,10 @@ class Config(BaseModel):
         "SUBSCRIPTION_SHOW_INDIVIDUAL", "false"
     ).lower() in ("1", "true", "yes")
 
-    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "300"))
+    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "900"))
+    POOL_REFRESH_JITTER_SEC: int = int(os.getenv("POOL_REFRESH_JITTER_SEC", "300"))
+    SOURCE_ALERT_COOLDOWN_SEC: int = int(os.getenv("SOURCE_ALERT_COOLDOWN_SEC", "3600"))
+    SOURCE_MIN_REAL_CONFIGS: int = int(os.getenv("SOURCE_MIN_REAL_CONFIGS", "2"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
     AUTO_PROBE_INTERVAL_SEC: int = int(os.getenv("AUTO_PROBE_INTERVAL_SEC", "8"))
     WIFI_PROBE_URL: str = os.getenv(
@@ -195,6 +198,16 @@ class Config(BaseModel):
     def payments_active(self) -> bool:
         return self.PAYMENTS_ENFORCE or self.use_cardlink
 
+    @field_validator("SUB_HWID", mode="before")
+    @classmethod
+    def normalize_hwid(cls, value):
+        if not value or not isinstance(value, str):
+            return DEFAULT_DEVICE_HWID
+        hwid = re.sub(r"[^a-zA-Z0-9=-]", "", value.strip())
+        if len(hwid) < 10:
+            return DEFAULT_DEVICE_HWID
+        return hwid[:64]
+
     @field_validator("ADMINS", mode="before")
     @classmethod
     def parse_admins(cls, value):
@@ -216,6 +229,11 @@ class Config(BaseModel):
             if url:
                 return url
         return ""
+
+    def source_label(self) -> str:
+        """Последний сегмент URL — для логов и алертов без полного пути."""
+        url = self.resolved_source_url()
+        return url.rstrip("/").split("/")[-1] if url else "не задан"
 
     def fetch_hwid_headers(self) -> dict[str, str]:
         """Заголовки Happ HWID — панель видит одно Android-устройство."""

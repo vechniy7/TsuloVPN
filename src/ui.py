@@ -284,13 +284,28 @@ def screen_admin(
     sources_line: str = "",
     wifi_count: int = 0,
     lte_count: int = 0,
+    source_status: str = "unknown",
+    source_key: str = "",
+    last_error: str | None = None,
+    source_real: int = 0,
 ) -> str:
     sources = f"\nисточники · {_esc(sources_line)}" if sources_line else ""
+    status_map = {
+        "ok": "✓ источник OK",
+        "degraded": "⚠ кэш (источник недоступен)",
+        "failed": "✗ источник не работает",
+        "unknown": "… загрузка",
+    }
+    status_line = status_map.get(source_status, source_status)
+    key_line = f"\nключ · <code>{_esc(source_key)}</code>" if source_key else ""
+    real_line = f"\nреальных · {source_real}" if source_real else ""
+    err_line = f"\n<i>{_esc(last_error)}</i>" if last_error else ""
     return (
         f"<b>Админ</b>\n\n"
         f"<blockquote>пользователей · <b>{users}</b>\n"
         f"в профиле · <b>{sub_count}</b> / {limit}\n"
-        f"в источнике · {source_total}{sources}\n"
+        f"в источнике · {source_total}{sources}{key_line}{real_line}\n"
+        f"статус · {status_line}{err_line}\n"
         f"формат · Happ JSON</blockquote>"
     )
 
@@ -305,12 +320,25 @@ def screen_admin_refresh(
     sources_line: str = "",
     wifi_count: int = 0,
     lte_count: int = 0,
+    source_status: str = "unknown",
+    source_key: str = "",
+    last_error: str | None = None,
+    source_real: int = 0,
 ) -> str:
     sources = f"\nисточники · {_esc(sources_line)}" if sources_line else ""
+    status_map = {
+        "ok": "✓ OK",
+        "degraded": "⚠ кэш",
+        "failed": "✗ ошибка",
+        "unknown": "…",
+    }
+    status_line = status_map.get(source_status, source_status)
+    err_line = f"\n<i>{_esc(last_error)}</i>" if last_error else ""
     return (
         f"<b>Данные обновлены</b>\n\n"
         f"<blockquote>в профиле · <b>{sub_count}</b> / {limit}\n"
-        f"в источнике · {source_total}{sources}</blockquote>"
+        f"в источнике · {source_total}{sources}\n"
+        f"статус · {status_line}{err_line}</blockquote>"
     )
 
 

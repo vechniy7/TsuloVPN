@@ -36,8 +36,16 @@ def _source_name(url: str) -> str:
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     pool = get_pool_state()
+    overall = pool.source_status if pool.subscription_count else "failed"
+    if pool.source_status == "degraded" and pool.subscription_count:
+        overall = "degraded"
     return {
-        "status": "ok",
+        "status": overall,
+        "source_status": pool.source_status,
+        "source_key": config.source_label(),
+        "source_real_configs": pool.source_real_count,
+        "last_fetch_status": pool.last_fetch_status,
+        "consecutive_fetch_failures": pool.consecutive_fetch_failures,
         "wifi_count": pool.wifi_count,
         "lte_count": pool.lte_count,
         "wifi_sources": pool.wifi_source_counts,
