@@ -39,12 +39,6 @@ logger = logging.getLogger(__name__)
 POOL_ENGINE_VERSION = 4
 POOL_ENGINE_MODULE = "pool_engine_v3"
 
-CHROME_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-)
-
-
 @dataclass
 class PoolState:
     wifi_uris: list[str] = field(default_factory=list)
@@ -77,6 +71,7 @@ _session: aiohttp.ClientSession | None = None
 _cached_wifi_lines: list[str] = []
 _cached_lte_lines: list[str] = []
 _cached_json_profiles: list[dict] = []
+_cidr_last_fetch_at: float = 0.0
 
 
 def get_pool_state() -> PoolState:
@@ -156,23 +151,26 @@ async def _get_session() -> aiohttp.ClientSession:
 
 
 def _fetch_headers_for_url(url: str) -> dict[str, str]:
-    """UA/HWID под тип панели: Remnawave → Happ+HWID, classic → v2rayN."""
-    headers = {"User-Agent": CHROME_UA, "Accept": "*/*"}
-    configured = (config.SUB_FETCH_UA or "").strip()
-
-    if _is_happ_hwid_url(url):
-        ua = configured if configured and "happ" in configured.lower() else config.SUB_FETCH_UA
-        headers["User-Agent"] = ua
-        headers.update(config.fetch_hwid_headers())
+    """Заголовки под тип панели. HWID-панели — только Happ/Android, без Chrome UA."""
+    if _is_happ_hwid_url(url) or _is_private_source_url(url):
+        headers = dict(config.fetch_hwid_headers())
+        if _is_classic_sub_url(url):
+            # ecobuy/shuka ломаются на Happ UA
+            headers["User-Agent"] = "v2rayN/6.45"
+            headers.pop("x-hwid", None)
+            headers.pop("x-device-os", None)
+            headers.pop("x-ver-os", None)
+            headers.pop("x-device-model", None)
+            headers.pop("x-device-locale", None)
         return headers
 
-    if _is_classic_sub_url(url) or _is_private_source_url(url):
-        ua = configured or "v2rayN/6.45"
-        # Happ UA на ecobuy/shuka даёт 500 — подменяем на классический клиент
-        if _is_classic_sub_url(url) and "happ" in ua.lower():
-            ua = "v2rayN/6.45"
-        headers["User-Agent"] = ua
-    return headers
+    configured = (config.SUB_FETCH_UA or "").strip()
+    return {
+        "User-Agent": configured or "v2rayN/6.45",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip",
+        "Connection": "close",
+    }
 
 
 async def close_session() -> None:
@@ -183,8 +181,12 @@ async def close_session() -> None:
 
 
 async def _fetch_cidr_list() -> None:
+    global _cidr_last_fetch_at
     url = config.WHITELIST_CIDR_URL.strip()
     if not url:
+        return
+    now = time.time()
+    if _cidr_last_fetch_at and now - _cidr_last_fetch_at < config.CIDR_REFRESH_INTERVAL:
         return
     session = await _get_session()
     try:
@@ -192,6 +194,7 @@ async def _fetch_cidr_list() -> None:
             resp.raise_for_status()
             text = await resp.text()
         set_whitelist_cidrs(text.splitlines())
+        _cidr_last_fetch_at = now
         logger.info("Loaded whitelist CIDR list from %s", url.rsplit("/", 1)[-1])
     except Exception as exc:
         logger.warning("Whitelist CIDR fetch failed: %s", exc)
@@ -437,6 +440,24 @@ async def refresh_pool(force: bool = False) -> PoolState:
     if _pool.is_refreshing and not force:
         return _pool
 
+    if (
+        not force
+        and _pool.consecutive_fetch_failures > 0
+        and _cached_json_profiles
+        and _pool.last_refresh_at
+    ):
+        backoff = min(
+            86400,
+            config.SOURCE_FETCH_BACKOFF_SEC * _pool.consecutive_fetch_failures,
+        )
+        if time.time() - _pool.last_refresh_at < backoff:
+            logger.info(
+                "Skipping upstream fetch (backoff %ss, failures=%s)",
+                int(backoff),
+                _pool.consecutive_fetch_failures,
+            )
+            return _pool
+
     async with _refresh_lock:
         if _pool.is_refreshing and not force:
             return _pool
@@ -449,7 +470,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         logger.info(
             "pool_engine_v3: source=%s (happ_hwid=%s)",
-            config.resolved_source_url() or "none",
+            config.source_label(),
             requires_happ_hwid(config.resolved_source_url() or ""),
         )
 
@@ -665,8 +686,8 @@ async def refresh_pool(force: bool = False) -> PoolState:
             )
             if not json_profiles:
                 logger.warning(
-                    "Subscription pool empty — check VPN_SOURCE_URL and HWID headers (%s)",
-                    config.resolved_source_url() or "unset",
+                    "Subscription pool empty — check VPN_SOURCE_URL / HWID (key=%s)",
+                    config.source_label(),
                 )
             elif private_only and len(json_profiles) < min(3, limit):
                 logger.warning(

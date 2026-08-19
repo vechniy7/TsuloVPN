@@ -102,7 +102,14 @@ class Config(BaseModel):
     SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", DEFAULT_DEVICE_OS)
     SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", DEFAULT_DEVICE_OS_VER)
     SUB_DEVICE_MODEL: str = os.getenv("SUB_DEVICE_MODEL", DEFAULT_DEVICE_MODEL)
+    SUB_DEVICE_LOCALE: str = os.getenv("SUB_DEVICE_LOCALE", "ru")
     SUB_FETCH_UA: str = os.getenv("SUB_FETCH_UA", DEFAULT_FETCH_UA)
+    # В /health не показывать ID ключа посторонним (только статус)
+    HEALTH_PUBLIC_DETAILS: bool = os.getenv("HEALTH_PUBLIC_DETAILS", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     KEEP_SOURCE_NAMES: bool = os.getenv("KEEP_SOURCE_NAMES", "true").lower() in (
         "1",
         "true",
@@ -127,8 +134,10 @@ class Config(BaseModel):
         "SUBSCRIPTION_SHOW_INDIVIDUAL", "false"
     ).lower() in ("1", "true", "yes")
 
-    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "900"))
-    POOL_REFRESH_JITTER_SEC: int = int(os.getenv("POOL_REFRESH_JITTER_SEC", "300"))
+    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "1800"))
+    POOL_REFRESH_JITTER_SEC: int = int(os.getenv("POOL_REFRESH_JITTER_SEC", "600"))
+    CIDR_REFRESH_INTERVAL: int = int(os.getenv("CIDR_REFRESH_INTERVAL", "86400"))
+    SOURCE_FETCH_BACKOFF_SEC: int = int(os.getenv("SOURCE_FETCH_BACKOFF_SEC", "3600"))
     SOURCE_ALERT_COOLDOWN_SEC: int = int(os.getenv("SOURCE_ALERT_COOLDOWN_SEC", "3600"))
     SOURCE_MIN_REAL_CONFIGS: int = int(os.getenv("SOURCE_MIN_REAL_CONFIGS", "2"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
@@ -236,12 +245,17 @@ class Config(BaseModel):
         return url.rstrip("/").split("/")[-1] if url else "не задан"
 
     def fetch_hwid_headers(self) -> dict[str, str]:
-        """Заголовки Happ HWID — панель видит одно Android-устройство."""
+        """Заголовки как у Happ на Android — один стабильный «телефон» для панели."""
         return {
+            "User-Agent": (self.SUB_FETCH_UA or DEFAULT_FETCH_UA).strip(),
+            "Accept": "*/*",
+            "Accept-Encoding": "gzip",
+            "Connection": "close",
             "x-hwid": (self.SUB_HWID or DEFAULT_DEVICE_HWID).strip(),
             "x-device-os": self.SUB_DEVICE_OS or DEFAULT_DEVICE_OS,
             "x-ver-os": self.SUB_DEVICE_OS_VER or DEFAULT_DEVICE_OS_VER,
             "x-device-model": self.SUB_DEVICE_MODEL or DEFAULT_DEVICE_MODEL,
+            "x-device-locale": (self.SUB_DEVICE_LOCALE or "ru").strip() or "ru",
         }
 
     def donation_card_spaced(self) -> str:
