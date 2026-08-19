@@ -437,6 +437,8 @@ def _prepare_lte_pool(
 
 
 async def refresh_pool(force: bool = False) -> PoolState:
+    global _cached_wifi_lines, _cached_lte_lines, _cached_json_profiles
+
     if _pool.is_refreshing and not force:
         return _pool
 
@@ -624,7 +626,6 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 )
 
             fingerprint = _content_fingerprint(texts, picked, json_profiles)
-            global _cached_wifi_lines, _cached_lte_lines, _cached_json_profiles
 
             if (
                 fingerprint == _pool.content_fingerprint
