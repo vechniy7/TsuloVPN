@@ -12,12 +12,16 @@ from aiohttp import ClientResponseError
 from bot_notify import notify_admins_source_alert
 from config import config, is_classic_sub_url, is_private_source, requires_happ_hwid
 from parser import (
+    brand_bypass_uris,
+    brand_main_uris,
     brand_config,
     build_server_label,
+    dedupe_uris,
     extract_happ_json_profiles,
     extract_host_port,
+    filter_bypass_uris,
     get_sni,
-    is_mobile_internet_name,
+    is_bypass_profile_name,
     is_placeholder_config,
     is_ru_whitelist_sni,
     is_whitelist_host_ip,
@@ -29,6 +33,7 @@ from parser import (
     restyle_server_name,
     set_whitelist_cidrs,
     should_skip_profile,
+    split_uris_by_bypass,
     speed_score,
     unique_source_labels,
 )
@@ -347,8 +352,12 @@ def _hwid_blocked(headers: aiohttp.typedefs.LooseHeaders) -> bool:
     return False
 
 
-async def _fetch_url(url: str) -> tuple[str, str | None, list[str], str | None, int | None]:
-    label = _source_label(url)
+async def _fetch_url(
+    url: str,
+    *,
+    role: str = "",
+) -> tuple[str, str | None, list[str], str | None, int | None]:
+    label = f"{role}:{_source_label(url)}" if role else _source_label(url)
     session = await _get_upstream_session()
     headers = _fetch_headers_for_url(url)
     status: int | None = None
@@ -488,34 +497,56 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         _pool.is_refreshing = True
         started = time.perf_counter()
-        wifi_urls = config.wifi_source_urls()
-        lte_urls = config.lte_source_urls()
-        all_urls = list(dict.fromkeys(wifi_urls + lte_urls))
+        fetch_plan = config.upstream_fetch_plan()
 
+        bypass_label = config.bypass_source_label()
         logger.info(
-            "pool_engine_v3: source=%s (happ_hwid=%s, proxy=%s)",
+            "pool_engine_v3: main=%s bypass=%s (happ_hwid=%s, proxy=%s)",
             config.source_label(),
+            bypass_label or "—",
             requires_happ_hwid(config.resolved_source_url() or ""),
             config.upstream_proxy_label() if config.upstream_proxy_configured() else "direct",
         )
 
         try:
             await _fetch_cidr_list()
-            results = await asyncio.gather(*[_fetch_url(url) for url in all_urls])
+            results = await asyncio.gather(
+                *[_fetch_url(url, role=role) for role, url in fetch_plan]
+            )
             by_label: dict[str, tuple[str | None, list[str], str | None, int | None]] = {}
             fetch_errors: list[str] = []
             last_status: int | None = None
-            for label, text, uris, err, status in results:
+            main_result: tuple[str | None, list[str], str | None, int | None] | None = None
+            bypass_result: tuple[str | None, list[str], str | None, int | None] | None = None
+
+            for (role, url), (label, text, uris, err, status) in zip(fetch_plan, results):
                 by_label[label] = (text, uris, err, status)
-                if err:
-                    fetch_errors.append(err)
-                if status is not None:
+                if role == "main":
+                    main_result = (text, uris, err, status)
+                    if err:
+                        fetch_errors.append(err)
+                elif role == "bypass":
+                    bypass_result = (text, uris, err, status)
+                    if text is None:
+                        logger.warning(
+                            "Bypass source %s unavailable: %s",
+                            config.bypass_source_label() or label,
+                            err or "unknown",
+                        )
+                if status is not None and role == "main":
                     last_status = status
 
-            if all(text is None for text, _, _, _ in by_label.values()):
+            main_text, main_uris_raw, main_err, _main_status = main_result or (
+                None,
+                [],
+                "missing_main",
+                None,
+            )
+
+            if main_text is None:
                 _pool.consecutive_fetch_failures += 1
                 _pool.last_fetch_status = last_status
-                err_hint = fetch_errors[0] if fetch_errors else "unknown"
+                err_hint = main_err or (fetch_errors[0] if fetch_errors else "unknown")
                 if err_hint == "http_404":
                     _pool.last_error = "VPN key revoked or not found (HTTP 404)"
                     _pool.source_status = "degraded" if _cached_json_profiles else "failed"
@@ -551,27 +582,38 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     )
                 return _pool
 
-            texts: list[str] = []
-            all_uris: list[str] = []
-            total_raw = 0
-            source_counts: dict[str, int] = {}
+            bypass_text = ""
+            bypass_uris_raw: list[str] = []
+            if bypass_result and bypass_result[0]:
+                bypass_text, bypass_uris_raw, _, _ = bypass_result
 
-            for url in all_urls:
-                label = _source_label(url)
-                text, uris, _, _ = by_label.get(label, (None, [], None, None))
-                texts.append(text or "")
-                raw = list(uris or [])
-                all_uris.extend(raw)
-                source_counts[label] = len(raw)
-                total_raw += len(raw)
+            wifi_raw, bypass_from_main = split_uris_by_bypass(main_uris_raw)
+            extra_bypass = filter_bypass_uris(bypass_uris_raw)
+            merged_bypass = dedupe_uris(bypass_from_main + extra_bypass)
+            wifi_uris = dedupe_uris(wifi_raw)
 
-            _pool.source_real_count = len(all_uris)
+            branded_wifi = brand_main_uris(wifi_uris)
+            branded_bypass = brand_bypass_uris(merged_bypass)
+            branded = branded_wifi + branded_bypass
+
+            texts = [main_text or ""]
+            if bypass_text:
+                texts.append(bypass_text)
+
+            total_raw = len(main_uris_raw) + len(bypass_uris_raw)
+            source_counts: dict[str, int] = {
+                config.source_label(): len(main_uris_raw),
+            }
+            if bypass_label:
+                source_counts[bypass_label] = len(extra_bypass)
+
+            _pool.source_real_count = len(wifi_uris) + len(merged_bypass)
             _pool.last_fetch_status = last_status
 
-            if len(all_uris) < config.SOURCE_MIN_REAL_CONFIGS:
+            if _pool.source_real_count < config.SOURCE_MIN_REAL_CONFIGS:
                 _pool.consecutive_fetch_failures += 1
                 _pool.last_error = (
-                    f"Source returned only {len(all_uris)} real configs "
+                    f"Source returned only {_pool.source_real_count} real configs "
                     f"(min {config.SOURCE_MIN_REAL_CONFIGS})"
                 )
                 _pool.source_status = "degraded" if _cached_json_profiles else "failed"
@@ -579,7 +621,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     logger.warning(
                         "Keeping %s cached profiles — upstream returned %s real configs",
                         len(_cached_json_profiles),
-                        len(all_uris),
+                        _pool.source_real_count,
                     )
                     await notify_admins_source_alert(
                         "empty_real_cached",
@@ -594,10 +636,10 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 return _pool
 
             limit = config.SUBSCRIPTION_CONFIG_LIMIT
-            # Приватная подписка: все узлы как есть, без zieng2-ранжирования
-            private_only = bool(all_urls) and all(_is_private_source_url(u) for u in all_urls)
+            main_url = config.resolved_source_url()
+            private_only = bool(main_url) and _is_private_source_url(main_url)
 
-            json_profiles: list[dict] = []
+            source_json_profiles: list[dict] = []
             seen_json: set[str] = set()
             for text in texts:
                 for profile in extract_happ_json_profiles(text or ""):
@@ -605,58 +647,31 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     if key in seen_json:
                         continue
                     seen_json.add(key)
-                    json_profiles.append(profile)
-                    if len(json_profiles) >= limit:
+                    source_json_profiles.append(profile)
+                    if len(source_json_profiles) >= limit:
                         break
-                if len(json_profiles) >= limit:
+                if len(source_json_profiles) >= limit:
                     break
 
-            source_json_profiles = list(json_profiles)
-            picked: list[str] = []
-            branded: list[str] = []
-
-            if private_only and source_json_profiles:
-                picked = [
-                    u for u in all_uris if not is_placeholder_config(u)
-                ][:limit] or all_uris[:limit]
+            if private_only:
                 json_profiles = build_happ_profiles(
-                    picked,
-                    existing=source_json_profiles,
-                    limit=limit,
-                )
-            elif private_only:
-                seen_id: set[str] = set()
-                for uri in all_uris:
-                    name = urllib.parse.unquote(uri.split("#", 1)[1]) if "#" in uri else ""
-                    if should_skip_profile(name) or is_placeholder_config(uri):
-                        continue
-                    if not is_mobile_internet_name(name):
-                        styled = restyle_server_name(name)
-                        if not styled:
-                            continue
-                    if not uri_to_outbound(uri, "probe"):
-                        continue
-                    ident = _config_identity(uri)
-                    if ident in seen_id:
-                        continue
-                    seen_id.add(ident)
-                    picked.append(uri)
-                    if len(picked) >= limit:
-                        break
-                branded = _build_lines(picked, "vpn")
-                json_profiles = build_happ_profiles(
-                    branded or picked,
+                    branded_wifi,
+                    bypass_uris=branded_bypass,
                     existing=source_json_profiles or None,
                     limit=limit,
                 )
             else:
-                picked = rank_universal_configs(all_uris, limit=limit)
-                branded = _build_lines(picked, "vpn")
+                ranked_wifi = rank_universal_configs(wifi_uris, limit=limit)
+                branded_wifi = brand_main_uris(ranked_wifi)
+                branded = branded_wifi + branded_bypass
                 json_profiles = build_happ_profiles(
-                    branded or picked,
+                    branded_wifi,
+                    bypass_uris=branded_bypass,
                     existing=source_json_profiles or None,
                     limit=limit,
                 )
+
+            picked = merged_bypass + wifi_uris
 
             fingerprint = _content_fingerprint(texts, picked, json_profiles)
 
@@ -685,22 +700,28 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 )
                 return _pool
 
-            wifi_pool = list(picked)
-            lte_pool = list(picked)
-            _cached_wifi_lines = branded if wifi_pool else []
-            _cached_lte_lines = branded
+            wifi_pool = list(wifi_uris)
+            lte_pool = list(merged_bypass) or list(wifi_uris)
+            _cached_wifi_lines = branded_wifi
+            _cached_lte_lines = branded_bypass or branded_wifi
             _cached_json_profiles = json_profiles
 
             _pool.wifi_uris = wifi_pool
-            _pool.lte_uris = lte_pool or picked
+            _pool.lte_uris = lte_pool
             _pool.wifi_count = len(wifi_pool)
             _pool.lte_count = len(json_profiles)
-            _pool.wifi_source_counts = {}
-            _pool.lte_source_counts = source_counts
+            _pool.wifi_source_counts = {config.source_label(): len(wifi_uris)}
+            if bypass_label:
+                _pool.lte_source_counts = {
+                    config.source_label(): len(bypass_from_main),
+                    bypass_label: len(extra_bypass),
+                }
+            else:
+                _pool.lte_source_counts = source_counts
             _pool.configs = picked
             _pool.source_total = total_raw
             _pool.primary_count = len(json_profiles)
-            _pool.fill_count = 0
+            _pool.fill_count = len(merged_bypass)
             _pool.source_counts = source_counts
             _pool.subscription_count = len(json_profiles)
             _pool.content_fingerprint = fingerprint
@@ -711,8 +732,10 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.consecutive_fetch_failures = 0
 
             logger.info(
-                "Pool updated: %s json profiles (limit=%s) from %s raw (%s) in %.1fs",
+                "Pool updated: %s json profiles (wifi=%s bypass=%s, limit=%s) from %s raw (%s) in %.1fs",
                 len(json_profiles),
+                len(wifi_uris),
+                len(merged_bypass),
                 limit,
                 total_raw,
                 ", ".join(f"{k}={v}" for k, v in source_counts.items() if v),

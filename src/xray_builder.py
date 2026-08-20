@@ -12,9 +12,12 @@ from parser import (
     extract_country_flag,
     extract_host_port,
     get_sni,
+    is_bypass_profile_name,
     is_placeholder_config,
+    mobile_internet_label,
     rank_configs_for_speed,
     renumber_mobile_profiles,
+    uri_profile_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -562,19 +565,21 @@ def _rank_auto_pool(uris: list[str]) -> list[str]:
 def build_happ_profiles(
     uris: list[str],
     *,
+    bypass_uris: list[str] | None = None,
     existing: list[dict] | None = None,
     limit: int | None = None,
 ) -> list[dict]:
     """
     Клиентская подписка TsuloVPN:
-    1) 🇪🇺 Автовыбор — observatory + leastPing (сам выбирает лучший узел)
-    2) отдельные серверы (из исходного JSON или из vless://)
+    1) 🇪🇺 Автовыбор — observatory + leastPing (только основные серверы)
+    2) основные серверы (переименованные)
+    3) 🇪🇺 Мобильный Интернет #N — обход из основного и доп. ключа
     """
     cap = max(1, int(limit or config.SUBSCRIPTION_CONFIG_LIMIT))
+    bypass_uris = bypass_uris or []
     pool = [uri for uri in uris if uri_to_outbound(uri, "probe") and not is_placeholder_config(uri)]
     auto_pool = _rank_auto_pool(pool[:cap])
-    if not auto_pool and existing:
-        # на всякий случай: если URI нет, всё равно отдадим исходные профили
+    if not auto_pool and not bypass_uris and existing:
         cleaned = [
             p
             for p in existing
@@ -595,12 +600,13 @@ def build_happ_profiles(
         entries.append(auto)
 
     seen: set[str] = {"🇪🇺 автовыбор"}
+
     if existing:
         for profile in existing:
             if not isinstance(profile, dict):
                 continue
-            rem = str(profile.get("remarks") or "").strip()
-            if not rem or _is_auto_profile_name(rem):
+            rem = str(profile.get("remarks") or profile.get("remark") or "").strip()
+            if not rem or _is_auto_profile_name(rem) or is_bypass_profile_name(rem):
                 continue
             key = rem.lower()
             if key in seen:
@@ -609,7 +615,8 @@ def build_happ_profiles(
             entries.append(profile)
             if len(entries) >= cap:
                 break
-    else:
+
+    if not existing:
         for idx, uri in enumerate(pool, start=1):
             if len(entries) >= cap:
                 break
@@ -617,7 +624,7 @@ def build_happ_profiles(
             if not cfg:
                 continue
             rem = str(cfg.get("remarks") or "").strip()
-            if not rem or _is_auto_profile_name(rem):
+            if not rem or _is_auto_profile_name(rem) or is_bypass_profile_name(rem):
                 continue
             key = rem.lower()
             if key in seen:
@@ -625,7 +632,36 @@ def build_happ_profiles(
             seen.add(key)
             entries.append(cfg)
 
-    return renumber_mobile_profiles(entries)
+    bypass_seen: set[str] = set()
+    for profile in existing or []:
+        if not isinstance(profile, dict):
+            continue
+        rem = str(profile.get("remarks") or profile.get("remark") or "").strip()
+        if not rem or not is_bypass_profile_name(rem):
+            continue
+        key = rem.lower()
+        if key in bypass_seen:
+            continue
+        bypass_seen.add(key)
+        entries.append(profile)
+
+    for uri in bypass_uris:
+        if len(entries) >= cap:
+            break
+        if not uri_to_outbound(uri, "probe") or is_placeholder_config(uri):
+            continue
+        rem = uri_profile_name(uri) or mobile_internet_label(1)
+        key = rem.lower()
+        if key in bypass_seen or key in seen:
+            continue
+        cfg = build_single_server_config(uri, len(entries))
+        if not cfg:
+            continue
+        cfg["remarks"] = rem
+        bypass_seen.add(key)
+        entries.append(cfg)
+
+    return renumber_mobile_profiles(entries[:cap])
 
 
 def subscription_json_bytes(

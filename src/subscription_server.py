@@ -52,6 +52,7 @@ async def health():
         payload.update(
             {
                 "source_key": config.source_label(),
+                "bypass_source_key": config.bypass_source_label() or None,
                 "last_fetch_status": pool.last_fetch_status,
                 "consecutive_fetch_failures": pool.consecutive_fetch_failures,
                 "wifi_count": pool.wifi_count,

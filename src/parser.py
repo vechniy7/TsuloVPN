@@ -336,7 +336,36 @@ _MOBILE_INTERNET_MARKERS = (
     "*cidr*",
     "cidr]",
     "мобильный интернет",
+    "mobile internet",
+    "обход lte",
+    "lte обход",
+    "обход глушил",
+    "глушилок",
+    "глушилк",
+    "anti-dpi",
+    "antidpi",
+    "bypass",
 )
+
+_LTE_NAME_RE = re.compile(
+    r"(?:^|[\s|\[\(·])lte(?:[\s#\-]|$|\d|\)|\]|$)",
+    re.IGNORECASE,
+)
+
+
+def is_bypass_profile_name(name: str) -> bool:
+    """Конфиг обхода глушилок / белых списков / LTE по названию в подписке."""
+    if is_mobile_internet_name(name):
+        return True
+    compact = " ".join((name or "").lower().split())
+    noflag = _FLAG_RE.sub(" ", compact)
+    noflag = _DECOR_RE.sub(" ", noflag)
+    noflag = re.sub(r"\s+", " ", noflag).strip()
+    if _LTE_NAME_RE.search(noflag):
+        return True
+    if noflag in ("lte", "bl", "cidr"):
+        return True
+    return False
 
 
 def is_mobile_internet_name(name: str) -> bool:
@@ -351,7 +380,79 @@ def is_mobile_internet_name(name: str) -> bool:
 
 
 def mobile_internet_label(index: int) -> str:
-    return f"📱 Мобильный Интернет #{index}"
+    return f"🇪🇺 Мобильный Интернет #{index}"
+
+
+def uri_profile_name(uri: str) -> str:
+    if "#" not in uri:
+        return ""
+    return urllib.parse.unquote(uri.split("#", 1)[1]).strip()
+
+
+def is_bypass_uri(uri: str) -> bool:
+    name = uri_profile_name(uri)
+    return is_bypass_profile_name(name) or is_bypass_label(uri)
+
+
+def split_uris_by_bypass(uris: list[str]) -> tuple[list[str], list[str]]:
+    """Разделить URI на основные и обходные (глушилки / LTE / белые списки)."""
+    main: list[str] = []
+    bypass: list[str] = []
+    for uri in uris:
+        if is_placeholder_config(uri):
+            continue
+        if is_bypass_uri(uri):
+            bypass.append(uri)
+        else:
+            main.append(uri)
+    return main, bypass
+
+
+def filter_bypass_uris(uris: list[str]) -> list[str]:
+    """Только обходные конфиги (для доп. подписки VPN_BYPASS_SOURCE_URL)."""
+    return [uri for uri in uris if not is_placeholder_config(uri) and is_bypass_uri(uri)]
+
+
+def dedupe_uris(uris: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for uri in uris:
+        base = uri.split("#", 1)[0].strip().lower()
+        if not base or base in seen:
+            continue
+        seen.add(base)
+        result.append(uri)
+    return result
+
+
+def brand_main_uris(uris: list[str]) -> list[str]:
+    """Основные серверы — названия чуть другие, не 1:1 с источником."""
+    seen: set[str] = set()
+    result: list[str] = []
+    fallback_idx = 0
+    for uri in uris:
+        if is_placeholder_config(uri) or is_bypass_uri(uri):
+            continue
+        original = uri_profile_name(uri)
+        styled = restyle_server_name(original) if original else None
+        if not styled:
+            fallback_idx += 1
+            styled = build_server_label("vpn", uri, fallback_idx)
+        key = styled.lower()
+        if key in seen or should_skip_profile(styled) or should_skip_profile(original):
+            continue
+        seen.add(key)
+        result.append(brand_config(uri, styled))
+    return result
+
+
+def brand_bypass_uris(uris: list[str]) -> list[str]:
+    """Обходные серверы — единая нумерация «🇪🇺 Мобильный Интернет #N»."""
+    unique = dedupe_uris(filter_bypass_uris(uris))
+    return [
+        brand_config(uri, mobile_internet_label(idx))
+        for idx, uri in enumerate(unique, start=1)
+    ]
 
 
 def renumber_mobile_profiles(profiles: list[dict]) -> list[dict]:
@@ -362,7 +463,7 @@ def renumber_mobile_profiles(profiles: list[dict]) -> list[dict]:
         if not isinstance(profile, dict):
             continue
         remark = str(profile.get("remarks") or profile.get("remark") or "")
-        if is_mobile_internet_name(remark):
+        if is_bypass_profile_name(remark):
             mobile_idx += 1
             cloned = copy.deepcopy(profile)
             cloned["remarks"] = mobile_internet_label(mobile_idx)
@@ -538,12 +639,10 @@ def extract_happ_json_profiles(data: str) -> list[dict]:
 
     result: list[dict] = []
     seen_names: set[str] = set()
-    mobile_idx = 0
     for profile in profiles:
         remark = str(profile.get("remarks") or profile.get("remark") or "")
-        if is_mobile_internet_name(remark):
-            mobile_idx += 1
-            styled = mobile_internet_label(mobile_idx)
+        if is_bypass_profile_name(remark):
+            styled = remark
         else:
             styled = restyle_server_name(remark)
         if not styled or styled.lower() in seen_names:
@@ -1295,7 +1394,7 @@ def unique_source_labels(uris: list[str]) -> list[str]:
     mobile_idx = 0
     for idx, uri in enumerate(uris, start=1):
         original = urllib.parse.unquote(uri.split("#", 1)[1]).strip() if "#" in uri else ""
-        if original and is_mobile_internet_name(original):
+        if original and is_bypass_profile_name(original):
             mobile_idx += 1
             label = mobile_internet_label(mobile_idx)
         else:

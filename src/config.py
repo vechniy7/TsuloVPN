@@ -76,7 +76,13 @@ def resolve_vpn_source_url() -> str:
     return ""
 
 
+def resolve_vpn_bypass_source_url() -> str:
+    """Доп. ключ только для конфигов обхода (LTE / белые списки). Может быть пустым."""
+    return normalize_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL", "").strip())
+
+
 VPN_SOURCE_URL = resolve_vpn_source_url()
+VPN_BYPASS_SOURCE_URL = resolve_vpn_bypass_source_url()
 
 
 class Config(BaseModel):
@@ -91,6 +97,8 @@ class Config(BaseModel):
 
     # Единственное поле для смены источника конфигов
     VPN_SOURCE_URL: str = VPN_SOURCE_URL
+    # Доп. подписка только для обхода глушилок (LTE / белые списки). Пусто = не используется.
+    VPN_BYPASS_SOURCE_URL: str = VPN_BYPASS_SOURCE_URL
     # legacy aliases (читаются, но не нужны в env)
     PRIMARY_SUB_URL: str = VPN_SOURCE_URL
     LIDERVPN_SUB_URL: str = normalize_subscription_url(os.getenv("LIDERVPN_SUB_URL", "")) or VPN_SOURCE_URL
@@ -250,6 +258,28 @@ class Config(BaseModel):
         """Последний сегмент URL — для логов и алертов без полного пути."""
         url = self.resolved_source_url()
         return url.rstrip("/").split("/")[-1] if url else "не задан"
+
+    def bypass_source_url(self) -> str:
+        url = normalize_subscription_url((self.VPN_BYPASS_SOURCE_URL or "").strip())
+        main = self.resolved_source_url()
+        if url and main and url.rstrip("/") == main.rstrip("/"):
+            return ""
+        return url
+
+    def bypass_source_label(self) -> str:
+        url = self.bypass_source_url()
+        return url.rstrip("/").split("/")[-1] if url else ""
+
+    def upstream_fetch_plan(self) -> list[tuple[str, str]]:
+        """(роль, url): main — основной ключ, bypass — только обходные конфиги."""
+        plan: list[tuple[str, str]] = []
+        main = self.resolved_source_url()
+        if main:
+            plan.append(("main", main))
+        bypass = self.bypass_source_url()
+        if bypass:
+            plan.append(("bypass", bypass))
+        return plan
 
     def upstream_proxy_configured(self) -> bool:
         return bool((self.UPSTREAM_PROXY_URL or "").strip())
