@@ -17,11 +17,13 @@ HAPP_HWID_HOST_MARKERS = (
     "remnawave",
     "remna.st",
     "pnl.",
+    "accessboy.com",
 )
 
 PRIVATE_SOURCE_HOST_MARKERS = HAPP_HWID_HOST_MARKERS + (
     "ecobuy.ltd",
     "shuka.site",
+    "accessboy.com",
     "subs.",
 )
 

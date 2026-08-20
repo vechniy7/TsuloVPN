@@ -1,5 +1,6 @@
 import base64
 import copy
+import hashlib
 import html
 import ipaddress
 import json
@@ -424,6 +425,117 @@ def filter_bypass_uris(uris: list[str]) -> list[str]:
     return [uri for uri in uris if not is_placeholder_config(uri) and is_bypass_uri(uri)]
 
 
+_NON_PROXY_PROTOCOLS = frozenset({"freedom", "blackhole", "dns", "loopback"})
+
+
+def extract_raw_json_profiles(data: str) -> list[dict]:
+    """Распарсить JSON-подписку Happ без фильтрации и ребрендинга."""
+    text = (data or "").strip()
+    if not text or text[0] not in "[{":
+        return []
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return []
+    if isinstance(payload, list):
+        return [profile for profile in payload if isinstance(profile, dict)]
+    if isinstance(payload, dict):
+        return [payload]
+    return []
+
+
+def profile_is_bypass(profile: dict) -> bool:
+    """Обход по названию или meta.serverDescription (Happ JSON)."""
+    remark = str(profile.get("remarks") or profile.get("remark") or "")
+    if is_bypass_profile_name(remark):
+        return True
+    meta = profile.get("meta") or {}
+    if not isinstance(meta, dict):
+        return False
+    desc = str(meta.get("serverDescription") or "").lower()
+    return "обход" in desc and ("бел" in desc or "глуш" in desc or "списк" in desc)
+
+
+def profile_content_key(profile: dict) -> str:
+    """Уникальный ключ профиля — outbounds, не UUID (один UUID на несколько узлов)."""
+    remark = str(profile.get("remarks") or profile.get("remark") or "")
+    outbounds = profile.get("outbounds") or []
+    payload = json.dumps(outbounds, sort_keys=True, ensure_ascii=False)
+    digest = hashlib.sha256(f"{remark}|{payload}".encode()).hexdigest()
+    return digest[:24]
+
+
+def _profile_has_proxy(profile: dict) -> bool:
+    outbounds = profile.get("outbounds") or []
+    if not isinstance(outbounds, list):
+        return False
+    return any(
+        isinstance(outbound, dict)
+        and str(outbound.get("protocol") or "").lower() not in _NON_PROXY_PROTOCOLS
+        for outbound in outbounds
+    )
+
+
+def profile_has_whitelist_routing(profile: dict) -> bool:
+    routing = profile.get("routing") or {}
+    rules = routing.get("rules") or []
+    if not isinstance(rules, list):
+        return False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        domains = rule.get("domain") or []
+        if not isinstance(domains, list):
+            continue
+        for domain in domains:
+            token = str(domain).lower()
+            if "x5.ru" in token or "yandex" in token or "gosuslugi" in token:
+                return True
+    return False
+
+
+def select_extra_bypass_profiles(text: str) -> list[dict]:
+    """
+    Обходные Happ-профили из VPN_BYPASS_SOURCE_URL (JSON-панели вроде accessboy).
+    Дедуп по содержимому outbounds, не по vless UUID.
+    """
+    raw = extract_raw_json_profiles(text)
+    if not raw:
+        return []
+    with_proxy = [profile for profile in raw if _profile_has_proxy(profile)]
+    named = [profile for profile in with_proxy if profile_is_bypass(profile)]
+    if named:
+        candidates = named
+    else:
+        whitelist = [
+            profile for profile in with_proxy if profile_has_whitelist_routing(profile)
+        ]
+        candidates = whitelist if whitelist else with_proxy
+    seen: set[str] = set()
+    result: list[dict] = []
+    for profile in candidates:
+        key = profile_content_key(profile)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(copy.deepcopy(profile))
+    return result
+
+
+def tag_extra_bypass_profiles(profiles: list[dict]) -> list[dict]:
+    """Пометить доп. ключ 🔥 — renumber_mobile_profiles сохранит маркер."""
+    tagged: list[dict] = []
+    for profile in profiles:
+        cloned = copy.deepcopy(profile)
+        remark = str(cloned.get("remarks") or cloned.get("remark") or "").strip()
+        if not is_extra_bypass_label(remark):
+            cloned["remarks"] = (
+                f"{remark} {EXTRA_BYPASS_FIRE}".strip() if remark else EXTRA_BYPASS_FIRE
+            )
+        tagged.append(cloned)
+    return tagged
+
+
 def select_extra_bypass_uris(uris: list[str]) -> list[str]:
     """
     Конфиги из VPN_BYPASS_SOURCE_URL:
@@ -661,9 +773,6 @@ def extract_uris_from_xray_json(data: str) -> list[str]:
         seen_names.add(styled.lower())
         uris.append(uri)
     return uris
-
-
-_NON_PROXY_PROTOCOLS = frozenset({"freedom", "blackhole", "dns", "loopback"})
 
 
 def extract_happ_json_profiles(data: str) -> list[dict]:

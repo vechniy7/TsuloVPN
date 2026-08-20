@@ -31,11 +31,13 @@ from parser import (
     rank_lte_configs,
     rank_universal_configs,
     restyle_server_name,
+    select_extra_bypass_profiles,
     select_extra_bypass_uris,
     set_whitelist_cidrs,
     should_skip_profile,
     split_uris_by_bypass,
     speed_score,
+    tag_extra_bypass_profiles,
     uri_identity,
     unique_source_labels,
 )
@@ -538,11 +540,14 @@ async def refresh_pool(force: bool = False) -> PoolState:
                             err or "unknown",
                         )
                     else:
+                        extra_profiles = select_extra_bypass_profiles(text or "")
+                        extra_uris = select_extra_bypass_uris(uris or [])
                         logger.info(
-                            "Bypass source %s: %s raw, %s selected for merge",
+                            "Bypass source %s: %s raw uris, %s json profiles, %s uris selected",
                             config.bypass_source_label() or label,
                             len(uris or []),
-                            len(select_extra_bypass_uris(uris or [])),
+                            len(extra_profiles),
+                            len(extra_uris),
                         )
                 if status is not None and role == "main":
                     last_status = status
@@ -600,16 +605,24 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
             wifi_raw, bypass_from_main = split_uris_by_bypass(main_uris_raw)
             bypass_from_main = dedupe_uris(bypass_from_main)
+            extra_bypass_profiles = tag_extra_bypass_profiles(
+                select_extra_bypass_profiles(bypass_text)
+            )
             extra_bypass = select_extra_bypass_uris(bypass_uris_raw)
             extra_bypass = dedupe_uris(extra_bypass)
             wifi_uris = dedupe_uris(wifi_raw)
 
             branded_wifi = brand_main_uris(wifi_uris)
             branded_main_bypass = brand_bypass_uris(bypass_from_main, start_index=1, extra=False)
-            branded_extra_bypass = brand_bypass_uris(
-                extra_bypass,
-                start_index=len(bypass_from_main) + 1,
-                extra=True,
+            extra_bypass_count = len(extra_bypass_profiles) or len(extra_bypass)
+            branded_extra_bypass = (
+                []
+                if extra_bypass_profiles
+                else brand_bypass_uris(
+                    extra_bypass,
+                    start_index=len(bypass_from_main) + 1,
+                    extra=True,
+                )
             )
             branded_bypass = branded_main_bypass + branded_extra_bypass
             merged_bypass = bypass_from_main + extra_bypass
@@ -625,9 +638,11 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 config.source_label(): len(main_uris_raw),
             }
             if bypass_label:
-                source_counts[bypass_label] = len(extra_bypass)
+                source_counts[bypass_label] = extra_bypass_count
 
-            _pool.source_real_count = len(wifi_uris) + len(merged_bypass)
+            _pool.source_real_count = (
+                len(wifi_uris) + len(bypass_from_main) + extra_bypass_count
+            )
             _pool.last_fetch_status = last_status
 
             if _pool.source_real_count < config.SOURCE_MIN_REAL_CONFIGS:
@@ -661,15 +676,12 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
             source_json_profiles: list[dict] = []
             seen_json: set[str] = set()
-            for text in texts:
-                for profile in extract_happ_json_profiles(text or ""):
-                    key = str(profile.get("remarks") or "").lower()
-                    if key in seen_json:
-                        continue
-                    seen_json.add(key)
-                    source_json_profiles.append(profile)
-                    if len(source_json_profiles) >= limit:
-                        break
+            for profile in extract_happ_json_profiles(main_text or ""):
+                key = str(profile.get("remarks") or "").lower()
+                if key in seen_json:
+                    continue
+                seen_json.add(key)
+                source_json_profiles.append(profile)
                 if len(source_json_profiles) >= limit:
                     break
 
@@ -678,6 +690,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     branded_wifi,
                     bypass_uris=branded_main_bypass,
                     extra_bypass_uris=branded_extra_bypass,
+                    extra_bypass_profiles=extra_bypass_profiles,
                     existing=source_json_profiles or None,
                     limit=limit,
                 )
@@ -690,6 +703,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     branded_wifi,
                     bypass_uris=branded_main_bypass,
                     extra_bypass_uris=branded_extra_bypass,
+                    extra_bypass_profiles=extra_bypass_profiles,
                     existing=source_json_profiles or None,
                     limit=limit,
                 )
@@ -737,7 +751,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
             if bypass_label:
                 _pool.lte_source_counts = {
                     config.source_label(): len(bypass_from_main),
-                    bypass_label: len(extra_bypass),
+                    bypass_label: extra_bypass_count,
                 }
             else:
                 _pool.lte_source_counts = source_counts
@@ -759,7 +773,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 len(json_profiles),
                 len(wifi_uris),
                 len(bypass_from_main),
-                len(extra_bypass),
+                extra_bypass_count,
                 limit,
                 total_raw,
                 ", ".join(f"{k}={v}" for k, v in source_counts.items() if v),

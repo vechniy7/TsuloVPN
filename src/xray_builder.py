@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import logging
 import urllib.parse
@@ -16,6 +17,7 @@ from parser import (
     is_extra_bypass_label,
     is_placeholder_config,
     mobile_internet_label,
+    profile_content_key,
     rank_configs_for_speed,
     renumber_mobile_profiles,
     uri_identity,
@@ -569,6 +571,7 @@ def build_happ_profiles(
     *,
     bypass_uris: list[str] | None = None,
     extra_bypass_uris: list[str] | None = None,
+    extra_bypass_profiles: list[dict] | None = None,
     existing: list[dict] | None = None,
     limit: int | None = None,
 ) -> list[dict]:
@@ -582,7 +585,8 @@ def build_happ_profiles(
     cap = max(1, int(limit or config.SUBSCRIPTION_CONFIG_LIMIT))
     bypass_uris = bypass_uris or []
     extra_bypass_uris = extra_bypass_uris or []
-    has_bypass_pool = bool(bypass_uris or extra_bypass_uris)
+    extra_bypass_profiles = extra_bypass_profiles or []
+    has_bypass_pool = bool(bypass_uris or extra_bypass_uris or extra_bypass_profiles)
     pool = [uri for uri in uris if uri_to_outbound(uri, "probe") and not is_placeholder_config(uri)]
     auto_pool = _rank_auto_pool(pool[:cap])
     if not auto_pool and not has_bypass_pool and existing:
@@ -669,6 +673,21 @@ def build_happ_profiles(
 
     for uri in bypass_uris:
         _append_bypass_uri(uri, extra=False)
+
+    for profile in extra_bypass_profiles:
+        if len(entries) >= cap:
+            break
+        if not isinstance(profile, dict):
+            continue
+        key = profile_content_key(profile)
+        if key in extra_idents:
+            continue
+        extra_idents.add(key)
+        cloned = copy.deepcopy(profile)
+        rem = str(cloned.get("remarks") or cloned.get("remark") or "").strip()
+        if rem:
+            seen.add(rem.lower())
+        entries.append(cloned)
 
     for uri in extra_bypass_uris:
         _append_bypass_uri(uri, extra=True)
