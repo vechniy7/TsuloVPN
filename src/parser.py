@@ -336,6 +336,7 @@ _MOBILE_INTERNET_MARKERS = (
     "*cidr*",
     "cidr]",
     "мобильный интернет",
+    "мобильная связь",
     "mobile internet",
     "обход lte",
     "lte обход",
@@ -379,8 +380,18 @@ def is_mobile_internet_name(name: str) -> bool:
     return any(marker in noflag for marker in _MOBILE_INTERNET_MARKERS)
 
 
-def mobile_internet_label(index: int) -> str:
-    return f"🇪🇺 Мобильный Интернет #{index}"
+EXTRA_BYPASS_FIRE = "🔥"
+
+
+def mobile_internet_label(index: int, *, extra: bool = False) -> str:
+    label = f"🇪🇺 Мобильный Интернет #{index}"
+    if extra:
+        return f"{label} {EXTRA_BYPASS_FIRE}"
+    return label
+
+
+def is_extra_bypass_label(name: str) -> bool:
+    return EXTRA_BYPASS_FIRE in (name or "")
 
 
 def uri_profile_name(uri: str) -> str:
@@ -409,12 +420,34 @@ def split_uris_by_bypass(uris: list[str]) -> tuple[list[str], list[str]]:
 
 
 def filter_bypass_uris(uris: list[str]) -> list[str]:
-    """Только обходные конфиги (для доп. подписки VPN_BYPASS_SOURCE_URL)."""
+    """Только обходные конфиги по названию / метке [BL]."""
     return [uri for uri in uris if not is_placeholder_config(uri) and is_bypass_uri(uri)]
 
 
-def dedupe_uris(uris: list[str]) -> list[str]:
-    seen: set[str] = set()
+def select_extra_bypass_uris(uris: list[str]) -> list[str]:
+    """
+    Конфиги из VPN_BYPASS_SOURCE_URL:
+    1) по названию (LTE, белые списки, …)
+    2) по SNI/протоколу (whitelist bypass)
+    3) иначе все конфиги ключа (отдельная подписка обхода)
+    """
+    real = [uri for uri in uris if not is_placeholder_config(uri)]
+    if not real:
+        return []
+
+    named = filter_bypass_uris(real)
+    if named:
+        return dedupe_uris(named)
+
+    sni_based = [uri for uri in real if is_bypass_whitelist_config(uri)]
+    if sni_based:
+        return dedupe_uris(sni_based)
+
+    return dedupe_uris(real)
+
+
+def dedupe_uris(uris: list[str], *, exclude_bases: set[str] | None = None) -> list[str]:
+    seen: set[str] = set(exclude_bases or ())
     result: list[str] = []
     for uri in uris:
         base = uri.split("#", 1)[0].strip().lower()
@@ -423,6 +456,10 @@ def dedupe_uris(uris: list[str]) -> list[str]:
         seen.add(base)
         result.append(uri)
     return result
+
+
+def uri_identity(uri: str) -> str:
+    return uri.split("#", 1)[0].strip().lower()
 
 
 def brand_main_uris(uris: list[str]) -> list[str]:
@@ -446,27 +483,36 @@ def brand_main_uris(uris: list[str]) -> list[str]:
     return result
 
 
-def brand_bypass_uris(uris: list[str]) -> list[str]:
-    """Обходные серверы — единая нумерация «🇪🇺 Мобильный Интернет #N»."""
-    unique = dedupe_uris(filter_bypass_uris(uris))
+def brand_bypass_uris(
+    uris: list[str],
+    *,
+    start_index: int = 1,
+    extra: bool = False,
+) -> list[str]:
+    """Обходные серверы — «🇪🇺 Мобильный Интернет #N» (+ 🔥 для доп. ключа)."""
+    unique = dedupe_uris([uri for uri in uris if not is_placeholder_config(uri)])
     return [
-        brand_config(uri, mobile_internet_label(idx))
-        for idx, uri in enumerate(unique, start=1)
+        brand_config(uri, mobile_internet_label(idx, extra=extra))
+        for idx, uri in enumerate(unique, start=start_index)
     ]
 
 
 def renumber_mobile_profiles(profiles: list[dict]) -> list[dict]:
-    """Переименовать обходные серверы в «Мобильный Интернет #N»."""
+    """Переименовать обходные серверы в «Мобильный Интернет #N» (+ 🔥 для доп. ключа)."""
     mobile_idx = 0
     result: list[dict] = []
     for profile in profiles:
         if not isinstance(profile, dict):
             continue
         remark = str(profile.get("remarks") or profile.get("remark") or "")
-        if is_bypass_profile_name(remark):
+        is_bypass = is_bypass_profile_name(remark) or is_extra_bypass_label(remark)
+        if is_bypass:
             mobile_idx += 1
             cloned = copy.deepcopy(profile)
-            cloned["remarks"] = mobile_internet_label(mobile_idx)
+            cloned["remarks"] = mobile_internet_label(
+                mobile_idx,
+                extra=is_extra_bypass_label(remark),
+            )
             result.append(cloned)
         else:
             result.append(profile)
