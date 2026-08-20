@@ -1,4 +1,5 @@
 import logging
+import time
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 USERS_PAGE_SIZE = 20
+_last_admin_upstream_refresh_at: float = 0.0
 
 
 def _is_admin(user: User | None, chat_id: int) -> bool:
@@ -246,9 +248,20 @@ async def admin_menu_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "admin_refresh")
 async def admin_refresh_callback(callback: CallbackQuery) -> None:
+    global _last_admin_upstream_refresh_at
     if callback.from_user.id not in config.ADMINS:
         await callback.answer("Доступ запрещён", show_alert=True)
         return
+    now = time.time()
+    cooldown = config.ADMIN_FORCE_REFRESH_COOLDOWN_SEC
+    if _last_admin_upstream_refresh_at and now - _last_admin_upstream_refresh_at < cooldown:
+        wait_min = max(1, int((cooldown - (now - _last_admin_upstream_refresh_at) + 59) // 60))
+        await callback.answer(
+            f"Подождите ~{wait_min} мин — частое обновление бьёт по панели и повышает риск бана",
+            show_alert=True,
+        )
+        return
+    _last_admin_upstream_refresh_at = now
     await callback.answer("Обновляю…")
     await refresh_pool(force=True)
     pool = get_pool_state()

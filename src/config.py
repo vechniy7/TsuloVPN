@@ -134,10 +134,17 @@ class Config(BaseModel):
         "SUBSCRIPTION_SHOW_INDIVIDUAL", "false"
     ).lower() in ("1", "true", "yes")
 
-    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "1800"))
-    POOL_REFRESH_JITTER_SEC: int = int(os.getenv("POOL_REFRESH_JITTER_SEC", "600"))
+    # Реже опрашиваем панель — меньше шанс ban по «серверному» IP (Amvera/VPS)
+    POOL_REFRESH_INTERVAL: int = int(os.getenv("POOL_REFRESH_INTERVAL", "7200"))
+    POOL_REFRESH_JITTER_SEC: int = int(os.getenv("POOL_REFRESH_JITTER_SEC", "1800"))
+    POOL_STARTUP_DELAY_SEC: int = int(os.getenv("POOL_STARTUP_DELAY_SEC", "180"))
     CIDR_REFRESH_INTERVAL: int = int(os.getenv("CIDR_REFRESH_INTERVAL", "86400"))
-    SOURCE_FETCH_BACKOFF_SEC: int = int(os.getenv("SOURCE_FETCH_BACKOFF_SEC", "3600"))
+    SOURCE_FETCH_BACKOFF_SEC: int = int(os.getenv("SOURCE_FETCH_BACKOFF_SEC", "7200"))
+    # HTTP / SOCKS5 прокси только для запросов к VPN_SOURCE_URL (не с IP Amvera)
+    UPSTREAM_PROXY_URL: str = os.getenv("UPSTREAM_PROXY_URL", "").strip()
+    ADMIN_FORCE_REFRESH_COOLDOWN_SEC: int = int(
+        os.getenv("ADMIN_FORCE_REFRESH_COOLDOWN_SEC", "3600")
+    )
     SOURCE_ALERT_COOLDOWN_SEC: int = int(os.getenv("SOURCE_ALERT_COOLDOWN_SEC", "3600"))
     SOURCE_MIN_REAL_CONFIGS: int = int(os.getenv("SOURCE_MIN_REAL_CONFIGS", "2"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
@@ -244,13 +251,26 @@ class Config(BaseModel):
         url = self.resolved_source_url()
         return url.rstrip("/").split("/")[-1] if url else "не задан"
 
+    def upstream_proxy_configured(self) -> bool:
+        return bool((self.UPSTREAM_PROXY_URL or "").strip())
+
+    def upstream_proxy_label(self) -> str:
+        """host:port для логов без логина/пароля."""
+        raw = (self.UPSTREAM_PROXY_URL or "").strip()
+        if not raw:
+            return "none"
+        parsed = urlparse(raw if "://" in raw else f"http://{raw}")
+        host = parsed.hostname or "?"
+        port = parsed.port
+        scheme = parsed.scheme or "http"
+        return f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
+
     def fetch_hwid_headers(self) -> dict[str, str]:
         """Заголовки как у Happ на Android — один стабильный «телефон» для панели."""
         return {
             "User-Agent": (self.SUB_FETCH_UA or DEFAULT_FETCH_UA).strip(),
             "Accept": "*/*",
             "Accept-Encoding": "gzip",
-            "Connection": "close",
             "x-hwid": (self.SUB_HWID or DEFAULT_DEVICE_HWID).strip(),
             "x-device-os": self.SUB_DEVICE_OS or DEFAULT_DEVICE_OS,
             "x-ver-os": self.SUB_DEVICE_OS_VER or DEFAULT_DEVICE_OS_VER,

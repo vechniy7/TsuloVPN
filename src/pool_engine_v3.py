@@ -68,6 +68,7 @@ class PoolState:
 _pool = PoolState()
 _refresh_lock = asyncio.Lock()
 _session: aiohttp.ClientSession | None = None
+_upstream_session: aiohttp.ClientSession | None = None
 _cached_wifi_lines: list[str] = []
 _cached_lte_lines: list[str] = []
 _cached_json_profiles: list[dict] = []
@@ -145,9 +146,29 @@ async def _get_session() -> aiohttp.ClientSession:
     global _session
     if _session is None or _session.closed:
         timeout = aiohttp.ClientTimeout(total=config.FETCH_TIMEOUT)
-        jar = aiohttp.CookieJar(unsafe=True)
-        _session = aiohttp.ClientSession(timeout=timeout, cookie_jar=jar)
+        _session = aiohttp.ClientSession(timeout=timeout)
     return _session
+
+
+async def _get_upstream_session() -> aiohttp.ClientSession:
+    """Сессия для VPN_SOURCE_URL — через UPSTREAM_PROXY_URL (HTTP/SOCKS5), если задан."""
+    global _upstream_session
+    if _upstream_session is None or _upstream_session.closed:
+        timeout = aiohttp.ClientTimeout(total=config.FETCH_TIMEOUT)
+        jar = aiohttp.CookieJar(unsafe=True)
+        proxy_url = (config.UPSTREAM_PROXY_URL or "").strip()
+        if proxy_url:
+            from aiohttp_socks import ProxyConnector
+
+            connector = ProxyConnector.from_url(proxy_url)
+            _upstream_session = aiohttp.ClientSession(
+                timeout=timeout,
+                cookie_jar=jar,
+                connector=connector,
+            )
+        else:
+            _upstream_session = aiohttp.ClientSession(timeout=timeout, cookie_jar=jar)
+    return _upstream_session
 
 
 def _fetch_headers_for_url(url: str) -> dict[str, str]:
@@ -169,15 +190,16 @@ def _fetch_headers_for_url(url: str) -> dict[str, str]:
         "User-Agent": configured or "v2rayN/6.45",
         "Accept": "*/*",
         "Accept-Encoding": "gzip",
-        "Connection": "close",
     }
 
 
 async def close_session() -> None:
-    global _session
-    if _session and not _session.closed:
-        await _session.close()
-        _session = None
+    global _session, _upstream_session
+    for session in (_session, _upstream_session):
+        if session and not session.closed:
+            await session.close()
+    _session = None
+    _upstream_session = None
 
 
 async def _fetch_cidr_list() -> None:
@@ -327,7 +349,7 @@ def _hwid_blocked(headers: aiohttp.typedefs.LooseHeaders) -> bool:
 
 async def _fetch_url(url: str) -> tuple[str, str | None, list[str], str | None, int | None]:
     label = _source_label(url)
-    session = await _get_session()
+    session = await _get_upstream_session()
     headers = _fetch_headers_for_url(url)
     status: int | None = None
     try:
@@ -471,9 +493,10 @@ async def refresh_pool(force: bool = False) -> PoolState:
         all_urls = list(dict.fromkeys(wifi_urls + lte_urls))
 
         logger.info(
-            "pool_engine_v3: source=%s (happ_hwid=%s)",
+            "pool_engine_v3: source=%s (happ_hwid=%s, proxy=%s)",
             config.source_label(),
             requires_happ_hwid(config.resolved_source_url() or ""),
+            config.upstream_proxy_label() if config.upstream_proxy_configured() else "direct",
         )
 
         try:
@@ -508,6 +531,16 @@ async def refresh_pool(force: bool = False) -> PoolState:
                         "hwid_limit",
                         "Панель подписки вернула <b>лимит HWID</b>.\n"
                         "Отвяжите лишние устройства в панели или смените ключ.",
+                    )
+                elif err_hint == "http_502":
+                    _pool.last_error = "Upstream panel blocked or down (HTTP 502)"
+                    _pool.source_status = "degraded" if _cached_json_profiles else "failed"
+                    await notify_admins_source_alert(
+                        "http_502",
+                        "Панель вернула <b>502 Bad Gateway</b> — часто это <b>бан аккаунта</b> "
+                        "за реселл/серверные запросы.\n"
+                        "Нужен <b>новый аккаунт</b> и ключ; включите <code>UPSTREAM_PROXY_URL</code> "
+                        "и увеличьте <code>POOL_REFRESH_INTERVAL</code>.",
                     )
                 else:
                     _pool.last_error = f"Failed to fetch source ({err_hint})"
@@ -712,6 +745,9 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
 
 async def start_refresh_loop() -> None:
+    startup_delay = random.randint(30, max(30, config.POOL_STARTUP_DELAY_SEC))
+    logger.info("First upstream fetch in %ss (anti-ban startup delay)", startup_delay)
+    await asyncio.sleep(startup_delay)
     await refresh_pool(force=True)
     while True:
         jitter = random.randint(0, max(0, config.POOL_REFRESH_JITTER_SEC))

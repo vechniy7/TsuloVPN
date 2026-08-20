@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from bot_notify import set_bot
-from config import config
+from config import config, requires_happ_hwid
 from pool_engine_v3 import POOL_ENGINE_VERSION, close_session, start_refresh_loop
 from database import init_db, update_admins_status
 from handlers import setup_handlers
@@ -64,6 +64,21 @@ async def main() -> None:
         return
 
     log_public_url_ssl(config.SUBSCRIPTION_PUBLIC_URL)
+
+    source_url = config.resolved_source_url()
+    if requires_happ_hwid(source_url):
+        if config.upstream_proxy_configured():
+            logger.info(
+                "Upstream HWID panel (%s): fetch via proxy %s",
+                config.source_label(),
+                config.upstream_proxy_label(),
+            )
+        else:
+            logger.warning(
+                "Upstream HWID panel (%s) without UPSTREAM_PROXY_URL — "
+                "requests go from server IP (high ban risk on eu-fffast)",
+                config.source_label(),
+            )
 
     await init_db()
     await update_admins_status()
