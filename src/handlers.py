@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -6,6 +7,17 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from bot_notify import notify_payment_success
+from bot_profile import update_bot_user_count
+from broadcast import (
+    cancel_draft,
+    has_draft,
+    is_running,
+    is_waiting_draft,
+    pop_draft,
+    run_broadcast,
+    save_draft,
+    start_draft,
+)
 from channel_gate import (
     CHECK_CALLBACK,
     is_channel_member,
@@ -28,6 +40,19 @@ _last_admin_upstream_refresh_at: float = 0.0
 
 def _is_admin(user: User | None, chat_id: int) -> bool:
     return chat_id in config.ADMINS or bool(user and user.is_admin)
+
+
+def _admin_id(message: Message) -> int | None:
+    if not message.from_user:
+        return None
+    if message.from_user.id not in config.ADMINS:
+        return None
+    return message.from_user.id
+
+
+def _broadcast_compose_filter(message: Message) -> bool:
+    admin_id = _admin_id(message)
+    return bool(admin_id and is_waiting_draft(admin_id))
 
 
 async def show_menu(
@@ -100,13 +125,15 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
 
 @router.message(Command("start"))
 async def start_cmd(message: Message, bot: Bot) -> None:
-    if not await get_user(message.from_user.id):
+    is_new = not await get_user(message.from_user.id)
+    if is_new:
         await create_user(
             telegram_id=message.from_user.id,
             full_name=message.from_user.full_name or "User",
             username=message.from_user.username,
             is_admin=message.from_user.id in config.ADMINS,
         )
+        asyncio.create_task(update_bot_user_count(bot))
     await show_menu(bot, message.from_user.id)
 
 
@@ -223,13 +250,17 @@ async def admin_menu_callback(callback: CallbackQuery) -> None:
         return
 
     await callback.answer()
+    await _render_admin_menu(callback.message, edit=True)
+
+
+async def _render_admin_menu(message: Message, *, edit: bool) -> None:
     pool = get_pool_state()
     total_users = await get_user_count()
     sources_line = ", ".join(
         f"{name.split('.')[0][:18]}={n}" for name, n in pool.source_counts.items()
     )
     await render_screen(
-        callback.message,
+        message,
         caption=ui.screen_admin(
             users=total_users,
             sub_count=pool.subscription_count,
@@ -247,7 +278,7 @@ async def admin_menu_callback(callback: CallbackQuery) -> None:
         ),
         markup=ui.kb_admin(),
         screen="admin",
-        edit=True,
+        edit=edit,
     )
 
 
@@ -355,12 +386,6 @@ async def admin_users_callback(callback: CallbackQuery) -> None:
     await _show_admin_users(callback, page)
 
 
-@router.callback_query(F.data == "back_to_menu")
-async def back_to_menu_callback(callback: CallbackQuery, bot: Bot) -> None:
-    await callback.answer()
-    await show_menu(bot, callback.from_user.id, callback.message, edit=True)
-
-
 @router.callback_query(F.data == CHECK_CALLBACK)
 async def check_channel_sub_callback(callback: CallbackQuery, bot: Bot) -> None:
     if callback.from_user.id in config.ADMINS:
@@ -379,6 +404,116 @@ async def check_channel_sub_callback(callback: CallbackQuery, bot: Bot) -> None:
     )
     if callback.message:
         await prompt_channel_subscription(callback.message, edit=True)
+
+
+@router.callback_query(F.data == "admin_broadcast")
+async def admin_broadcast_start_callback(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in config.ADMINS:
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+    if is_running(callback.from_user.id):
+        await callback.answer("Рассылка уже идёт, дождитесь завершения", show_alert=True)
+        return
+
+    start_draft(callback.from_user.id)
+    await callback.answer()
+    await render_screen(
+        callback.message,
+        caption=ui.screen_admin_broadcast_prompt(),
+        markup=ui.kb_admin_broadcast_cancel(),
+        screen="admin",
+        edit=True,
+    )
+
+
+@router.callback_query(F.data == "admin_broadcast_cancel")
+async def admin_broadcast_cancel_callback(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in config.ADMINS:
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+    cancel_draft(callback.from_user.id)
+    await callback.answer("Отменено")
+    if callback.message:
+        await _render_admin_menu(callback.message, edit=True)
+
+
+@router.callback_query(F.data == "admin_broadcast_send")
+async def admin_broadcast_send_callback(callback: CallbackQuery, bot: Bot) -> None:
+    if callback.from_user.id not in config.ADMINS:
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+    if is_running(callback.from_user.id):
+        await callback.answer("Рассылка уже идёт", show_alert=True)
+        return
+
+    draft = pop_draft(callback.from_user.id)
+    if not draft:
+        await callback.answer("Черновик не найден. Начните заново.", show_alert=True)
+        return
+
+    total = await get_user_count()
+    await callback.answer("Рассылка запущена")
+    status = await callback.message.answer(
+        ui.screen_admin_broadcast_progress(sent=0, total=total),
+        parse_mode="HTML",
+    )
+
+    async def _job() -> None:
+        result = await run_broadcast(bot, callback.from_user.id, draft)
+        try:
+            await status.edit_text(
+                ui.screen_admin_broadcast_done(
+                    sent=result.sent,
+                    blocked=result.blocked,
+                    failed=result.failed,
+                    total=result.total,
+                ),
+                reply_markup=ui.kb_admin_back(),
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Broadcast status update failed: %s", exc)
+
+    asyncio.create_task(_job())
+
+
+@router.message(F.func(_broadcast_compose_filter))
+async def admin_broadcast_compose_message(message: Message, bot: Bot) -> None:
+    admin_id = _admin_id(message)
+    if not admin_id:
+        return
+
+    if message.text and message.text.strip().lower() in {"/cancel", "cancel"}:
+        cancel_draft(admin_id)
+        await message.answer("Рассылка отменена.", reply_markup=ui.kb_admin_back())
+        return
+
+    if message.text and message.text.startswith("/"):
+        await message.answer("Отправьте сообщение для рассылки или /cancel для отмены.")
+        return
+
+    total = await get_user_count()
+    save_draft(admin_id, message.chat.id, message.message_id)
+    await message.reply(
+        ui.screen_admin_broadcast_confirm(users=total),
+        reply_markup=ui.kb_admin_broadcast_confirm(),
+        parse_mode="HTML",
+    )
+
+
+@router.message(Command("cancel"), F.from_user.id.in_(config.ADMINS))
+async def admin_cancel_cmd(message: Message) -> None:
+    admin_id = message.from_user.id
+    if not (is_waiting_draft(admin_id) or has_draft(admin_id)):
+        return
+    cancel_draft(admin_id)
+    await message.answer("Рассылка отменена.", reply_markup=ui.kb_admin_back())
+
+
+@router.callback_query(F.data == "back_to_menu")
+async def back_to_menu_callback(callback: CallbackQuery, bot: Bot) -> None:
+    await callback.answer()
+    await show_menu(bot, callback.from_user.id, callback.message, edit=True)
 
 
 def setup_handlers(dp: Dispatcher) -> None:

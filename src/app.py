@@ -8,6 +8,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from bot_notify import set_bot
+from bot_profile import profile_update_loop, update_bot_user_count
 from config import config, requires_happ_hwid
 from pool_engine_v3 import POOL_ENGINE_VERSION, close_session, start_refresh_loop
 from database import init_db, update_admins_status
@@ -88,11 +89,13 @@ async def main() -> None:
     dp = Dispatcher()
     setup_handlers(dp)
     await setup_bot_commands(bot)
+    await update_bot_user_count(bot)
 
     await bot.delete_webhook(drop_pending_updates=True)
 
     asyncio.create_task(start_refresh_loop())
     asyncio.create_task(run_subscription_server())
+    asyncio.create_task(profile_update_loop(bot))
 
     logger.info(
         "%s started (Upstash, %s configs, primary subscription%s%s)",

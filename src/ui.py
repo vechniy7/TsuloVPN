@@ -147,7 +147,24 @@ def kb_admin() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="Обновить данные", callback_data="admin_refresh")
     b.button(text="Пользователи", callback_data="admin_users")
+    b.button(text="📣  Рассылка", callback_data="admin_broadcast")
     b.button(text="◂  На главную", callback_data="back_to_menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_admin_broadcast_cancel() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Отмена", callback_data="admin_broadcast_cancel")
+    b.button(text="К админке", callback_data="admin_menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_admin_broadcast_confirm() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="✓  Отправить всем", callback_data="admin_broadcast_send")
+    b.button(text="Отмена", callback_data="admin_broadcast_cancel")
     b.adjust(1)
     return b.as_markup()
 
@@ -328,6 +345,42 @@ def screen_admin(
         f"в источнике · {source_total}{sources}{key_line}{real_line}\n"
         f"статус · {status_line}{err_line}\n"
         f"формат · Happ JSON</blockquote>"
+    )
+
+
+def screen_admin_broadcast_prompt() -> str:
+    return (
+        "<b>Рассылка</b>\n\n"
+        "Отправьте сообщение, которое получат все пользователи бота.\n"
+        "Поддерживаются текст, фото, видео и другие типы.\n\n"
+        "<blockquote>После отправки покажем превью и попросим подтверждение.</blockquote>\n\n"
+        "Отмена — /cancel"
+    )
+
+
+def screen_admin_broadcast_confirm(*, users: int) -> str:
+    spaced = f"{users:,}".replace(",", " ")
+    return (
+        "<b>Подтвердите рассылку</b>\n\n"
+        f"Сообщение выше будет отправлено <b>{spaced}</b> пользователям.\n\n"
+        "Это действие нельзя отменить."
+    )
+
+
+def screen_admin_broadcast_progress(*, sent: int, total: int) -> str:
+    return (
+        "<b>Рассылка…</b>\n\n"
+        f"Отправлено: <b>{sent}</b> / {total}"
+    )
+
+
+def screen_admin_broadcast_done(*, sent: int, blocked: int, failed: int, total: int) -> str:
+    return (
+        "<b>Рассылка завершена</b>\n\n"
+        f"<blockquote>всего · {total}\n"
+        f"доставлено · <b>{sent}</b>\n"
+        f"заблокировали бота · {blocked}\n"
+        f"ошибки · {failed}</blockquote>"
     )
 
 
