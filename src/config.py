@@ -194,6 +194,14 @@ class Config(BaseModel):
 
     PAYMENTS_ENFORCE: bool = os.getenv("PAYMENTS_ENFORCE", "false").lower() in ("1", "true", "yes")
 
+    REQUIRED_CHANNEL: str = os.getenv("REQUIRED_CHANNEL", "@TsuloVPN").strip()
+    REQUIRED_CHANNEL_URL: str = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/TsuloVPN").strip()
+    CHANNEL_GATE_ENABLED: bool = os.getenv("CHANNEL_GATE_ENABLED", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
     SUPPORT_URL: str = os.getenv("SUPPORT_URL", "https://t.me/tsuloew")
     INSTAGRAM_URL: str = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/tsulo.it")
     DONATE_CARD: str = os.getenv("DONATE_CARD", "2202209226540747")
@@ -227,6 +235,23 @@ class Config(BaseModel):
     @property
     def use_upstash(self) -> bool:
         return bool(self.UPSTASH_REDIS_REST_URL and self.UPSTASH_REDIS_REST_TOKEN)
+
+    @property
+    def required_channel_id(self) -> str:
+        return (self.REQUIRED_CHANNEL or "").strip()
+
+    @property
+    def channel_gate_enabled(self) -> bool:
+        return self.CHANNEL_GATE_ENABLED and bool(self.required_channel_id)
+
+    @property
+    def required_channel_url(self) -> str:
+        channel = self.required_channel_id
+        if self.REQUIRED_CHANNEL_URL:
+            return self.REQUIRED_CHANNEL_URL
+        if channel.startswith("@"):
+            return f"https://t.me/{channel.lstrip('@')}"
+        return channel
 
     @property
     def use_cardlink(self) -> bool:

@@ -6,6 +6,11 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from bot_notify import notify_payment_success
+from channel_gate import (
+    CHECK_CALLBACK,
+    is_channel_member,
+    prompt_channel_subscription,
+)
 from config import config
 from pool_engine_v3 import get_pool_state, refresh_pool
 from database import User, create_user, get_all_users, get_user, get_user_count
@@ -356,5 +361,28 @@ async def back_to_menu_callback(callback: CallbackQuery, bot: Bot) -> None:
     await show_menu(bot, callback.from_user.id, callback.message, edit=True)
 
 
+@router.callback_query(F.data == CHECK_CALLBACK)
+async def check_channel_sub_callback(callback: CallbackQuery, bot: Bot) -> None:
+    if callback.from_user.id in config.ADMINS:
+        await callback.answer("Подписка подтверждена", show_alert=True)
+        await show_menu(bot, callback.from_user.id, callback.message, edit=True)
+        return
+
+    if await is_channel_member(bot, callback.from_user.id):
+        await callback.answer("Подписка подтверждена! Добро пожаловать.", show_alert=True)
+        await show_menu(bot, callback.from_user.id, callback.message, edit=True)
+        return
+
+    await callback.answer(
+        "Подписка не найдена. Подпишитесь на канал и нажмите «Проверить» снова.",
+        show_alert=True,
+    )
+    if callback.message:
+        await prompt_channel_subscription(callback.message, edit=True)
+
+
 def setup_handlers(dp: Dispatcher) -> None:
+    from channel_gate import ChannelGateMiddleware
+
+    dp.update.outer_middleware(ChannelGateMiddleware())
     dp.include_router(router)

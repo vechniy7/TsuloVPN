@@ -38,6 +38,27 @@ def format_access_until(user: User) -> str:
     return detail
 
 
+def kb_channel_required() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="📢  Подписаться на канал", url=config.required_channel_url)
+    b.button(text="✓  Проверить подписку", callback_data="check_channel_sub")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def screen_channel_required() -> str:
+    channel = _esc(config.required_channel_id.lstrip("@") or "TsuloVPN")
+    name = _esc(config.BOT_NAME)
+    return (
+        f"<b>Доступ к {name}</b>\n\n"
+        f"Чтобы пользоваться ботом, подпишитесь на канал "
+        f"<b>@{channel}</b> — там новости, обновления и полезные материалы.\n\n"
+        f"<blockquote>1. Нажмите «Подписаться на канал»\n"
+        f"2. Вернитесь сюда и нажмите «Проверить подписку»</blockquote>\n\n"
+        f"Без подписки бот недоступен."
+    )
+
+
 def kb_home(*, is_admin: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="✦  Мой доступ", callback_data="get_key")

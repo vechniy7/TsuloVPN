@@ -95,10 +95,11 @@ async def main() -> None:
     asyncio.create_task(run_subscription_server())
 
     logger.info(
-        "%s started (Upstash, %s configs, primary subscription%s)",
+        "%s started (Upstash, %s configs, primary subscription%s%s)",
         config.BOT_NAME,
         config.SUBSCRIPTION_CONFIG_LIMIT,
         ", Cardlink ON" if config.use_cardlink else "",
+        f", channel gate {config.required_channel_id}" if config.channel_gate_enabled else "",
     )
     logger.info("Pool engine v%s — private JSON passthrough enabled", POOL_ENGINE_VERSION)
     try:
