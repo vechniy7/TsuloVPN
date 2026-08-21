@@ -16,6 +16,7 @@ from parser import (
     brand_main_uris,
     brand_config,
     build_server_label,
+    dedupe_bypass_uris,
     dedupe_uris,
     extract_happ_json_profiles,
     extract_host_port,
@@ -38,7 +39,10 @@ from parser import (
     split_uris_by_bypass,
     speed_score,
     tag_extra_bypass_profiles,
+    collect_bypass_auto_uris,
     uri_identity,
+    EXTRA_BYPASS_BOLT,
+    EXTRA_BYPASS_FIRE,
     unique_source_labels,
 )
 from xray_builder import build_happ_profiles, uri_to_outbound
@@ -363,7 +367,7 @@ async def _fetch_url(
 ) -> tuple[str, str | None, list[str], str | None, int | None]:
     label = f"{role}:{_source_label(url)}" if role else _source_label(url)
     # ecobuy/shuka — без прокси (часто блокируется или ломается через DC-proxy)
-    use_direct = role == "bypass" and _is_classic_sub_url(url)
+    use_direct = role in ("bypass", "bypass2") and _is_classic_sub_url(url)
     session = await _get_session() if use_direct else await _get_upstream_session()
     headers = _fetch_headers_for_url(url)
     status: int | None = None
@@ -506,10 +510,12 @@ async def refresh_pool(force: bool = False) -> PoolState:
         fetch_plan = config.upstream_fetch_plan()
 
         bypass_label = config.bypass_source_label()
+        bypass2_label = config.bypass_source_label_2()
         logger.info(
-            "pool_engine_v3: main=%s bypass=%s (happ_hwid=%s, proxy=%s)",
+            "pool_engine_v3: main=%s bypass=%s bypass2=%s (happ_hwid=%s, proxy=%s)",
             config.source_label(),
             bypass_label or "—",
+            bypass2_label or "—",
             requires_happ_hwid(config.resolved_source_url() or ""),
             config.upstream_proxy_label() if config.upstream_proxy_configured() else "direct",
         )
@@ -524,6 +530,32 @@ async def refresh_pool(force: bool = False) -> PoolState:
             last_status: int | None = None
             main_result: tuple[str | None, list[str], str | None, int | None] | None = None
             bypass_result: tuple[str | None, list[str], str | None, int | None] | None = None
+            bypass2_result: tuple[str | None, list[str], str | None, int | None] | None = None
+
+            def _log_bypass_source(role: str, label: str, text: str | None, uris: list[str], err: str | None) -> None:
+                source_label = (
+                    config.bypass_source_label()
+                    if role == "bypass"
+                    else config.bypass_source_label_2()
+                    if role == "bypass2"
+                    else label
+                )
+                if text is None:
+                    logger.warning(
+                        "Bypass source %s unavailable: %s",
+                        source_label or label,
+                        err or "unknown",
+                    )
+                    return
+                extra_profiles = select_extra_bypass_profiles(text or "")
+                extra_uris = select_extra_bypass_uris(uris or [])
+                logger.info(
+                    "Bypass source %s: %s raw uris, %s json profiles, %s uris selected",
+                    source_label or label,
+                    len(uris or []),
+                    len(extra_profiles),
+                    len(extra_uris),
+                )
 
             for (role, url), (label, text, uris, err, status) in zip(fetch_plan, results):
                 by_label[label] = (text, uris, err, status)
@@ -533,22 +565,10 @@ async def refresh_pool(force: bool = False) -> PoolState:
                         fetch_errors.append(err)
                 elif role == "bypass":
                     bypass_result = (text, uris, err, status)
-                    if text is None:
-                        logger.warning(
-                            "Bypass source %s unavailable: %s",
-                            config.bypass_source_label() or label,
-                            err or "unknown",
-                        )
-                    else:
-                        extra_profiles = select_extra_bypass_profiles(text or "")
-                        extra_uris = select_extra_bypass_uris(uris or [])
-                        logger.info(
-                            "Bypass source %s: %s raw uris, %s json profiles, %s uris selected",
-                            config.bypass_source_label() or label,
-                            len(uris or []),
-                            len(extra_profiles),
-                            len(extra_uris),
-                        )
+                    _log_bypass_source(role, label, text, uris or [], err)
+                elif role == "bypass2":
+                    bypass2_result = (text, uris, err, status)
+                    _log_bypass_source(role, label, text, uris or [], err)
                 if status is not None and role == "main":
                     last_status = status
 
@@ -603,45 +623,80 @@ async def refresh_pool(force: bool = False) -> PoolState:
             if bypass_result and bypass_result[0]:
                 bypass_text, bypass_uris_raw, _, _ = bypass_result
 
+            bypass2_text = ""
+            bypass2_uris_raw: list[str] = []
+            if bypass2_result and bypass2_result[0]:
+                bypass2_text, bypass2_uris_raw, _, _ = bypass2_result
+
             wifi_raw, bypass_from_main = split_uris_by_bypass(main_uris_raw)
-            bypass_from_main = dedupe_uris(bypass_from_main)
+            bypass_from_main = dedupe_bypass_uris(bypass_from_main)
             extra_bypass_profiles = tag_extra_bypass_profiles(
-                select_extra_bypass_profiles(bypass_text)
+                select_extra_bypass_profiles(bypass_text),
+                marker=EXTRA_BYPASS_FIRE,
             )
             extra_bypass = select_extra_bypass_uris(bypass_uris_raw)
-            extra_bypass = dedupe_uris(extra_bypass)
+            extra_bypass = dedupe_bypass_uris(extra_bypass)
+            extra_bypass2_profiles = tag_extra_bypass_profiles(
+                select_extra_bypass_profiles(bypass2_text),
+                marker=EXTRA_BYPASS_BOLT,
+            )
+            extra_bypass2 = select_extra_bypass_uris(bypass2_uris_raw)
+            extra_bypass2 = dedupe_bypass_uris(extra_bypass2)
             wifi_uris = dedupe_uris(wifi_raw)
 
             branded_wifi = brand_main_uris(wifi_uris)
-            branded_main_bypass = brand_bypass_uris(bypass_from_main, start_index=1, extra=False)
+            branded_main_bypass = brand_bypass_uris(bypass_from_main, start_index=1)
             extra_bypass_count = len(extra_bypass_profiles) or len(extra_bypass)
+            extra_bypass2_count = len(extra_bypass2_profiles) or len(extra_bypass2)
             branded_extra_bypass = (
                 []
                 if extra_bypass_profiles
                 else brand_bypass_uris(
                     extra_bypass,
                     start_index=len(bypass_from_main) + 1,
-                    extra=True,
+                    marker=EXTRA_BYPASS_FIRE,
                 )
             )
-            branded_bypass = branded_main_bypass + branded_extra_bypass
-            merged_bypass = bypass_from_main + extra_bypass
+            branded_extra_bypass2 = (
+                []
+                if extra_bypass2_profiles
+                else brand_bypass_uris(
+                    extra_bypass2,
+                    start_index=len(bypass_from_main) + extra_bypass_count + 1,
+                    marker=EXTRA_BYPASS_BOLT,
+                )
+            )
+            branded_bypass = branded_main_bypass + branded_extra_bypass + branded_extra_bypass2
+            merged_bypass = bypass_from_main + extra_bypass + extra_bypass2
+            bypass_auto_uris = collect_bypass_auto_uris(
+                bypass_from_main,
+                extra_bypass,
+                extra_bypass2,
+                profile_groups=[extra_bypass_profiles, extra_bypass2_profiles],
+            )
 
             branded = branded_wifi + branded_bypass
 
             texts = [main_text or ""]
             if bypass_text:
                 texts.append(bypass_text)
+            if bypass2_text:
+                texts.append(bypass2_text)
 
-            total_raw = len(main_uris_raw) + len(bypass_uris_raw)
+            total_raw = len(main_uris_raw) + len(bypass_uris_raw) + len(bypass2_uris_raw)
             source_counts: dict[str, int] = {
                 config.source_label(): len(main_uris_raw),
             }
             if bypass_label:
                 source_counts[bypass_label] = extra_bypass_count
+            if bypass2_label:
+                source_counts[bypass2_label] = extra_bypass2_count
 
             _pool.source_real_count = (
-                len(wifi_uris) + len(bypass_from_main) + extra_bypass_count
+                len(wifi_uris)
+                + len(bypass_from_main)
+                + extra_bypass_count
+                + extra_bypass2_count
             )
             _pool.last_fetch_status = last_status
 
@@ -689,21 +744,27 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 json_profiles = build_happ_profiles(
                     branded_wifi,
                     bypass_uris=branded_main_bypass,
+                    bypass_auto_uris=bypass_auto_uris,
                     extra_bypass_uris=branded_extra_bypass,
                     extra_bypass_profiles=extra_bypass_profiles,
+                    extra_bypass2_uris=branded_extra_bypass2,
+                    extra_bypass2_profiles=extra_bypass2_profiles,
                     existing=source_json_profiles or None,
                     limit=limit,
                 )
             else:
                 ranked_wifi = rank_universal_configs(wifi_uris, limit=limit)
                 branded_wifi = brand_main_uris(ranked_wifi)
-                branded_bypass = branded_main_bypass + branded_extra_bypass
+                branded_bypass = branded_main_bypass + branded_extra_bypass + branded_extra_bypass2
                 branded = branded_wifi + branded_bypass
                 json_profiles = build_happ_profiles(
                     branded_wifi,
                     bypass_uris=branded_main_bypass,
+                    bypass_auto_uris=bypass_auto_uris,
                     extra_bypass_uris=branded_extra_bypass,
                     extra_bypass_profiles=extra_bypass_profiles,
+                    extra_bypass2_uris=branded_extra_bypass2,
+                    extra_bypass2_profiles=extra_bypass2_profiles,
                     existing=source_json_profiles or None,
                     limit=limit,
                 )
@@ -748,11 +809,12 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.wifi_count = len(wifi_pool)
             _pool.lte_count = len(json_profiles)
             _pool.wifi_source_counts = {config.source_label(): len(wifi_uris)}
-            if bypass_label:
-                _pool.lte_source_counts = {
-                    config.source_label(): len(bypass_from_main),
-                    bypass_label: extra_bypass_count,
-                }
+            if bypass_label or bypass2_label:
+                _pool.lte_source_counts = {config.source_label(): len(bypass_from_main)}
+                if bypass_label:
+                    _pool.lte_source_counts[bypass_label] = extra_bypass_count
+                if bypass2_label:
+                    _pool.lte_source_counts[bypass2_label] = extra_bypass2_count
             else:
                 _pool.lte_source_counts = source_counts
             _pool.configs = picked
@@ -769,11 +831,12 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.consecutive_fetch_failures = 0
 
             logger.info(
-                "Pool updated: %s json profiles (wifi=%s bypass=%s extra=%s, limit=%s) from %s raw (%s) in %.1fs",
+                "Pool updated: %s json profiles (wifi=%s bypass=%s extra=%s extra2=%s, limit=%s) from %s raw (%s) in %.1fs",
                 len(json_profiles),
                 len(wifi_uris),
                 len(bypass_from_main),
                 extra_bypass_count,
+                extra_bypass2_count,
                 limit,
                 total_raw,
                 ", ".join(f"{k}={v}" for k, v in source_counts.items() if v),

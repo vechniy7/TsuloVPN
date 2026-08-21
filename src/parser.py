@@ -325,6 +325,40 @@ _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
     ("швейцария", "🇨🇭 Швейцария"),
     ("болгария", "🇧🇬 Болгария"),
     ("чехия", "🇨🇿 Чехия"),
+    ("англия", "🇬🇧 Англия"),
+    ("америка", "🇺🇸 Америка"),
+    ("япония", "🇯🇵 Япония"),
+    ("сингапур", "🇸🇬 Сингапур"),
+    ("исландия", "🇮🇸 Исландия"),
+    ("испания", "🇪🇸 Испания"),
+    ("канада", "🇨🇦 Канада"),
+    ("австралия", "🇦🇺 Австралия"),
+    ("корея", "🇰🇷 Корея"),
+    ("индия", "🇮🇳 Индия"),
+    ("бразилия", "🇧🇷 Бразилия"),
+    ("аргентина", "🇦🇷 Аргентина"),
+    ("мексика", "🇲🇽 Мексика"),
+    ("австрия", "🇦🇹 Австрия"),
+    ("бельгия", "🇧🇪 Бельгия"),
+    ("дания", "🇩🇰 Дания"),
+    ("греция", "🇬🇷 Греция"),
+    ("ирландия", "🇮🇪 Ирландия"),
+    ("португалия", "🇵🇹 Португалия"),
+    ("румыния", "🇷🇴 Румыния"),
+    ("словакия", "🇸🇰 Словакия"),
+    ("словения", "🇸🇮 Словения"),
+    ("украина", "🇺🇦 Украина"),
+    ("армения", "🇦🇲 Армения"),
+    ("грузия", "🇬🇪 Грузия"),
+    ("израиль", "🇮🇱 Израиль"),
+    ("оаэ", "🇦🇪 ОАЭ"),
+    ("таиланд", "🇹🇭 Таиланд"),
+    ("вьетнам", "🇻🇳 Вьетнам"),
+    ("индонезия", "🇮🇩 Индонезия"),
+    ("малайзия", "🇲🇾 Малайзия"),
+    ("филиппины", "🇵🇭 Филиппины"),
+    ("тайвань", "🇹🇼 Тайвань"),
+    ("гонконг", "🇭🇰 Гонконг"),
 )
 
 _MOBILE_INTERNET_MARKERS = (
@@ -382,17 +416,35 @@ def is_mobile_internet_name(name: str) -> bool:
 
 
 EXTRA_BYPASS_FIRE = "🔥"
+EXTRA_BYPASS_BOLT = "⚡"
 
 
-def mobile_internet_label(index: int, *, extra: bool = False) -> str:
+def mobile_internet_label(index: int, *, marker: str = "") -> str:
     label = f"🇪🇺 Мобильный Интернет #{index}"
-    if extra:
-        return f"{label} {EXTRA_BYPASS_FIRE}"
+    if marker:
+        return f"{label} {marker}"
     return label
 
 
+def bypass_marker_from_remark(name: str) -> str:
+    if EXTRA_BYPASS_BOLT in (name or ""):
+        return EXTRA_BYPASS_BOLT
+    if EXTRA_BYPASS_FIRE in (name or ""):
+        return EXTRA_BYPASS_FIRE
+    return ""
+
+
 def is_extra_bypass_label(name: str) -> bool:
-    return EXTRA_BYPASS_FIRE in (name or "")
+    return bypass_marker_from_remark(name) != ""
+
+
+def is_mobile_bypass_remark(name: str) -> bool:
+    compact = " ".join((name or "").lower().split())
+    return (
+        is_bypass_profile_name(name)
+        or is_extra_bypass_label(name)
+        or "мобильный интернет" in compact
+    )
 
 
 def uri_profile_name(uri: str) -> str:
@@ -522,16 +574,18 @@ def select_extra_bypass_profiles(text: str) -> list[dict]:
     return result
 
 
-def tag_extra_bypass_profiles(profiles: list[dict]) -> list[dict]:
-    """Пометить доп. ключ 🔥 — renumber_mobile_profiles сохранит маркер."""
+def tag_extra_bypass_profiles(
+    profiles: list[dict],
+    *,
+    marker: str = EXTRA_BYPASS_FIRE,
+) -> list[dict]:
+    """Пометить доп. ключ маркером (🔥 или ⚡) — renumber_mobile_profiles сохранит его."""
     tagged: list[dict] = []
     for profile in profiles:
         cloned = copy.deepcopy(profile)
         remark = str(cloned.get("remarks") or cloned.get("remark") or "").strip()
-        if not is_extra_bypass_label(remark):
-            cloned["remarks"] = (
-                f"{remark} {EXTRA_BYPASS_FIRE}".strip() if remark else EXTRA_BYPASS_FIRE
-            )
+        if marker and marker not in remark and not is_extra_bypass_label(remark):
+            cloned["remarks"] = f"{remark} {marker}".strip() if remark else marker
         tagged.append(cloned)
     return tagged
 
@@ -549,13 +603,62 @@ def select_extra_bypass_uris(uris: list[str]) -> list[str]:
 
     named = filter_bypass_uris(real)
     if named:
-        return dedupe_uris(named)
+        return dedupe_bypass_uris(named)
 
     sni_based = [uri for uri in real if is_bypass_whitelist_config(uri)]
     if sni_based:
-        return dedupe_uris(sni_based)
+        return dedupe_bypass_uris(sni_based)
 
-    return dedupe_uris(real)
+    return dedupe_bypass_uris(real)
+
+
+def bypass_uri_identity(uri: str) -> str:
+    """Обход: UUID может повторяться — учитываем имя (#фрагмент)."""
+    base = uri.split("#", 1)[0].strip().lower()
+    name = uri_profile_name(uri).strip().lower()
+    return f"{base}|{name}" if name else base
+
+
+def dedupe_bypass_uris(uris: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for uri in uris:
+        if is_placeholder_config(uri):
+            continue
+        ident = bypass_uri_identity(uri)
+        if not ident or ident in seen:
+            continue
+        seen.add(ident)
+        result.append(uri)
+    return result
+
+
+def profile_to_proxy_uri(profile: dict) -> str | None:
+    """Share-link основного прокси-outbound из Happ JSON-профиля."""
+    remark = str(profile.get("remarks") or profile.get("remark") or "")
+    outbounds = profile.get("outbounds") or []
+    if not isinstance(outbounds, list):
+        return None
+    best = _best_outbound(outbounds)
+    if not best:
+        return None
+    return _xray_outbound_to_uri(best, remark)
+
+
+def collect_bypass_auto_uris(
+    *uri_groups: list[str],
+    profile_groups: list[list[dict]] | None = None,
+) -> list[str]:
+    """URI всех обходных конфигов для «Автовыбор Обход»."""
+    pool: list[str] = []
+    for group in uri_groups:
+        pool.extend(group or [])
+    for profiles in profile_groups or []:
+        for profile in profiles:
+            uri = profile_to_proxy_uri(profile)
+            if uri and not is_placeholder_config(uri):
+                pool.append(uri)
+    return dedupe_bypass_uris(pool)
 
 
 def dedupe_uris(uris: list[str], *, exclude_bases: set[str] | None = None) -> list[str]:
@@ -575,8 +678,9 @@ def uri_identity(uri: str) -> str:
 
 
 def brand_main_uris(uris: list[str]) -> list[str]:
-    """Основные серверы — названия чуть другие, не 1:1 с источником."""
+    """Основные серверы — только флаг + название страны."""
     seen: set[str] = set()
+    country_dupes: dict[str, int] = {}
     result: list[str] = []
     fallback_idx = 0
     for uri in uris:
@@ -588,7 +692,13 @@ def brand_main_uris(uris: list[str]) -> list[str]:
             fallback_idx += 1
             styled = build_server_label("vpn", uri, fallback_idx)
         key = styled.lower()
-        if key in seen or should_skip_profile(styled) or should_skip_profile(original):
+        if should_skip_profile(styled) or should_skip_profile(original):
+            continue
+        if key in seen:
+            country_dupes[key] = country_dupes.get(key, 1) + 1
+            styled = f"{styled} {country_dupes[key]}"
+            key = styled.lower()
+        if key in seen:
             continue
         seen.add(key)
         result.append(brand_config(uri, styled))
@@ -599,31 +709,30 @@ def brand_bypass_uris(
     uris: list[str],
     *,
     start_index: int = 1,
-    extra: bool = False,
+    marker: str = "",
 ) -> list[str]:
-    """Обходные серверы — «🇪🇺 Мобильный Интернет #N» (+ 🔥 для доп. ключа)."""
-    unique = dedupe_uris([uri for uri in uris if not is_placeholder_config(uri)])
+    """Обходные серверы — «🇪🇺 Мобильный Интернет #N» (+ 🔥/⚡ для доп. ключей)."""
+    unique = dedupe_bypass_uris([uri for uri in uris if not is_placeholder_config(uri)])
     return [
-        brand_config(uri, mobile_internet_label(idx, extra=extra))
+        brand_config(uri, mobile_internet_label(idx, marker=marker))
         for idx, uri in enumerate(unique, start=start_index)
     ]
 
 
 def renumber_mobile_profiles(profiles: list[dict]) -> list[dict]:
-    """Переименовать обходные серверы в «Мобильный Интернет #N» (+ 🔥 для доп. ключа)."""
+    """Переименовать обходные серверы в «Мобильный Интернет #N» (+ 🔥/⚡)."""
     mobile_idx = 0
     result: list[dict] = []
     for profile in profiles:
         if not isinstance(profile, dict):
             continue
         remark = str(profile.get("remarks") or profile.get("remark") or "")
-        is_bypass = is_bypass_profile_name(remark) or is_extra_bypass_label(remark)
-        if is_bypass:
+        if is_mobile_bypass_remark(remark):
             mobile_idx += 1
             cloned = copy.deepcopy(profile)
             cloned["remarks"] = mobile_internet_label(
                 mobile_idx,
-                extra=is_extra_bypass_label(remark),
+                marker=bypass_marker_from_remark(remark),
             )
             result.append(cloned)
         else:
@@ -637,7 +746,7 @@ def should_skip_profile(name: str) -> bool:
 
 
 def restyle_server_name(name: str) -> str | None:
-    """Чуть другие названия, тот же смысл. None = не выдавать."""
+    """Только флаг + название страны (без лишнего текста из источника)."""
     raw = " ".join((name or "").split()).strip()
     if not raw or should_skip_profile(raw):
         return None
@@ -645,6 +754,7 @@ def restyle_server_name(name: str) -> str | None:
     compact = raw.lower()
     noflag = _FLAG_RE.sub(" ", compact)
     noflag = _DECOR_RE.sub(" ", noflag)
+    noflag = re.sub(r"[»|✦·\-–#]+", " ", noflag)
     noflag = re.sub(r"\s+", " ", noflag).strip()
     flags = _FLAG_RE.findall(raw)
     flag = flags[0] if flags else ""
@@ -659,16 +769,18 @@ def restyle_server_name(name: str) -> str | None:
     for needle, styled in _NAME_RESTYLE:
         if needle in noflag or needle in compact:
             styled_flag = _FLAG_RE.findall(styled)
-            styled_text = _FLAG_RE.sub(" ", styled).strip()
-            styled_text = _DECOR_RE.sub(" ", styled_text).strip()
+            country = _FLAG_RE.sub("", styled).strip()
+            country = _DECOR_RE.sub("", country).strip()
             use_flag = flag or (styled_flag[0] if styled_flag else "")
-            if use_flag and styled_text:
-                return f"{use_flag} {styled_text}"
+            if use_flag and country:
+                return f"{use_flag} {country}"
             return styled
 
     cleaned = _FLAG_RE.sub(" ", raw)
     cleaned = _DECOR_RE.sub(" ", cleaned)
+    cleaned = re.sub(r"[»|✦·\-–#]+", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ·-–|")
+    cleaned = re.sub(r"\s*#?\d+\s*$", "", cleaned).strip()
     if flag and cleaned:
         return f"{flag} {cleaned}"
     return cleaned or raw
@@ -796,10 +908,9 @@ def extract_happ_json_profiles(data: str) -> list[dict]:
     seen_names: set[str] = set()
     for profile in profiles:
         remark = str(profile.get("remarks") or profile.get("remark") or "")
-        if is_bypass_profile_name(remark):
-            styled = remark
-        else:
-            styled = restyle_server_name(remark)
+        if is_bypass_profile_name(remark) or profile_is_bypass(profile):
+            continue
+        styled = restyle_server_name(remark)
         if not styled or styled.lower() in seen_names:
             continue
         outbounds = profile.get("outbounds") or []

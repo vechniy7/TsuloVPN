@@ -10,18 +10,22 @@ import urllib.parse
 
 from config import config
 from parser import (
+    bypass_uri_identity,
+    collect_bypass_auto_uris,
     extract_country_flag,
     extract_host_port,
     get_sni,
     is_bypass_profile_name,
     is_extra_bypass_label,
+    is_mobile_bypass_remark,
     is_placeholder_config,
     mobile_internet_label,
     profile_content_key,
     rank_configs_for_speed,
     renumber_mobile_profiles,
-    uri_identity,
     uri_profile_name,
+    EXTRA_BYPASS_BOLT,
+    EXTRA_BYPASS_FIRE,
 )
 
 logger = logging.getLogger(__name__)
@@ -551,7 +555,10 @@ _AUTO_NAME_MARKERS = (
     "самый быстрый",
     "авто wifi",
     "авто lte",
+    "автовыбор обход",
 )
+
+BYPASS_AUTO_REMARK = "🇪🇺 Автовыбор Обход"
 
 
 def _is_auto_profile_name(name: str) -> bool:
@@ -570,23 +577,38 @@ def build_happ_profiles(
     uris: list[str],
     *,
     bypass_uris: list[str] | None = None,
+    bypass_auto_uris: list[str] | None = None,
     extra_bypass_uris: list[str] | None = None,
     extra_bypass_profiles: list[dict] | None = None,
+    extra_bypass2_uris: list[str] | None = None,
+    extra_bypass2_profiles: list[dict] | None = None,
     existing: list[dict] | None = None,
     limit: int | None = None,
 ) -> list[dict]:
     """
     Клиентская подписка TsuloVPN:
-    1) 🇪🇺 Автовыбор — observatory + leastPing (только основные серверы)
-    2) основные серверы (переименованные)
-    3) 🇪🇺 Мобильный Интернет #N — обход из основного ключа
-    4) 🇪🇺 Мобильный Интернет #N 🔥 — обход из VPN_BYPASS_SOURCE_URL
+    1) 🇪🇺 Автовыбор — observatory + leastPing (основные серверы)
+    2) основные серверы (флаг + страна)
+    3) 🇪🇺 Автовыбор Обход — лучший из всех «Мобильный Интернет»
+    4) 🇪🇺 Мобильный Интернет #N — обход из основного ключа
+    5) 🇪🇺 Мобильный Интернет #N 🔥 — VPN_BYPASS_SOURCE_URL
+    6) 🇪🇺 Мобильный Интернет #N ⚡ — VPN_BYPASS_SOURCE_URL_2
     """
     cap = max(1, int(limit or config.SUBSCRIPTION_CONFIG_LIMIT))
     bypass_uris = bypass_uris or []
+    bypass_auto_uris = bypass_auto_uris or []
     extra_bypass_uris = extra_bypass_uris or []
     extra_bypass_profiles = extra_bypass_profiles or []
-    has_bypass_pool = bool(bypass_uris or extra_bypass_uris or extra_bypass_profiles)
+    extra_bypass2_uris = extra_bypass2_uris or []
+    extra_bypass2_profiles = extra_bypass2_profiles or []
+    has_bypass_pool = bool(
+        bypass_uris
+        or bypass_auto_uris
+        or extra_bypass_uris
+        or extra_bypass_profiles
+        or extra_bypass2_uris
+        or extra_bypass2_profiles
+    )
     pool = [uri for uri in uris if uri_to_outbound(uri, "probe") and not is_placeholder_config(uri)]
     auto_pool = _rank_auto_pool(pool[:cap])
     if not auto_pool and not has_bypass_pool and existing:
@@ -618,9 +640,7 @@ def build_happ_profiles(
             rem = str(profile.get("remarks") or profile.get("remark") or "").strip()
             if not rem or _is_auto_profile_name(rem):
                 continue
-            if has_bypass_pool and (
-                is_bypass_profile_name(rem) or is_extra_bypass_label(rem)
-            ):
+            if has_bypass_pool and is_mobile_bypass_remark(rem):
                 continue
             key = rem.lower()
             if key in seen:
@@ -646,16 +666,44 @@ def build_happ_profiles(
             seen.add(key)
             entries.append(cfg)
 
+    auto_bypass_pool = bypass_auto_uris or collect_bypass_auto_uris(
+        bypass_uris,
+        extra_bypass_uris,
+        extra_bypass2_uris,
+        profile_groups=[
+            extra_bypass_profiles,
+            extra_bypass2_profiles,
+        ],
+    )
+    if auto_bypass_pool and len(entries) < cap:
+        bypass_auto = build_auto_select_config(
+            _rank_auto_pool(auto_bypass_pool),
+            remarks=BYPASS_AUTO_REMARK,
+            node_prefix="bypass-auto-",
+            description="обход · лучший узел",
+            probe_url=config.LTE_PROBE_URL,
+            probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
+            lte_dns=True,
+        )
+        if bypass_auto:
+            entries.append(bypass_auto)
+            seen.add(BYPASS_AUTO_REMARK.lower())
+
     bypass_idents: set[str] = set()
     extra_idents: set[str] = set()
+    extra2_idents: set[str] = set()
 
-    def _append_bypass_uri(uri: str, *, extra: bool = False) -> None:
+    def _append_bypass_uri(uri: str, *, marker: str = "") -> None:
         if len(entries) >= cap:
             return
         if not uri_to_outbound(uri, "probe") or is_placeholder_config(uri):
             return
-        ident = uri_identity(uri)
-        if extra:
+        ident = bypass_uri_identity(uri)
+        if marker == EXTRA_BYPASS_BOLT:
+            if ident in extra2_idents:
+                return
+            extra2_idents.add(ident)
+        elif marker == EXTRA_BYPASS_FIRE:
             if ident in extra_idents:
                 return
             extra_idents.add(ident)
@@ -663,7 +711,7 @@ def build_happ_profiles(
             return
         else:
             bypass_idents.add(ident)
-        rem = uri_profile_name(uri) or mobile_internet_label(1, extra=extra)
+        rem = uri_profile_name(uri) or mobile_internet_label(1, marker=marker)
         cfg = build_single_server_config(uri, len(entries))
         if not cfg:
             return
@@ -671,26 +719,40 @@ def build_happ_profiles(
         seen.add(rem.lower())
         entries.append(cfg)
 
-    for uri in bypass_uris:
-        _append_bypass_uri(uri, extra=False)
-
-    for profile in extra_bypass_profiles:
+    def _append_bypass_profile(profile: dict, *, marker: str) -> None:
         if len(entries) >= cap:
-            break
+            return
         if not isinstance(profile, dict):
-            continue
+            return
         key = profile_content_key(profile)
-        if key in extra_idents:
-            continue
-        extra_idents.add(key)
+        if marker == EXTRA_BYPASS_BOLT:
+            if key in extra2_idents:
+                return
+            extra2_idents.add(key)
+        elif marker == EXTRA_BYPASS_FIRE:
+            if key in extra_idents:
+                return
+            extra_idents.add(key)
         cloned = copy.deepcopy(profile)
         rem = str(cloned.get("remarks") or cloned.get("remark") or "").strip()
         if rem:
             seen.add(rem.lower())
         entries.append(cloned)
 
+    for uri in bypass_uris:
+        _append_bypass_uri(uri, marker="")
+
+    for profile in extra_bypass_profiles:
+        _append_bypass_profile(profile, marker=EXTRA_BYPASS_FIRE)
+
     for uri in extra_bypass_uris:
-        _append_bypass_uri(uri, extra=True)
+        _append_bypass_uri(uri, marker=EXTRA_BYPASS_FIRE)
+
+    for profile in extra_bypass2_profiles:
+        _append_bypass_profile(profile, marker=EXTRA_BYPASS_BOLT)
+
+    for uri in extra_bypass2_uris:
+        _append_bypass_uri(uri, marker=EXTRA_BYPASS_BOLT)
 
     return renumber_mobile_profiles(entries[:cap])
 

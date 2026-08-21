@@ -53,6 +53,7 @@ async def health():
             {
                 "source_key": config.source_label(),
                 "bypass_source_key": config.bypass_source_label() or None,
+                "bypass_source_key_2": config.bypass_source_label_2() or None,
                 "last_fetch_status": pool.last_fetch_status,
                 "consecutive_fetch_failures": pool.consecutive_fetch_failures,
                 "wifi_count": pool.wifi_count,

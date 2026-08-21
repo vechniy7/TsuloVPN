@@ -83,8 +83,14 @@ def resolve_vpn_bypass_source_url() -> str:
     return normalize_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL", "").strip())
 
 
+def resolve_vpn_bypass_source_url_2() -> str:
+    """Второй доп. ключ обхода (⚡). Может быть пустым."""
+    return normalize_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL_2", "").strip())
+
+
 VPN_SOURCE_URL = resolve_vpn_source_url()
 VPN_BYPASS_SOURCE_URL = resolve_vpn_bypass_source_url()
+VPN_BYPASS_SOURCE_URL_2 = resolve_vpn_bypass_source_url_2()
 
 
 class Config(BaseModel):
@@ -101,6 +107,8 @@ class Config(BaseModel):
     VPN_SOURCE_URL: str = VPN_SOURCE_URL
     # Доп. подписка только для обхода глушилок (LTE / белые списки). Пусто = не используется.
     VPN_BYPASS_SOURCE_URL: str = VPN_BYPASS_SOURCE_URL
+    # Второй доп. ключ обхода — конфиги с ⚡ в названии.
+    VPN_BYPASS_SOURCE_URL_2: str = VPN_BYPASS_SOURCE_URL_2
     # legacy aliases (читаются, но не нужны в env)
     PRIMARY_SUB_URL: str = VPN_SOURCE_URL
     LIDERVPN_SUB_URL: str = normalize_subscription_url(os.getenv("LIDERVPN_SUB_URL", "")) or VPN_SOURCE_URL
@@ -272,8 +280,25 @@ class Config(BaseModel):
         url = self.bypass_source_url()
         return url.rstrip("/").split("/")[-1] if url else ""
 
+    def bypass_source_url_2(self) -> str:
+        url = normalize_subscription_url((self.VPN_BYPASS_SOURCE_URL_2 or "").strip())
+        main = self.resolved_source_url()
+        bypass1 = self.bypass_source_url()
+        if not url:
+            return ""
+        normalized = url.rstrip("/")
+        if main and normalized == main.rstrip("/"):
+            return ""
+        if bypass1 and normalized == bypass1.rstrip("/"):
+            return ""
+        return url
+
+    def bypass_source_label_2(self) -> str:
+        url = self.bypass_source_url_2()
+        return url.rstrip("/").split("/")[-1] if url else ""
+
     def upstream_fetch_plan(self) -> list[tuple[str, str]]:
-        """(роль, url): main — основной ключ, bypass — только обходные конфиги."""
+        """(роль, url): main, bypass (🔥), bypass2 (⚡)."""
         plan: list[tuple[str, str]] = []
         main = self.resolved_source_url()
         if main:
@@ -281,6 +306,9 @@ class Config(BaseModel):
         bypass = self.bypass_source_url()
         if bypass:
             plan.append(("bypass", bypass))
+        bypass2 = self.bypass_source_url_2()
+        if bypass2:
+            plan.append(("bypass2", bypass2))
         return plan
 
     def upstream_proxy_configured(self) -> bool:
