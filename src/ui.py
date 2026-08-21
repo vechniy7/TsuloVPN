@@ -202,11 +202,18 @@ def kb_payment_success() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def screen_home(user: User, *, is_admin: bool = False) -> str:
+def format_users_count_spaced(count: int) -> str:
+    return f"{count:,}".replace(",", " ")
+
+
+def screen_home(user: User, *, is_admin: bool = False, users_total: int | None = None) -> str:
     badge, detail, _ = status_info(user)
     name = _esc(config.BOT_NAME)
+    users_line = ""
+    if users_total is not None:
+        users_line = f"\n👥 <b>{format_users_count_spaced(users_total)}</b> пользователей\n"
     return (
-        f"🔮  <b>{name}</b>\n"
+        f"🔮  <b>{name}</b>{users_line}\n"
         f"<i>цифровой доступ · всегда на связи</i>\n\n"
         f"<blockquote><b>◆  статус · {badge}</b>\n{_esc(detail)}</blockquote>\n\n"
         f"Обход ограничений · скорость · стабильность.\n"

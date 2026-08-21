@@ -65,7 +65,8 @@ async def show_menu(
     user = await get_user(chat_id)
     if not user:
         return
-    text = ui.screen_home(user, is_admin=_is_admin(user, chat_id))
+    users_total = await get_user_count()
+    text = ui.screen_home(user, is_admin=_is_admin(user, chat_id), users_total=users_total)
     markup = ui.kb_home(is_admin=_is_admin(user, chat_id))
     if edit and message:
         await render_screen(message, caption=text, markup=markup, screen="home", edit=True)

@@ -97,6 +97,12 @@ class Config(BaseModel):
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
     ADMINS: list[int] = Field(default_factory=list)
     BOT_NAME: str = os.getenv("BOT_NAME", "TsuloVPN")
+    # Число в названии бота (шапка чата). Подпись «X monthly users» — только от Telegram при ~10k MAU.
+    BOT_USER_COUNT_IN_NAME: bool = os.getenv("BOT_USER_COUNT_IN_NAME", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     SUBSCRIPTION_PUBLIC_URL: str = os.getenv("SUBSCRIPTION_PUBLIC_URL", "https://your-domain.com")
     SUBSCRIPTION_PORT: int = Field(
