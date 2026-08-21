@@ -1715,7 +1715,7 @@ def unique_source_labels(uris: list[str]) -> list[str]:
             mobile_idx += 1
             label = mobile_internet_label(mobile_idx)
         else:
-        label = restyle_server_name(original) if original else None
+            label = restyle_server_name(original) if original else None
         if not label:
             label = build_server_label("vpn", uri, idx)
         key = label.lower()
