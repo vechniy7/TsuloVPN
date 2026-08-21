@@ -22,8 +22,6 @@ from parser import (
     is_placeholder_config,
     mobile_internet_label,
     profile_content_key,
-    profile_has_whitelist_routing,
-    profile_proxy_outbounds,
     rank_configs_for_speed,
     renumber_mobile_profiles,
     uri_profile_name,
@@ -412,70 +410,6 @@ def build_auto_select_config(
     return profile
 
 
-def _outbound_fingerprint(outbound: dict) -> str:
-    payload = json.dumps(outbound, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(payload.encode()).hexdigest()[:20]
-
-
-def _collect_bypass_auto_outbounds(
-    profiles: list[dict],
-    uris: list[str],
-    *,
-    node_prefix: str = "bypass-auto-",
-) -> list[dict]:
-    """Все прокси-узлы обхода (primary+backup) для балансировщика."""
-    outbounds: list[dict] = []
-    seen: set[str] = set()
-
-    def _append(outbound: dict) -> None:
-        fp = _outbound_fingerprint(outbound)
-        if fp in seen:
-            return
-        seen.add(fp)
-        cloned = copy.deepcopy(outbound)
-        cloned["tag"] = f"{node_prefix}{len(outbounds)}"
-        outbounds.append(cloned)
-
-    for profile in profiles:
-        for outbound in profile_proxy_outbounds(profile):
-            _append(outbound)
-
-    for uri in uris:
-        if is_placeholder_config(uri):
-            continue
-        outbound = uri_to_outbound(uri, f"{node_prefix}{len(outbounds)}")
-        if outbound:
-            _append(outbound)
-
-    return outbounds
-
-
-def _whitelist_routing_from_profiles(profiles: list[dict], balancer_tag: str) -> dict | None:
-    """Скопировать правила белых списков из исходного Happ-профиля."""
-    for profile in profiles:
-        if not profile_has_whitelist_routing(profile):
-            continue
-        routing = profile.get("routing") or {}
-        if not isinstance(routing, dict):
-            continue
-        rules: list[dict] = []
-        for rule in routing.get("rules") or []:
-            if not isinstance(rule, dict):
-                continue
-            cloned = copy.deepcopy(rule)
-            if cloned.get("balancerTag"):
-                cloned["balancerTag"] = balancer_tag
-            rules.append(cloned)
-        if not rules:
-            continue
-        return {
-            "domainMatcher": routing.get("domainMatcher") or "hybrid",
-            "domainStrategy": routing.get("domainStrategy") or "AsIs",
-            "rules": rules,
-        }
-    return None
-
-
 def build_bypass_auto_select_config(
     profiles: list[dict],
     uris: list[str],
@@ -483,103 +417,29 @@ def build_bypass_auto_select_config(
     remarks: str = BYPASS_AUTO_REMARK,
 ) -> dict | None:
     """
-    Автовыбор обхода: observatory + leastLoad по всем узлам «Мобильный Интернет».
-    Сохраняет whitelist-маршрутизацию (x5/yandex direct) как в исходных профилях.
+    Автовыбор обхода: все узлы «Мобильный Интернет» + полный туннель (без whitelist-only).
+    Whitelist-маршрутизация из исходных профилей ломала автовыбор: пинг шёл, а трафик — в direct.
     """
-    node_prefix = "bypass-auto-"
-    proxy_outbounds = _collect_bypass_auto_outbounds(profiles, uris, node_prefix=node_prefix)
-    if not proxy_outbounds:
-        ranked = rank_configs_for_speed(
-            [u for u in uris if not is_placeholder_config(u)]
+    auto_pool = _rank_auto_pool(
+        collect_bypass_auto_uris(
+            uris,
+            profile_groups=[profiles] if profiles else None,
         )
-        for uri in ranked:
-            outbound = uri_to_outbound(uri, f"{node_prefix}{len(proxy_outbounds)}")
-            if outbound:
-                proxy_outbounds.append(outbound)
-    if not proxy_outbounds:
+    )
+    if not auto_pool:
         return None
 
     probe = (config.LTE_PROBE_URL or BYPASS_AUTO_PROBE).strip() or BYPASS_AUTO_PROBE
-    probe_sec = max(5, int(config.LTE_PROBE_INTERVAL_SEC or 8))
-    max_rtt = max(400, int(config.LTE_MAX_RTT_MS or 900))
-    balancer_tag = "bal-bypass-auto"
-    first_node = proxy_outbounds[0]["tag"]
-
-    outbounds = proxy_outbounds + [
-        {"tag": "direct", "protocol": "freedom", "settings": {}},
-        {"tag": "block", "protocol": "blackhole", "settings": {}},
-    ]
-
-    whitelist_routing = _whitelist_routing_from_profiles(profiles, balancer_tag)
-    if whitelist_routing:
-        routing = whitelist_routing
-        routing["balancers"] = [
-            {
-                "tag": balancer_tag,
-                "selector": [node_prefix],
-                "fallbackTag": first_node,
-                "strategy": {
-                    "type": "leastLoad",
-                    "settings": {
-                        "maxRTT": f"{max_rtt}ms",
-                        "expected": 1,
-                        "tolerance": 0.15,
-                    },
-                },
-            }
-        ]
-    else:
-        routing = {
-            "domainStrategy": "IPIfNonMatch",
-            "balancers": [
-                {
-                    "tag": balancer_tag,
-                    "selector": [node_prefix],
-                    "fallbackTag": first_node,
-                    "strategy": {
-                        "type": "leastLoad",
-                        "settings": {
-                            "maxRTT": f"{max_rtt}ms",
-                            "expected": 1,
-                            "tolerance": 0.15,
-                        },
-                    },
-                }
-            ],
-            "rules": _lte_routing_rules(balancer_tag),
-        }
-
-    node_count = len(proxy_outbounds)
-    description = f"обход · leastLoad≤{max_rtt}ms · {node_count} узлов"
-
-    profile: dict = {
-        "remarks": remarks,
-        "meta": {
-            "serverDescription": base64.b64encode(description.encode()).decode(),
-        },
-        "log": {"loglevel": "warning"},
-        "fakedns": _fakedns_block(),
-        "dns": _dns_block(lte=True),
-        "inbounds": _client_inbounds(),
-        "outbounds": outbounds,
-        "routing": routing,
-        "observatory": {
-            "subjectSelector": [node_prefix],
-            "probeUrl": probe,
-            "probeInterval": f"{probe_sec}s",
-            "enableConcurrency": True,
-        },
-        "burstObservatory": {
-            "subjectSelector": [node_prefix],
-            "pingConfig": {
-                "destination": probe,
-                "interval": f"{probe_sec}s",
-                "sampling": 3,
-                "timeout": "4s",
-            },
-        },
-    }
-    return profile
+    return build_auto_select_config(
+        auto_pool,
+        remarks=remarks,
+        node_prefix="bypass-auto-",
+        description="обход · лучший узел",
+        probe_url=probe,
+        probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
+        max_rtt_ms=config.LTE_MAX_RTT_MS,
+        lte_dns=True,
+    )
 
 
 def build_lte_simple_config(uri: str, remarks: str) -> dict | None:

@@ -7,7 +7,6 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from bot_notify import notify_payment_success
-from bot_profile import update_bot_user_count
 from broadcast import (
     cancel_draft,
     has_draft,
@@ -126,15 +125,13 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
 
 @router.message(Command("start"))
 async def start_cmd(message: Message, bot: Bot) -> None:
-    is_new = not await get_user(message.from_user.id)
-    if is_new:
+    if not await get_user(message.from_user.id):
         await create_user(
             telegram_id=message.from_user.id,
             full_name=message.from_user.full_name or "User",
             username=message.from_user.username,
             is_admin=message.from_user.id in config.ADMINS,
         )
-        asyncio.create_task(update_bot_user_count(bot))
     await show_menu(bot, message.from_user.id)
 
 
