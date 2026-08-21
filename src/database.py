@@ -196,6 +196,24 @@ async def get_all_users() -> list[User]:
     return await _run(_all)
 
 
+async def get_all_user_ids() -> list[int]:
+    """ID всех пользователей — один запрос к Redis (для рассылки)."""
+
+    def _ids():
+        redis = _get_redis()
+        result: list[int] = []
+        for tid_raw in redis.smembers(USERS_SET):
+            if isinstance(tid_raw, bytes):
+                tid_raw = tid_raw.decode()
+            try:
+                result.append(int(tid_raw))
+            except (TypeError, ValueError):
+                continue
+        return result
+
+    return await _run(_ids)
+
+
 async def get_user_count() -> int:
     def _count():
         return int(_get_redis().scard(USERS_SET) or 0)

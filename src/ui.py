@@ -374,10 +374,21 @@ def screen_admin_broadcast_confirm(*, users: int) -> str:
     )
 
 
-def screen_admin_broadcast_progress(*, sent: int, total: int) -> str:
+def screen_admin_broadcast_progress(
+    *,
+    sent: int,
+    blocked: int,
+    failed: int,
+    total: int,
+) -> str:
+    done = sent + blocked + failed
+    pct = int(done * 100 / total) if total else 0
     return (
         "<b>Рассылка…</b>\n\n"
-        f"Отправлено: <b>{sent}</b> / {total}"
+        f"прогресс · <b>{done}</b> / {total} ({pct}%)\n"
+        f"доставлено · {sent}\n"
+        f"заблокировали · {blocked}\n"
+        f"ошибки · {failed}"
     )
 
 

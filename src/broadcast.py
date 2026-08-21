@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 
-from database import get_all_users
+from database import get_all_user_ids
 
 logger = logging.getLogger(__name__)
 
-SEND_DELAY_SEC = 0.05
+SEND_DELAY_SEC = 0.035
+PROGRESS_EVERY = 25
 
 
 @dataclass(frozen=True)
@@ -28,7 +30,10 @@ class BroadcastResult:
     sent: int
     blocked: int
     failed: int
+    skipped: int = 0
 
+
+ProgressCallback = Callable[[int, int, int, int], Awaitable[None]]
 
 _waiting: set[int] = set()
 _drafts: dict[int, BroadcastDraft] = {}
@@ -66,39 +71,73 @@ def is_running(admin_id: int) -> bool:
     return admin_id in _running
 
 
-async def run_broadcast(bot: Bot, admin_id: int, draft: BroadcastDraft) -> BroadcastResult:
+async def run_broadcast(
+    bot: Bot,
+    admin_id: int,
+    draft: BroadcastDraft,
+    *,
+    on_progress: ProgressCallback | None = None,
+) -> BroadcastResult:
     _running.add(admin_id)
-    sent = blocked = failed = 0
-    users = await get_all_users()
-    total = len(users)
+    sent = blocked = failed = skipped = 0
+    total = 0
 
     try:
-        for user in users:
-            if user.telegram_id == admin_id:
-                continue
+        user_ids = await get_all_user_ids()
+        recipients = [uid for uid in user_ids if uid != admin_id]
+        total = len(recipients)
+        logger.info("Broadcast started by %s: %s recipients", admin_id, total)
+
+        if on_progress:
+            await on_progress(sent, blocked, failed, total)
+
+        for idx, chat_id in enumerate(recipients, start=1):
             while True:
                 try:
                     await bot.copy_message(
-                        chat_id=user.telegram_id,
+                        chat_id=chat_id,
                         from_chat_id=draft.chat_id,
                         message_id=draft.message_id,
                     )
                     sent += 1
                     break
                 except TelegramRetryAfter as exc:
-                    await asyncio.sleep(float(exc.retry_after) + 0.5)
+                    wait = float(exc.retry_after) + 0.5
+                    logger.info("Broadcast rate limit, sleep %.1fs", wait)
+                    await asyncio.sleep(wait)
                 except TelegramForbiddenError:
                     blocked += 1
                     break
-                except TelegramBadRequest:
+                except TelegramBadRequest as exc:
+                    logger.warning("Broadcast bad request to %s: %s", chat_id, exc)
                     failed += 1
                     break
                 except Exception as exc:
-                    logger.warning("Broadcast to %s failed: %s", user.telegram_id, exc)
+                    logger.warning("Broadcast to %s failed: %s", chat_id, exc)
                     failed += 1
                     break
+
+            processed = sent + blocked + failed
+            if on_progress and (processed % PROGRESS_EVERY == 0 or idx == total):
+                await on_progress(sent, blocked, failed, total)
+
             await asyncio.sleep(SEND_DELAY_SEC)
     finally:
         _running.discard(admin_id)
 
-    return BroadcastResult(total=total, sent=sent, blocked=blocked, failed=failed)
+    result = BroadcastResult(
+        total=total,
+        sent=sent,
+        blocked=blocked,
+        failed=failed,
+        skipped=skipped,
+    )
+    logger.info(
+        "Broadcast finished by %s: sent=%s blocked=%s failed=%s total=%s",
+        admin_id,
+        sent,
+        blocked,
+        failed,
+        total,
+    )
+    return result

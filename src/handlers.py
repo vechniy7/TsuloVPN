@@ -451,14 +451,35 @@ async def admin_broadcast_send_callback(callback: CallbackQuery, bot: Bot) -> No
 
     total = await get_user_count()
     await callback.answer("Рассылка запущена")
-    status = await callback.message.answer(
-        ui.screen_admin_broadcast_progress(sent=0, total=total),
+    admin_chat_id = callback.from_user.id
+    status = await bot.send_message(
+        admin_chat_id,
+        ui.screen_admin_broadcast_progress(sent=0, blocked=0, failed=0, total=total),
         parse_mode="HTML",
     )
 
-    async def _job() -> None:
-        result = await run_broadcast(bot, callback.from_user.id, draft)
+    async def _on_progress(sent: int, blocked: int, failed: int, total: int) -> None:
         try:
+            await status.edit_text(
+                ui.screen_admin_broadcast_progress(
+                    sent=sent,
+                    blocked=blocked,
+                    failed=failed,
+                    total=total,
+                ),
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+    async def _job() -> None:
+        try:
+            result = await run_broadcast(
+                bot,
+                callback.from_user.id,
+                draft,
+                on_progress=_on_progress,
+            )
             await status.edit_text(
                 ui.screen_admin_broadcast_done(
                     sent=result.sent,
@@ -470,7 +491,15 @@ async def admin_broadcast_send_callback(callback: CallbackQuery, bot: Bot) -> No
                 parse_mode="HTML",
             )
         except Exception as exc:
-            logger.warning("Broadcast status update failed: %s", exc)
+            logger.exception("Broadcast failed for admin %s", callback.from_user.id)
+            try:
+                await status.edit_text(
+                    f"<b>Ошибка рассылки</b>\n\n<code>{ui._esc(str(exc))}</code>",
+                    reply_markup=ui.kb_admin_back(),
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
 
     asyncio.create_task(_job())
 
