@@ -644,8 +644,14 @@ async def refresh_pool(force: bool = False) -> PoolState:
             extra_bypass2 = dedupe_bypass_uris(extra_bypass2)
             wifi_uris = dedupe_uris(wifi_raw)
 
+            main_bypass_profiles = select_extra_bypass_profiles(main_text or "")
             branded_wifi = brand_main_uris(wifi_uris)
-            branded_main_bypass = brand_bypass_uris(bypass_from_main, start_index=1)
+            branded_main_bypass = (
+                []
+                if main_bypass_profiles
+                else brand_bypass_uris(bypass_from_main, start_index=1)
+            )
+            main_bypass_count = len(main_bypass_profiles) or len(bypass_from_main)
             extra_bypass_count = len(extra_bypass_profiles) or len(extra_bypass)
             extra_bypass2_count = len(extra_bypass2_profiles) or len(extra_bypass2)
             branded_extra_bypass = (
@@ -653,7 +659,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 if extra_bypass_profiles
                 else brand_bypass_uris(
                     extra_bypass,
-                    start_index=len(bypass_from_main) + 1,
+                    start_index=main_bypass_count + 1,
                     marker=EXTRA_BYPASS_FIRE,
                 )
             )
@@ -662,7 +668,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 if extra_bypass2_profiles
                 else brand_bypass_uris(
                     extra_bypass2,
-                    start_index=len(bypass_from_main) + extra_bypass_count + 1,
+                    start_index=main_bypass_count + extra_bypass_count + 1,
                     marker=EXTRA_BYPASS_BOLT,
                 )
             )
@@ -672,7 +678,11 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 bypass_from_main,
                 extra_bypass,
                 extra_bypass2,
-                profile_groups=[extra_bypass_profiles, extra_bypass2_profiles],
+                profile_groups=[
+                    main_bypass_profiles,
+                    extra_bypass_profiles,
+                    extra_bypass2_profiles,
+                ],
             )
 
             branded = branded_wifi + branded_bypass
@@ -694,7 +704,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
             _pool.source_real_count = (
                 len(wifi_uris)
-                + len(bypass_from_main)
+                + main_bypass_count
                 + extra_bypass_count
                 + extra_bypass2_count
             )
@@ -744,6 +754,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 json_profiles = build_happ_profiles(
                     branded_wifi,
                     bypass_uris=branded_main_bypass,
+                    main_bypass_profiles=main_bypass_profiles,
                     bypass_auto_uris=bypass_auto_uris,
                     extra_bypass_uris=branded_extra_bypass,
                     extra_bypass_profiles=extra_bypass_profiles,
@@ -760,6 +771,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 json_profiles = build_happ_profiles(
                     branded_wifi,
                     bypass_uris=branded_main_bypass,
+                    main_bypass_profiles=main_bypass_profiles,
                     bypass_auto_uris=bypass_auto_uris,
                     extra_bypass_uris=branded_extra_bypass,
                     extra_bypass_profiles=extra_bypass_profiles,
@@ -810,7 +822,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.lte_count = len(json_profiles)
             _pool.wifi_source_counts = {config.source_label(): len(wifi_uris)}
             if bypass_label or bypass2_label:
-                _pool.lte_source_counts = {config.source_label(): len(bypass_from_main)}
+                _pool.lte_source_counts = {config.source_label(): main_bypass_count}
                 if bypass_label:
                     _pool.lte_source_counts[bypass_label] = extra_bypass_count
                 if bypass2_label:
@@ -834,7 +846,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 "Pool updated: %s json profiles (wifi=%s bypass=%s extra=%s extra2=%s, limit=%s) from %s raw (%s) in %.1fs",
                 len(json_profiles),
                 len(wifi_uris),
-                len(bypass_from_main),
+                main_bypass_count,
                 extra_bypass_count,
                 extra_bypass2_count,
                 limit,

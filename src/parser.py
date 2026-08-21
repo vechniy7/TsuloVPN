@@ -645,6 +645,42 @@ def profile_to_proxy_uri(profile: dict) -> str | None:
     return _xray_outbound_to_uri(best, remark)
 
 
+def profile_proxy_outbounds(profile: dict) -> list[dict]:
+    """Прокси-outbound профиля: primary, backup, proxy — для автовыбора обхода."""
+    outbounds = profile.get("outbounds") or []
+    if not isinstance(outbounds, list):
+        return []
+    result: list[dict] = []
+    seen: set[str] = set()
+    tag_hints = ("primary", "proxy", "backup")
+
+    def _add(outbound: dict) -> None:
+        key = hashlib.sha256(
+            json.dumps(outbound, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()[:20]
+        if key in seen:
+            return
+        seen.add(key)
+        result.append(copy.deepcopy(outbound))
+
+    for hint in tag_hints:
+        for outbound in outbounds:
+            if not isinstance(outbound, dict):
+                continue
+            proto = str(outbound.get("protocol") or "").lower()
+            if proto in _NON_PROXY_PROTOCOLS:
+                continue
+            tag = str(outbound.get("tag") or "").lower()
+            if tag == hint or hint in tag:
+                _add(outbound)
+
+    if not result:
+        best = _best_outbound(outbounds)
+        if best:
+            _add(best)
+    return result
+
+
 def collect_bypass_auto_uris(
     *uri_groups: list[str],
     profile_groups: list[list[dict]] | None = None,
@@ -655,6 +691,11 @@ def collect_bypass_auto_uris(
         pool.extend(group or [])
     for profiles in profile_groups or []:
         for profile in profiles:
+            for outbound in profile_proxy_outbounds(profile):
+                remark = str(profile.get("remarks") or profile.get("remark") or "")
+                uri = _xray_outbound_to_uri(outbound, remark)
+                if uri and not is_placeholder_config(uri):
+                    pool.append(uri)
             uri = profile_to_proxy_uri(profile)
             if uri and not is_placeholder_config(uri):
                 pool.append(uri)
@@ -746,10 +787,12 @@ def should_skip_profile(name: str) -> bool:
 
 
 def restyle_server_name(name: str) -> str | None:
-    """Только флаг + название страны (без лишнего текста из источника)."""
+    """Только флаг + название страны; обходные имена (#00, #1…) сохраняем как есть."""
     raw = " ".join((name or "").split()).strip()
     if not raw or should_skip_profile(raw):
         return None
+    if is_bypass_profile_name(raw):
+        return raw
 
     compact = raw.lower()
     noflag = _FLAG_RE.sub(" ", compact)
@@ -867,11 +910,19 @@ def extract_uris_from_xray_json(data: str) -> list[str]:
         return []
 
     uris: list[str] = []
-    seen_names: set[str] = set()
+    seen_keys: set[str] = set()
     for profile in profiles:
         remark = str(profile.get("remarks") or profile.get("remark") or "")
-        styled = restyle_server_name(remark)
-        if not styled or styled.lower() in seen_names:
+        bypass = is_bypass_profile_name(remark) or profile_is_bypass(profile)
+        if bypass:
+            label = remark.strip() or "bypass"
+            dedupe_key = profile_content_key(profile)
+        else:
+            label = restyle_server_name(remark)
+            if not label:
+                continue
+            dedupe_key = label.lower()
+        if dedupe_key in seen_keys:
             continue
         outbounds = profile.get("outbounds") or []
         if not isinstance(outbounds, list):
@@ -879,10 +930,10 @@ def extract_uris_from_xray_json(data: str) -> list[str]:
         best = _best_outbound(outbounds)
         if not best:
             continue
-        uri = _xray_outbound_to_uri(best, styled)
+        uri = _xray_outbound_to_uri(best, label)
         if not uri:
             continue
-        seen_names.add(styled.lower())
+        seen_keys.add(dedupe_key)
         uris.append(uri)
     return uris
 
@@ -1664,9 +1715,9 @@ def unique_source_labels(uris: list[str]) -> list[str]:
             mobile_idx += 1
             label = mobile_internet_label(mobile_idx)
         else:
-            label = restyle_server_name(original) if original else None
-            if not label:
-                label = build_server_label("vpn", uri, idx)
+        label = restyle_server_name(original) if original else None
+        if not label:
+            label = build_server_label("vpn", uri, idx)
         key = label.lower()
         if key in seen:
             continue

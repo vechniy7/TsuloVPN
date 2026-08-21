@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import json
 import logging
 import urllib.parse
@@ -21,6 +22,8 @@ from parser import (
     is_placeholder_config,
     mobile_internet_label,
     profile_content_key,
+    profile_has_whitelist_routing,
+    profile_proxy_outbounds,
     rank_configs_for_speed,
     renumber_mobile_profiles,
     uri_profile_name,
@@ -31,6 +34,8 @@ from parser import (
 logger = logging.getLogger(__name__)
 
 PROBE_URL = "https://www.gstatic.com/generate_204"
+BYPASS_AUTO_REMARK = "🇪🇺 Автовыбор Обход"
+BYPASS_AUTO_PROBE = "http://connectivity-check.ubuntu.com/"
 
 
 def _q(uri: str) -> dict[str, str]:
@@ -407,6 +412,176 @@ def build_auto_select_config(
     return profile
 
 
+def _outbound_fingerprint(outbound: dict) -> str:
+    payload = json.dumps(outbound, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()[:20]
+
+
+def _collect_bypass_auto_outbounds(
+    profiles: list[dict],
+    uris: list[str],
+    *,
+    node_prefix: str = "bypass-auto-",
+) -> list[dict]:
+    """Все прокси-узлы обхода (primary+backup) для балансировщика."""
+    outbounds: list[dict] = []
+    seen: set[str] = set()
+
+    def _append(outbound: dict) -> None:
+        fp = _outbound_fingerprint(outbound)
+        if fp in seen:
+            return
+        seen.add(fp)
+        cloned = copy.deepcopy(outbound)
+        cloned["tag"] = f"{node_prefix}{len(outbounds)}"
+        outbounds.append(cloned)
+
+    for profile in profiles:
+        for outbound in profile_proxy_outbounds(profile):
+            _append(outbound)
+
+    for uri in uris:
+        if is_placeholder_config(uri):
+            continue
+        outbound = uri_to_outbound(uri, f"{node_prefix}{len(outbounds)}")
+        if outbound:
+            _append(outbound)
+
+    return outbounds
+
+
+def _whitelist_routing_from_profiles(profiles: list[dict], balancer_tag: str) -> dict | None:
+    """Скопировать правила белых списков из исходного Happ-профиля."""
+    for profile in profiles:
+        if not profile_has_whitelist_routing(profile):
+            continue
+        routing = profile.get("routing") or {}
+        if not isinstance(routing, dict):
+            continue
+        rules: list[dict] = []
+        for rule in routing.get("rules") or []:
+            if not isinstance(rule, dict):
+                continue
+            cloned = copy.deepcopy(rule)
+            if cloned.get("balancerTag"):
+                cloned["balancerTag"] = balancer_tag
+            rules.append(cloned)
+        if not rules:
+            continue
+        return {
+            "domainMatcher": routing.get("domainMatcher") or "hybrid",
+            "domainStrategy": routing.get("domainStrategy") or "AsIs",
+            "rules": rules,
+        }
+    return None
+
+
+def build_bypass_auto_select_config(
+    profiles: list[dict],
+    uris: list[str],
+    *,
+    remarks: str = BYPASS_AUTO_REMARK,
+) -> dict | None:
+    """
+    Автовыбор обхода: observatory + leastLoad по всем узлам «Мобильный Интернет».
+    Сохраняет whitelist-маршрутизацию (x5/yandex direct) как в исходных профилях.
+    """
+    node_prefix = "bypass-auto-"
+    proxy_outbounds = _collect_bypass_auto_outbounds(profiles, uris, node_prefix=node_prefix)
+    if not proxy_outbounds:
+        ranked = rank_configs_for_speed(
+            [u for u in uris if not is_placeholder_config(u)]
+        )
+        for uri in ranked:
+            outbound = uri_to_outbound(uri, f"{node_prefix}{len(proxy_outbounds)}")
+            if outbound:
+                proxy_outbounds.append(outbound)
+    if not proxy_outbounds:
+        return None
+
+    probe = (config.LTE_PROBE_URL or BYPASS_AUTO_PROBE).strip() or BYPASS_AUTO_PROBE
+    probe_sec = max(5, int(config.LTE_PROBE_INTERVAL_SEC or 8))
+    max_rtt = max(400, int(config.LTE_MAX_RTT_MS or 900))
+    balancer_tag = "bal-bypass-auto"
+    first_node = proxy_outbounds[0]["tag"]
+
+    outbounds = proxy_outbounds + [
+        {"tag": "direct", "protocol": "freedom", "settings": {}},
+        {"tag": "block", "protocol": "blackhole", "settings": {}},
+    ]
+
+    whitelist_routing = _whitelist_routing_from_profiles(profiles, balancer_tag)
+    if whitelist_routing:
+        routing = whitelist_routing
+        routing["balancers"] = [
+            {
+                "tag": balancer_tag,
+                "selector": [node_prefix],
+                "fallbackTag": first_node,
+                "strategy": {
+                    "type": "leastLoad",
+                    "settings": {
+                        "maxRTT": f"{max_rtt}ms",
+                        "expected": 1,
+                        "tolerance": 0.15,
+                    },
+                },
+            }
+        ]
+    else:
+        routing = {
+            "domainStrategy": "IPIfNonMatch",
+            "balancers": [
+                {
+                    "tag": balancer_tag,
+                    "selector": [node_prefix],
+                    "fallbackTag": first_node,
+                    "strategy": {
+                        "type": "leastLoad",
+                        "settings": {
+                            "maxRTT": f"{max_rtt}ms",
+                            "expected": 1,
+                            "tolerance": 0.15,
+                        },
+                    },
+                }
+            ],
+            "rules": _lte_routing_rules(balancer_tag),
+        }
+
+    node_count = len(proxy_outbounds)
+    description = f"обход · leastLoad≤{max_rtt}ms · {node_count} узлов"
+
+    profile: dict = {
+        "remarks": remarks,
+        "meta": {
+            "serverDescription": base64.b64encode(description.encode()).decode(),
+        },
+        "log": {"loglevel": "warning"},
+        "fakedns": _fakedns_block(),
+        "dns": _dns_block(lte=True),
+        "inbounds": _client_inbounds(),
+        "outbounds": outbounds,
+        "routing": routing,
+        "observatory": {
+            "subjectSelector": [node_prefix],
+            "probeUrl": probe,
+            "probeInterval": f"{probe_sec}s",
+            "enableConcurrency": True,
+        },
+        "burstObservatory": {
+            "subjectSelector": [node_prefix],
+            "pingConfig": {
+                "destination": probe,
+                "interval": f"{probe_sec}s",
+                "sampling": 3,
+                "timeout": "4s",
+            },
+        },
+    }
+    return profile
+
+
 def build_lte_simple_config(uri: str, remarks: str) -> dict | None:
     """
     Минимальный LTE-профиль как при ручном импорте vless:// в Happ.
@@ -558,8 +733,6 @@ _AUTO_NAME_MARKERS = (
     "автовыбор обход",
 )
 
-BYPASS_AUTO_REMARK = "🇪🇺 Автовыбор Обход"
-
 
 def _is_auto_profile_name(name: str) -> bool:
     compact = " ".join((name or "").lower().split())
@@ -577,6 +750,7 @@ def build_happ_profiles(
     uris: list[str],
     *,
     bypass_uris: list[str] | None = None,
+    main_bypass_profiles: list[dict] | None = None,
     bypass_auto_uris: list[str] | None = None,
     extra_bypass_uris: list[str] | None = None,
     extra_bypass_profiles: list[dict] | None = None,
@@ -595,7 +769,11 @@ def build_happ_profiles(
     6) 🇪🇺 Мобильный Интернет #N ⚡ — VPN_BYPASS_SOURCE_URL_2
     """
     cap = max(1, int(limit or config.SUBSCRIPTION_CONFIG_LIMIT))
+    wifi_cap = config.subscription_wifi_limit()
+    bypass_cap = max(1, int(config.BYPASS_CONFIG_LIMIT))
+    max_total = cap + bypass_cap
     bypass_uris = bypass_uris or []
+    main_bypass_profiles = main_bypass_profiles or []
     bypass_auto_uris = bypass_auto_uris or []
     extra_bypass_uris = extra_bypass_uris or []
     extra_bypass_profiles = extra_bypass_profiles or []
@@ -603,6 +781,7 @@ def build_happ_profiles(
     extra_bypass2_profiles = extra_bypass2_profiles or []
     has_bypass_pool = bool(
         bypass_uris
+        or main_bypass_profiles
         or bypass_auto_uris
         or extra_bypass_uris
         or extra_bypass_profiles
@@ -610,7 +789,7 @@ def build_happ_profiles(
         or extra_bypass2_profiles
     )
     pool = [uri for uri in uris if uri_to_outbound(uri, "probe") and not is_placeholder_config(uri)]
-    auto_pool = _rank_auto_pool(pool[:cap])
+    auto_pool = _rank_auto_pool(pool[:wifi_cap])
     if not auto_pool and not has_bypass_pool and existing:
         cleaned = [
             p
@@ -647,12 +826,12 @@ def build_happ_profiles(
                 continue
             seen.add(key)
             entries.append(profile)
-            if len(entries) >= cap:
+            if len(entries) >= wifi_cap + 1:
                 break
 
     if not existing:
         for idx, uri in enumerate(pool, start=1):
-            if len(entries) >= cap:
+            if len(entries) >= wifi_cap + 1:
                 break
             cfg = build_single_server_config(uri, idx)
             if not cfg:
@@ -666,6 +845,11 @@ def build_happ_profiles(
             seen.add(key)
             entries.append(cfg)
 
+    all_bypass_profiles = (
+        list(main_bypass_profiles)
+        + list(extra_bypass_profiles)
+        + list(extra_bypass2_profiles)
+    )
     auto_bypass_pool = bypass_auto_uris or collect_bypass_auto_uris(
         bypass_uris,
         extra_bypass_uris,
@@ -675,16 +859,22 @@ def build_happ_profiles(
             extra_bypass2_profiles,
         ],
     )
-    if auto_bypass_pool and len(entries) < cap:
-        bypass_auto = build_auto_select_config(
-            _rank_auto_pool(auto_bypass_pool),
-            remarks=BYPASS_AUTO_REMARK,
-            node_prefix="bypass-auto-",
-            description="обход · лучший узел",
-            probe_url=config.LTE_PROBE_URL,
-            probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
-            lte_dns=True,
+    if (auto_bypass_pool or all_bypass_profiles) and len(entries) < max_total:
+        bypass_auto = build_bypass_auto_select_config(
+            all_bypass_profiles,
+            auto_bypass_pool,
         )
+        if not bypass_auto and auto_bypass_pool:
+            bypass_auto = build_auto_select_config(
+                _rank_auto_pool(auto_bypass_pool),
+                remarks=BYPASS_AUTO_REMARK,
+                node_prefix="bypass-auto-",
+                description="обход · лучший узел",
+                probe_url=BYPASS_AUTO_PROBE,
+                probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
+                max_rtt_ms=config.LTE_MAX_RTT_MS,
+                lte_dns=True,
+            )
         if bypass_auto:
             entries.append(bypass_auto)
             seen.add(BYPASS_AUTO_REMARK.lower())
@@ -692,9 +882,11 @@ def build_happ_profiles(
     bypass_idents: set[str] = set()
     extra_idents: set[str] = set()
     extra2_idents: set[str] = set()
+    bypass_added = 0
 
     def _append_bypass_uri(uri: str, *, marker: str = "") -> None:
-        if len(entries) >= cap:
+        nonlocal bypass_added
+        if bypass_added >= bypass_cap:
             return
         if not uri_to_outbound(uri, "probe") or is_placeholder_config(uri):
             return
@@ -718,9 +910,11 @@ def build_happ_profiles(
         cfg["remarks"] = rem
         seen.add(rem.lower())
         entries.append(cfg)
+        bypass_added += 1
 
     def _append_bypass_profile(profile: dict, *, marker: str) -> None:
-        if len(entries) >= cap:
+        nonlocal bypass_added
+        if bypass_added >= bypass_cap:
             return
         if not isinstance(profile, dict):
             return
@@ -733,14 +927,22 @@ def build_happ_profiles(
             if key in extra_idents:
                 return
             extra_idents.add(key)
+        elif key in bypass_idents:
+            return
+        else:
+            bypass_idents.add(key)
         cloned = copy.deepcopy(profile)
         rem = str(cloned.get("remarks") or cloned.get("remark") or "").strip()
         if rem:
             seen.add(rem.lower())
         entries.append(cloned)
+        bypass_added += 1
 
     for uri in bypass_uris:
         _append_bypass_uri(uri, marker="")
+
+    for profile in main_bypass_profiles:
+        _append_bypass_profile(profile, marker="")
 
     for profile in extra_bypass_profiles:
         _append_bypass_profile(profile, marker=EXTRA_BYPASS_FIRE)
@@ -754,7 +956,7 @@ def build_happ_profiles(
     for uri in extra_bypass2_uris:
         _append_bypass_uri(uri, marker=EXTRA_BYPASS_BOLT)
 
-    return renumber_mobile_profiles(entries[:cap])
+    return renumber_mobile_profiles(entries[:max_total])
 
 
 def subscription_json_bytes(

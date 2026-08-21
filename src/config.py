@@ -135,6 +135,10 @@ class Config(BaseModel):
     )
 
     SUBSCRIPTION_CONFIG_LIMIT: int = int(os.getenv("SUBSCRIPTION_CONFIG_LIMIT", "50"))
+    # Макс. «Мобильный Интернет» — не срезаются ради Wi‑Fi серверов
+    BYPASS_CONFIG_LIMIT: int = int(os.getenv("BYPASS_CONFIG_LIMIT", "25"))
+    # Лимит Wi‑Fi/стран в профиле (0 = авто: общий лимит минус обход)
+    SUBSCRIPTION_WIFI_LIMIT: int = int(os.getenv("SUBSCRIPTION_WIFI_LIMIT", "0"))
     LTE_CONFIG_LIMIT: int = int(os.getenv("LTE_CONFIG_LIMIT", "50"))
     LTE_BALANCER_NODES: int = int(os.getenv("LTE_BALANCER_NODES", "10"))
     LTE_DELIVERY: str = os.getenv("LTE_DELIVERY", "happ_ping").strip().lower()
@@ -142,7 +146,7 @@ class Config(BaseModel):
         "LTE_REQUIRE_WHITELIST_IP", "true"
     ).lower() in ("1", "true", "yes")
     LTE_MIN_BYPASS_SCORE: int = int(os.getenv("LTE_MIN_BYPASS_SCORE", "55"))
-    LTE_MAX_RTT_MS: int = int(os.getenv("LTE_MAX_RTT_MS", "0"))
+    LTE_MAX_RTT_MS: int = int(os.getenv("LTE_MAX_RTT_MS", "900"))
     LTE_TCP_CHECK: bool = os.getenv("LTE_TCP_CHECK", "false").lower() in ("1", "true", "yes")
     WHITELIST_CIDR_URL: str = os.getenv(
         "WHITELIST_CIDR_URL",
@@ -324,6 +328,13 @@ class Config(BaseModel):
         port = parsed.port
         scheme = parsed.scheme or "http"
         return f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
+
+    def subscription_wifi_limit(self) -> int:
+        """Слоты под страны/Wi‑Fi; обходные конфиги не вытесняют «Мобильный Интернет»."""
+        if self.SUBSCRIPTION_WIFI_LIMIT > 0:
+            return self.SUBSCRIPTION_WIFI_LIMIT
+        reserved = self.BYPASS_CONFIG_LIMIT + 2
+        return max(8, self.SUBSCRIPTION_CONFIG_LIMIT - reserved)
 
     def fetch_hwid_headers(self) -> dict[str, str]:
         """Заголовки как у Happ на Android — один стабильный «телефон» для панели."""
