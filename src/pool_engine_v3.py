@@ -184,10 +184,10 @@ async def _get_upstream_session() -> aiohttp.ClientSession:
     return _upstream_session
 
 
-def _fetch_headers_for_url(url: str) -> dict[str, str]:
-    """Заголовки под тип панели. HWID-панели — только Happ/Android, без Chrome UA."""
+def _fetch_headers_for_url(url: str, *, role: str = "") -> dict[str, str]:
+    """Заголовки под тип панели. HWID-панели — Happ + HWID (bypass2 — свой профиль)."""
     if _is_happ_hwid_url(url) or _is_private_source_url(url):
-        headers = dict(config.fetch_hwid_headers())
+        headers = dict(config.fetch_hwid_headers(role=role))
         if _is_classic_sub_url(url):
             # ecobuy/shuka ломаются на Happ UA
             headers["User-Agent"] = "v2rayN/6.45"
@@ -369,7 +369,7 @@ async def _fetch_url(
     # ecobuy/shuka — без прокси (часто блокируется или ломается через DC-proxy)
     use_direct = role in ("bypass", "bypass2") and _is_classic_sub_url(url)
     session = await _get_session() if use_direct else await _get_upstream_session()
-    headers = _fetch_headers_for_url(url)
+    headers = _fetch_headers_for_url(url, role=role)
     status: int | None = None
     try:
         async with session.get(url, ssl=False, headers=headers) as resp:

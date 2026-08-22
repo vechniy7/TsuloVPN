@@ -18,6 +18,7 @@ HAPP_HWID_HOST_MARKERS = (
     "remna.st",
     "pnl.",
     "accessboy.com",
+    "projectcube.tech",
 )
 
 PRIVATE_SOURCE_HOST_MARKERS = HAPP_HWID_HOST_MARKERS + (
@@ -51,6 +52,13 @@ def normalize_subscription_url(url: str) -> str:
     match = re.search(r"shadow-net\.site/connect[^?]*\?token=([^&\s#]+)", raw, re.I)
     if match:
         return f"https://sub.shadow-net.site/sub/{match.group(1).strip()}"
+    if "projectcube.tech" in lower:
+        parsed = urlparse(raw)
+        path = (parsed.path or "").strip("/")
+        if path and "/" not in path and not any(
+            path.endswith(suffix) for suffix in ("json", "clash", "yaml", "yml")
+        ):
+            return f"{raw.rstrip('/')}/json"
     return raw
 
 
@@ -109,6 +117,16 @@ class Config(BaseModel):
     VPN_BYPASS_SOURCE_URL: str = VPN_BYPASS_SOURCE_URL
     # Второй доп. ключ обхода — конфиги с ⚡ в названии.
     VPN_BYPASS_SOURCE_URL_2: str = VPN_BYPASS_SOURCE_URL_2
+    # Отдельный HWID/профиль для bypass2 (projectcube и др. — свой слот на ключе)
+    VPN_BYPASS_SOURCE_URL_2_HWID: str = os.getenv("VPN_BYPASS_SOURCE_URL_2_HWID", "").strip()
+    VPN_BYPASS_SOURCE_URL_2_FETCH_UA: str = os.getenv("VPN_BYPASS_SOURCE_URL_2_FETCH_UA", "").strip()
+    VPN_BYPASS_SOURCE_URL_2_DEVICE_OS: str = os.getenv("VPN_BYPASS_SOURCE_URL_2_DEVICE_OS", "").strip()
+    VPN_BYPASS_SOURCE_URL_2_DEVICE_OS_VER: str = os.getenv(
+        "VPN_BYPASS_SOURCE_URL_2_DEVICE_OS_VER", ""
+    ).strip()
+    VPN_BYPASS_SOURCE_URL_2_DEVICE_MODEL: str = os.getenv(
+        "VPN_BYPASS_SOURCE_URL_2_DEVICE_MODEL", ""
+    ).strip()
     # legacy aliases (читаются, но не нужны в env)
     PRIMARY_SUB_URL: str = VPN_SOURCE_URL
     LIDERVPN_SUB_URL: str = normalize_subscription_url(os.getenv("LIDERVPN_SUB_URL", "")) or VPN_SOURCE_URL
@@ -361,8 +379,27 @@ class Config(BaseModel):
         reserved = self.BYPASS_CONFIG_LIMIT + 2
         return max(8, self.SUBSCRIPTION_CONFIG_LIMIT - reserved)
 
-    def fetch_hwid_headers(self) -> dict[str, str]:
-        """Заголовки как у Happ на Android — один стабильный «телефон» для панели."""
+    def fetch_hwid_headers(self, *, role: str = "") -> dict[str, str]:
+        """Заголовки Happ для панели. role=bypass2 — отдельный HWID/устройство из env."""
+        if role == "bypass2" and (self.VPN_BYPASS_SOURCE_URL_2_HWID or "").strip():
+            return {
+                "User-Agent": (
+                    self.VPN_BYPASS_SOURCE_URL_2_FETCH_UA or self.SUB_FETCH_UA or DEFAULT_FETCH_UA
+                ).strip(),
+                "Accept": "*/*",
+                "Accept-Encoding": "gzip",
+                "x-hwid": self.VPN_BYPASS_SOURCE_URL_2_HWID.strip(),
+                "x-device-os": self.VPN_BYPASS_SOURCE_URL_2_DEVICE_OS
+                or self.SUB_DEVICE_OS
+                or DEFAULT_DEVICE_OS,
+                "x-ver-os": self.VPN_BYPASS_SOURCE_URL_2_DEVICE_OS_VER
+                or self.SUB_DEVICE_OS_VER
+                or DEFAULT_DEVICE_OS_VER,
+                "x-device-model": self.VPN_BYPASS_SOURCE_URL_2_DEVICE_MODEL
+                or self.SUB_DEVICE_MODEL
+                or DEFAULT_DEVICE_MODEL,
+                "x-device-locale": (self.SUB_DEVICE_LOCALE or "ru").strip() or "ru",
+            }
         return {
             "User-Agent": (self.SUB_FETCH_UA or DEFAULT_FETCH_UA).strip(),
             "Accept": "*/*",
