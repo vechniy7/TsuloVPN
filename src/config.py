@@ -423,6 +423,80 @@ class Config(BaseModel):
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
         return f"{base}/sub/{token}/lte"
 
+    # --- IKEv2 Personal VPN catalog (iOS Tsulo app; Amvera serves JSON only) ---
+    IKEV2_APP_TOKEN: str = os.getenv(
+        "IKEV2_APP_TOKEN", "b97c0f5dad444522a17a4240f33d3e3d"
+    ).strip()
+    IKEV2_GATEWAYS_JSON: str = os.getenv("IKEV2_GATEWAYS_JSON", "").strip()
+    IKEV2_SERVER: str = os.getenv("IKEV2_SERVER", "").strip()
+    IKEV2_USERNAME: str = os.getenv("IKEV2_USERNAME", "tsulo").strip()
+    IKEV2_PASSWORD: str = os.getenv("IKEV2_PASSWORD", "").strip()
+    IKEV2_REMOTE_ID: str = os.getenv("IKEV2_REMOTE_ID", "").strip()
+    IKEV2_LOCAL_ID: str = os.getenv("IKEV2_LOCAL_ID", "").strip()
+    IKEV2_PSK: str = os.getenv("IKEV2_PSK", "").strip()
+    IKEV2_LTE_SERVER: str = os.getenv("IKEV2_LTE_SERVER", "").strip()
+    IKEV2_LTE_USERNAME: str = os.getenv("IKEV2_LTE_USERNAME", "").strip()
+    IKEV2_LTE_PASSWORD: str = os.getenv("IKEV2_LTE_PASSWORD", "").strip()
+    IKEV2_LTE_REMOTE_ID: str = os.getenv("IKEV2_LTE_REMOTE_ID", "").strip()
+    IKEV2_LTE_LOCAL_ID: str = os.getenv("IKEV2_LTE_LOCAL_ID", "").strip()
+
+    def ikev2_catalog_url(self) -> str:
+        base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
+        token = self.IKEV2_APP_TOKEN or "app"
+        return f"{base}/ikev2/{token}"
+
+    def ikev2_gateways(self) -> list[dict]:
+        """Catalog for iOS Personal VPN. Not Xray — points at your IKEv2 VPS."""
+        if self.IKEV2_GATEWAYS_JSON:
+            try:
+                import json
+
+                raw = json.loads(self.IKEV2_GATEWAYS_JSON)
+                if isinstance(raw, dict) and isinstance(raw.get("gateways"), list):
+                    return [g for g in raw["gateways"] if isinstance(g, dict)]
+                if isinstance(raw, list):
+                    return [g for g in raw if isinstance(g, dict)]
+            except Exception:
+                pass
+
+        gateways: list[dict] = []
+        if self.IKEV2_SERVER and (self.IKEV2_PASSWORD or self.IKEV2_PSK):
+            gateways.append(
+                {
+                    "remarks": "Tsulo Wi‑Fi",
+                    "server": self.IKEV2_SERVER,
+                    "remoteId": self.IKEV2_REMOTE_ID or self.IKEV2_SERVER,
+                    "localId": self.IKEV2_LOCAL_ID or self.IKEV2_USERNAME or "tsulo",
+                    "username": self.IKEV2_USERNAME or "tsulo",
+                    "password": self.IKEV2_PASSWORD,
+                    "psk": self.IKEV2_PSK or None,
+                    "isBypass": False,
+                }
+            )
+        lte_server = self.IKEV2_LTE_SERVER or self.IKEV2_SERVER
+        lte_user = self.IKEV2_LTE_USERNAME or self.IKEV2_USERNAME or "tsulo"
+        lte_pass = self.IKEV2_LTE_PASSWORD or self.IKEV2_PASSWORD
+        if lte_server and (lte_pass or self.IKEV2_PSK):
+            gateways.append(
+                {
+                    "remarks": "Tsulo LTE",
+                    "server": lte_server,
+                    "remoteId": self.IKEV2_LTE_REMOTE_ID
+                    or self.IKEV2_REMOTE_ID
+                    or lte_server,
+                    "localId": self.IKEV2_LTE_LOCAL_ID or lte_user,
+                    "username": lte_user,
+                    "password": lte_pass,
+                    "psk": self.IKEV2_PSK or None,
+                    "isBypass": True,
+                }
+            )
+        cleaned: list[dict] = []
+        for g in gateways:
+            item = {k: v for k, v in g.items() if v is not None and v != ""}
+            cleaned.append(item)
+        return cleaned
+
     def wifi_source_urls(self) -> list[str]:
         url = self.resolved_source_url()
         return [url] if url else []

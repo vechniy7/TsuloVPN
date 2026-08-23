@@ -108,3 +108,43 @@ async def subscription(token: str):
         len(profiles),
     )
     return Response(content=body, media_type="application/json; charset=utf-8", headers=headers)
+
+
+def _ikev2_token_allowed(token: str) -> bool:
+    """App catalog token or any valid user subscription token."""
+    app_token = (config.IKEV2_APP_TOKEN or "").strip()
+    if app_token and token.strip() == app_token:
+        return True
+    return False
+
+
+@app.get("/ikev2/{token}")
+async def ikev2_catalog(token: str):
+    """
+    IKEv2 gateway catalog for the Tsulo iOS app (Personal VPN).
+    Amvera only serves this JSON — the actual VPN daemon runs on a separate VPS.
+    """
+    if not _ikev2_token_allowed(token):
+        # Fall back to normal user token check (same as /sub/)
+        await _subscription_user(token)
+
+    gateways = config.ikev2_gateways()
+    if not gateways:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "IKEv2 gateways not configured. "
+                "Set IKEV2_SERVER + IKEV2_PASSWORD (or IKEV2_GATEWAYS_JSON) in Amvera env."
+            ),
+        )
+
+    body = json.dumps(gateways, ensure_ascii=False, separators=(",", ":"))
+    logger.info("IKEv2 catalog token=%s… gateways=%s", token[:8], len(gateways))
+    return Response(
+        content=body,
+        media_type="application/json; charset=utf-8",
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": 'inline; filename="tsulo-ikev2.json"',
+        },
+    )
