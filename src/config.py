@@ -195,7 +195,7 @@ class Config(BaseModel):
     )
     LTE_PROBE_URL: str = os.getenv(
         "LTE_PROBE_URL",
-        "http://connectivity-check.ubuntu.com/",
+        "https://www.gstatic.com/generate_204",
     )
     LTE_PROBE_INTERVAL_SEC: int = int(os.getenv("LTE_PROBE_INTERVAL_SEC", "10"))
 
