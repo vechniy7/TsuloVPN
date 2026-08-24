@@ -284,11 +284,15 @@ def build_auto_select_config(
     probe_interval_sec: int | None = None,
     max_rtt_ms: int | None = None,
     lte_dns: bool = False,
+    lte_routing: bool = False,
 ) -> dict | None:
     """
     One Happ profile: Xray observatory + balancer over all nodes.
     probe_url is fetched BY THE CLIENT through each outbound (real RTT path).
     If max_rtt_ms is set (LTE), use leastLoad+maxRTT to skip dead 1–2.5s nodes.
+
+    lte_routing: send DNS :53 through balancer/proxy (carrier whitelist) without FakeDNS.
+    Happ needs burstObservatory + leastPing (like Wi‑Fi «Автовыбор»); FakeDNS+leastLoad breaks LTE.
     """
     outbounds: list[dict] = []
     for idx, uri in enumerate(uris):
@@ -320,15 +324,32 @@ def build_auto_select_config(
             "inbounds": _client_inbounds(),
             "outbounds": outbounds,
             "routing": {
-                "domainStrategy": "IPIfNonMatch" if lte_dns else "AsIs",
-                "rules": [
-                    _private_direct_rule(),
-                    {
-                        "type": "field",
-                        "network": "tcp,udp",
-                        "outboundTag": "proxy",
-                    },
-                ],
+                "domainStrategy": "IPIfNonMatch" if (lte_dns or lte_routing) else "AsIs",
+                "rules": (
+                    [
+                        _private_direct_rule(),
+                        {
+                            "type": "field",
+                            "network": "udp",
+                            "port": "53",
+                            "outboundTag": "proxy",
+                        },
+                        {
+                            "type": "field",
+                            "network": "tcp,udp",
+                            "outboundTag": "proxy",
+                        },
+                    ]
+                    if lte_routing
+                    else [
+                        _private_direct_rule(),
+                        {
+                            "type": "field",
+                            "network": "tcp,udp",
+                            "outboundTag": "proxy",
+                        },
+                    ]
+                ),
             },
         }
 
@@ -369,7 +390,7 @@ def build_auto_select_config(
         "inbounds": _client_inbounds(),
         "outbounds": outbounds,
         "routing": {
-            "domainStrategy": "IPIfNonMatch" if lte_dns else "AsIs",
+            "domainStrategy": "IPIfNonMatch" if (lte_dns or lte_routing) else "AsIs",
             "balancers": [
                 {
                     "tag": balancer_tag,
@@ -379,7 +400,7 @@ def build_auto_select_config(
                 }
             ],
             "rules": _lte_routing_rules(balancer_tag)
-            if lte_dns
+            if (lte_dns or lte_routing)
             else [
                 _private_direct_rule(),
                 {
@@ -429,6 +450,8 @@ def build_bypass_auto_select_config(
         return None
 
     probe = (config.LTE_PROBE_URL or BYPASS_AUTO_PROBE).strip() or BYPASS_AUTO_PROBE
+    # Match Wi‑Fi «Автовыбор» (burstObservatory + leastPing, no FakeDNS) — Happ-compatible.
+    # lte_routing keeps DNS inside the tunnel on carrier whitelist (see _lte_routing_rules).
     return build_auto_select_config(
         auto_pool,
         remarks=remarks,
@@ -436,8 +459,9 @@ def build_bypass_auto_select_config(
         description="обход · лучший узел",
         probe_url=probe,
         probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
-        max_rtt_ms=config.LTE_MAX_RTT_MS,
-        lte_dns=True,
+        max_rtt_ms=None,
+        lte_dns=False,
+        lte_routing=True,
     )
 
 
@@ -731,8 +755,9 @@ def build_happ_profiles(
                 description="обход · лучший узел",
                 probe_url=BYPASS_AUTO_PROBE,
                 probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
-                max_rtt_ms=config.LTE_MAX_RTT_MS,
-                lte_dns=True,
+                max_rtt_ms=None,
+                lte_dns=False,
+                lte_routing=True,
             )
         if bypass_auto:
             entries.append(bypass_auto)
