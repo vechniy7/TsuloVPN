@@ -87,12 +87,12 @@ def resolve_vpn_source_url() -> str:
 
 
 def resolve_vpn_bypass_source_url() -> str:
-    """Доп. ключ только для конфигов обхода (LTE / белые списки). Может быть пустым."""
+    """Доп. ключ мобильных профилей (LTE). Может быть пустым."""
     return normalize_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL", "").strip())
 
 
 def resolve_vpn_bypass_source_url_2() -> str:
-    """Второй доп. ключ обхода (⚡). Может быть пустым."""
+    """Второй доп. ключ мобильных профилей (⚡). Может быть пустым."""
     return normalize_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL_2", "").strip())
 
 
@@ -113,9 +113,9 @@ class Config(BaseModel):
 
     # Единственное поле для смены источника конфигов
     VPN_SOURCE_URL: str = VPN_SOURCE_URL
-    # Доп. подписка только для обхода глушилок (LTE / белые списки). Пусто = не используется.
+    # Доп. источник мобильных профилей (🔥). Пусто / "-" = не используется.
     VPN_BYPASS_SOURCE_URL: str = VPN_BYPASS_SOURCE_URL
-    # Второй доп. ключ обхода — конфиги с ⚡ в названии.
+    # Второй доп. источник мобильных профилей (⚡).
     VPN_BYPASS_SOURCE_URL_2: str = VPN_BYPASS_SOURCE_URL_2
     # Отдельный HWID/профиль для bypass2 (projectcube и др. — свой слот на ключе)
     VPN_BYPASS_SOURCE_URL_2_HWID: str = os.getenv("VPN_BYPASS_SOURCE_URL_2_HWID", "").strip()
@@ -210,8 +210,6 @@ class Config(BaseModel):
         "yes",
     )
 
-    PAYMENTS_ENFORCE: bool = os.getenv("PAYMENTS_ENFORCE", "false").lower() in ("1", "true", "yes")
-
     REQUIRED_CHANNEL: str = os.getenv("REQUIRED_CHANNEL", "@TsuloVPN").strip()
     REQUIRED_CHANNEL_URL: str = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/TsuloVPN").strip()
     CHANNEL_GATE_ENABLED: bool = os.getenv("CHANNEL_GATE_ENABLED", "true").lower() in (
@@ -221,14 +219,20 @@ class Config(BaseModel):
     )
 
     SUPPORT_URL: str = os.getenv("SUPPORT_URL", "https://t.me/tsuloew")
+    SUPPORT_EMAIL: str = os.getenv("SUPPORT_EMAIL", "").strip()
     INSTAGRAM_URL: str = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/tsulo.it")
     DONATE_CARD: str = os.getenv("DONATE_CARD", "2202209226540747")
-    DONATE_CARD_NAME: str = os.getenv("DONATE_CARD_NAME", "АЛИ Ц")
+    DONATE_CARD_NAME: str = os.getenv("DONATE_CARD_NAME", "")
     DONATE_BANK: str = os.getenv("DONATE_BANK", "Сбербанк")
 
+    # Оплата: по умолчанию выключена — доступ бесплатный для всех.
+    # Cardlink — legacy; Platega подключается после регистрации кассы.
+    PAYMENTS_ENFORCE: bool = os.getenv("PAYMENTS_ENFORCE", "false").lower() in ("1", "true", "yes")
     CARDLINK_API_TOKEN: str = os.getenv("CARDLINK_API_TOKEN", "")
     CARDLINK_SHOP_ID: str = os.getenv("CARDLINK_SHOP_ID", "")
     CARDLINK_PAYMENT_METHOD: str = os.getenv("CARDLINK_PAYMENT_METHOD", "")
+    PLATEGA_MERCHANT_ID: str = os.getenv("PLATEGA_MERCHANT_ID", "")
+    PLATEGA_API_KEY: str = os.getenv("PLATEGA_API_KEY", "")
 
     UPSTASH_REDIS_REST_URL: str = os.getenv("UPSTASH_REDIS_REST_URL", "")
     UPSTASH_REDIS_REST_TOKEN: str = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
@@ -277,7 +281,13 @@ class Config(BaseModel):
 
     @property
     def payments_active(self) -> bool:
-        return self.PAYMENTS_ENFORCE or self.use_cardlink
+        # Не включаем оплату только из-за legacy Cardlink-ключей:
+        # доступ остаётся бесплатным, пока явно не включён PAYMENTS_ENFORCE.
+        return self.PAYMENTS_ENFORCE
+
+    @property
+    def use_platega(self) -> bool:
+        return bool(self.PLATEGA_MERCHANT_ID and self.PLATEGA_API_KEY)
 
     @field_validator("SUB_HWID", mode="before")
     @classmethod
@@ -299,6 +309,18 @@ class Config(BaseModel):
     @property
     def miniapp_url(self) -> str:
         return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/miniapp"
+
+    @property
+    def privacy_page_url(self) -> str:
+        return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/privacy"
+
+    @property
+    def terms_page_url(self) -> str:
+        return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/terms"
+
+    @property
+    def tariffs_page_url(self) -> str:
+        return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/tariffs"
 
     def resolved_source_url(self) -> str:
         for candidate in (

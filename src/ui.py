@@ -62,22 +62,25 @@ def screen_channel_required() -> str:
 def kb_home(*, is_admin: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="✦  Мой доступ", callback_data="get_key")
-    b.button(text="♡  Поддержать", callback_data="donate")
     b.button(text="▸  Подключение", callback_data="help")
+    b.button(text="₽  Тарифы", callback_data="tariffs")
+    b.button(text="♡  Поддержать", callback_data="donate")
     if _webapp_https():
         b.button(text="✧  Кабинет", web_app=WebAppInfo(url=config.miniapp_url))
     b.button(text="✉  Поддержка", url=config.SUPPORT_URL)
+    b.button(text="📄  Документы", callback_data="docs")
     b.button(text="Instagram", url=config.INSTAGRAM_URL)
     if is_admin:
         b.button(text="⚙  Админ", callback_data="admin_menu")
+    # rows: access+help | tariffs+donate | cabinet? | support+docs | ig | admin?
     if _webapp_https() and is_admin:
-        b.adjust(2, 2, 2, 1)
+        b.adjust(2, 2, 1, 2, 1, 1)
     elif _webapp_https():
-        b.adjust(2, 2, 2)
+        b.adjust(2, 2, 1, 2, 1)
     elif is_admin:
-        b.adjust(2, 1, 2, 1)
+        b.adjust(2, 2, 2, 1, 1)
     else:
-        b.adjust(2, 1, 2)
+        b.adjust(2, 2, 2, 1)
     return b.as_markup()
 
 
@@ -112,35 +115,66 @@ def kb_help() -> InlineKeyboardMarkup:
     b.button(text="✦  Мой доступ", callback_data="get_key")
     if _webapp_https():
         b.button(text="✧  Кабинет", web_app=WebAppInfo(url=config.miniapp_url))
+    b.button(text="₽  Тарифы", callback_data="tariffs")
+    b.button(text="📄  Документы", callback_data="docs")
     b.button(text="✉  Поддержка", url=config.SUPPORT_URL)
     b.button(text="◂  На главную", callback_data="back_to_menu")
     if _webapp_https():
-        b.adjust(2, 2)
+        b.adjust(2, 2, 2)
     else:
-        b.adjust(2, 1)
+        b.adjust(1, 2, 2)
     return b.as_markup()
 
 
 def kb_donate() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="✉  Написать автору", url=config.SUPPORT_URL)
+    b.button(text="✉  Написать в поддержку", url=config.SUPPORT_URL)
+    b.button(text="₽  Тарифы", callback_data="tariffs")
     b.button(text="Instagram", url=config.INSTAGRAM_URL)
     b.button(text="✦  Мой доступ", callback_data="get_key")
     b.button(text="◂  На главную", callback_data="back_to_menu")
-    b.adjust(2, 2)
+    b.adjust(1, 2, 2)
+    return b.as_markup()
+
+
+def kb_docs() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="₽  Тарифы", url=config.tariffs_page_url)
+    b.button(text="🔒  Конфиденциальность", url=config.privacy_page_url)
+    b.button(text="📋  Соглашение", url=config.terms_page_url)
+    b.button(text="✉  Поддержка", url=config.SUPPORT_URL)
+    b.button(text="◂  На главную", callback_data="back_to_menu")
+    b.adjust(1)
     return b.as_markup()
 
 
 def kb_tariffs() -> InlineKeyboardMarkup:
-    return kb_donate()
+    b = InlineKeyboardBuilder()
+    b.button(text="Открыть тарифы на сайте", url=config.tariffs_page_url)
+    b.button(text="🔒  Конфиденциальность", url=config.privacy_page_url)
+    b.button(text="📋  Соглашение", url=config.terms_page_url)
+    b.button(text="✉  Поддержка", url=config.SUPPORT_URL)
+    if config.payments_active:
+        for plan in _plans():
+            b.button(text=f"Оплатить · {plan.price_rub} ₽", callback_data=f"order:{plan.id}")
+    b.button(text="✦  Мой доступ", callback_data="get_key")
+    b.button(text="◂  На главную", callback_data="back_to_menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def _plans():
+    from payments import PLANS
+
+    return list(PLANS.values())
 
 
 def kb_order(_plan_id: str) -> InlineKeyboardMarkup:
-    return kb_donate()
+    return kb_tariffs()
 
 
 def kb_pay(_bill_url: str, _bill_id: str) -> InlineKeyboardMarkup:
-    return kb_donate()
+    return kb_tariffs()
 
 
 def kb_admin() -> InlineKeyboardMarkup:
@@ -216,7 +250,7 @@ def screen_home(user: User, *, is_admin: bool = False, users_total: int | None =
         f"🔮  <b>{name}</b>{users_line}\n"
         f"<i>цифровой доступ · всегда на связи</i>\n\n"
         f"<blockquote><b>◆  статус · {badge}</b>\n{_esc(detail)}</blockquote>\n\n"
-        f"Обход ограничений · скорость · стабильность.\n"
+        f"Скорость · стабильность · удобное подключение.\n"
         f"Один жест — и профиль у вас."
     )
 
@@ -268,38 +302,71 @@ def screen_access_link(import_url: str) -> str:
 
 def screen_donate() -> str:
     card = _esc(config.donation_card_spaced())
-    name = _esc(config.DONATE_CARD_NAME)
     bank = _esc(config.DONATE_BANK)
     return (
         f"<b>Поддержать проект</b>\n"
-        f"<i>автор и развитие Tsulo</i>\n\n"
+        f"<i>развитие {_esc(config.BOT_NAME)}</i>\n\n"
         f"Сервис живёт на добровольных переводах.\n"
         f"Любая сумма — уже огромная помощь.\n\n"
         f"<blockquote><b>{bank}</b>\n"
-        f"<code>{card}</code>\n"
-        f"{name}</blockquote>\n\n"
+        f"<code>{card}</code></blockquote>\n\n"
         f"Нажмите на номер — чтобы скопировать.\n"
         f"Спасибо, что вы с нами."
     )
 
 
+def screen_docs() -> str:
+    name = _esc(config.BOT_NAME)
+    return (
+        f"<b>Документы · {name}</b>\n\n"
+        f"Актуальные материалы сервиса всегда доступны по кнопкам ниже "
+        f"и на сайте.\n\n"
+        f"<blockquote>"
+        f"• Тарифы и цены\n"
+        f"• Политика конфиденциальности\n"
+        f"• Пользовательское соглашение\n"
+        f"• Поддержка: {_esc(config.SUPPORT_URL)}"
+        f"</blockquote>\n\n"
+        f"<i>код согласования · плаtega</i>"
+    )
+
+
 def screen_tariffs() -> str:
-    return screen_donate()
+    plans = _plans()
+    plan = plans[0] if plans else None
+    name = _esc(config.BOT_NAME)
+    if not plan:
+        return f"<b>Тарифы · {name}</b>\n\nТариф временно недоступен."
+    free_line = (
+        "Сейчас доступ <b>бесплатный</b> для всех пользователей.\n"
+        "Тариф ниже — актуальная стоимость подписки сервиса."
+        if not config.payments_active
+        else "Оплата открывает подписку на выбранный срок."
+    )
+    return (
+        f"<b>Тарифы · {name}</b>\n\n"
+        f"{free_line}\n\n"
+        f"<blockquote><b>{_esc(plan.title)}</b> — <b>{plan.price_rub} ₽</b>\n"
+        f"цифровой доступ к профилю · обновления · поддержка</blockquote>\n\n"
+        f"Подробности на сайте и в документах сервиса.\n"
+        f"<i>код согласования · плаtega</i>"
+    )
 
 
 def screen_order(plan: TariffPlan) -> str:
-    return screen_donate()
+    return screen_tariffs()
 
 
 def screen_pay(plan: TariffPlan) -> str:
-    return screen_donate()
+    return screen_tariffs()
 
 
 def screen_pay_error() -> str:
     return (
-        f"<b>Оплата через кассу отключена</b>\n\n"
-        f"Поддержать проект можно переводом на карту\n"
-        f"в разделе «Поддержать»."
+        f"<b>Онлайн-оплата пока не подключена</b>\n\n"
+        f"Актуальный тариф — в разделе «Тарифы».\n"
+        f"Поддержать проект можно переводом в «Поддержать».\n"
+        f"Вопросы — в поддержку."
     )
 
 
@@ -444,8 +511,8 @@ def screen_payment_success(plan_title: str, user: User) -> str:
 
 
 def format_tariffs_text() -> str:
-    return screen_donate()
+    return screen_tariffs()
 
 
 def format_order_text(plan: TariffPlan) -> str:
-    return screen_donate()
+    return screen_tariffs()

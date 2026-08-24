@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware, Bot
@@ -17,25 +18,43 @@ import ui
 logger = logging.getLogger(__name__)
 
 CHECK_CALLBACK = "check_channel_sub"
+_MEMBER_CACHE_TTL_SEC = 300.0
+_member_cache: dict[int, tuple[float, bool]] = {}
 
 
-async def is_channel_member(bot: Bot, user_id: int) -> bool:
+async def is_channel_member(bot: Bot, user_id: int, *, force: bool = False) -> bool:
     channel = config.required_channel_id
     if not channel:
         return True
+
+    now = time.monotonic()
+    if not force:
+        cached = _member_cache.get(user_id)
+        if cached and now - cached[0] < _MEMBER_CACHE_TTL_SEC:
+            return cached[1]
+
     try:
         member = await bot.get_chat_member(channel, user_id)
     except Exception as exc:
         logger.warning("Channel membership check failed for %s: %s", user_id, exc)
+        # При сбое API не спамим проверками: коротко кэшируем отрицательный результат.
+        _member_cache[user_id] = (now, False)
         return False
 
     if member.status == ChatMemberStatus.RESTRICTED:
-        return bool(getattr(member, "is_member", False))
-    return member.status in (
-        ChatMemberStatus.MEMBER,
-        ChatMemberStatus.ADMINISTRATOR,
-        ChatMemberStatus.CREATOR,
-    )
+        ok = bool(getattr(member, "is_member", False))
+    else:
+        ok = member.status in (
+            ChatMemberStatus.MEMBER,
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.CREATOR,
+        )
+    _member_cache[user_id] = (now, ok)
+    return ok
+
+
+def invalidate_member_cache(user_id: int) -> None:
+    _member_cache.pop(user_id, None)
 
 
 async def ensure_user_registered(

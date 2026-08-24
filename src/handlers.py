@@ -35,6 +35,18 @@ router = Router()
 
 USERS_PAGE_SIZE = 20
 _last_admin_upstream_refresh_at: float = 0.0
+_users_count_cache: tuple[float, int] | None = None
+_USERS_COUNT_TTL = 45.0
+
+
+async def _cached_user_count() -> int:
+    global _users_count_cache
+    now = time.monotonic()
+    if _users_count_cache and now - _users_count_cache[0] < _USERS_COUNT_TTL:
+        return _users_count_cache[1]
+    total = await get_user_count()
+    _users_count_cache = (now, total)
+    return total
 
 
 def _is_admin(user: User | None, chat_id: int) -> bool:
@@ -64,7 +76,7 @@ async def show_menu(
     user = await get_user(chat_id)
     if not user:
         return
-    users_total = await get_user_count()
+    users_total = await _cached_user_count()
     text = ui.screen_home(user, is_admin=_is_admin(user, chat_id), users_total=users_total)
     markup = ui.kb_home(is_admin=_is_admin(user, chat_id))
     if edit and message:
@@ -195,7 +207,7 @@ async def help_callback(callback: CallbackQuery) -> None:
     )
 
 
-@router.callback_query(F.data.in_({"donate", "tariffs"}))
+@router.callback_query(F.data == "donate")
 async def donate_callback(callback: CallbackQuery) -> None:
     await callback.answer()
     await render_screen(
@@ -207,14 +219,60 @@ async def donate_callback(callback: CallbackQuery) -> None:
     )
 
 
+@router.callback_query(F.data == "tariffs")
+async def tariffs_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await render_screen(
+        callback.message,
+        caption=ui.screen_tariffs(),
+        markup=ui.kb_tariffs(),
+        screen="donate",
+        edit=True,
+    )
+
+
+@router.callback_query(F.data == "docs")
+async def docs_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await render_screen(
+        callback.message,
+        caption=ui.screen_docs(),
+        markup=ui.kb_docs(),
+        screen="help",
+        edit=True,
+    )
+
+
+@router.message(Command("tariffs", "price", "pricing"))
+async def tariffs_cmd(message: Message) -> None:
+    await render_screen(
+        message,
+        caption=ui.screen_tariffs(),
+        markup=ui.kb_tariffs(),
+        screen="donate",
+        edit=False,
+    )
+
+
+@router.message(Command("docs", "privacy", "terms"))
+async def docs_cmd(message: Message) -> None:
+    await render_screen(
+        message,
+        caption=ui.screen_docs(),
+        markup=ui.kb_docs(),
+        screen="help",
+        edit=False,
+    )
+
+
 @router.callback_query(F.data.startswith("order:"))
 @router.callback_query(F.data.startswith("pay:"))
 async def legacy_pay_callback(callback: CallbackQuery) -> None:
     await callback.answer()
     await render_screen(
         callback.message,
-        caption=ui.screen_donate(),
-        markup=ui.kb_donate(),
+        caption=ui.screen_tariffs() if not config.payments_active else ui.screen_pay_error(),
+        markup=ui.kb_tariffs(),
         screen="donate",
         edit=True,
     )
@@ -391,7 +449,7 @@ async def check_channel_sub_callback(callback: CallbackQuery, bot: Bot) -> None:
         await show_menu(bot, callback.from_user.id, callback.message, edit=True)
         return
 
-    if await is_channel_member(bot, callback.from_user.id):
+    if await is_channel_member(bot, callback.from_user.id, force=True):
         await callback.answer("Подписка подтверждена! Добро пожаловать.", show_alert=True)
         await show_menu(bot, callback.from_user.id, callback.message, edit=True)
         return

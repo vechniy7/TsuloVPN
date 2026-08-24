@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Response
 from config import config
 from pool_engine_v3 import get_happ_json_profiles, get_pool_state
 from database import get_user_by_token
+from legal_docs import BANK_MARKER, privacy_html, tariffs_html, terms_html
 from miniapp_routes import router as miniapp_router
 from cardlink_routes import router as cardlink_router
 from payments import is_subscription_active
@@ -17,6 +18,43 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="TsuloVPN Subscription Server", docs_url=None, redoc_url=None)
 app.include_router(miniapp_router)
 app.include_router(cardlink_router)
+
+
+@app.get("/privacy")
+async def privacy_page():
+    return Response(content=privacy_html(), media_type="text/html; charset=utf-8")
+
+
+@app.get("/terms")
+async def terms_page():
+    return Response(content=terms_html(), media_type="text/html; charset=utf-8")
+
+
+@app.get("/tariffs")
+async def tariffs_page():
+    return Response(content=tariffs_html(), media_type="text/html; charset=utf-8")
+
+
+@app.get("/")
+async def root_docs_index():
+    """Короткая витрина документов для проверки банком / менеджером."""
+    name = config.BOT_NAME or "TsuloVPN"
+    body = f"""<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>{name}</title>
+<style>body{{font-family:Georgia,serif;max-width:640px;margin:40px auto;padding:0 16px;line-height:1.5}}
+a{{color:#111}} .m{{font-family:ui-monospace,Consolas,monospace}}</style></head><body>
+<h1>{name}</h1>
+<p>Цифровой сервис доступа · Telegram-бот</p>
+<ul>
+<li><a href="/tariffs">Тарифы и цены</a></li>
+<li><a href="/privacy">Политика конфиденциальности</a></li>
+<li><a href="/terms">Пользовательское соглашение</a></li>
+<li><a href="{config.SUPPORT_URL}">Поддержка</a></li>
+</ul>
+<p>Код согласования: <span class="m">{BANK_MARKER}</span></p>
+</body></html>"""
+    return Response(content=body, media_type="text/html; charset=utf-8")
 
 HAPP_HEADERS = {
     "hide-settings": "1",

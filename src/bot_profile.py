@@ -12,20 +12,21 @@ logger = logging.getLogger(__name__)
 
 
 async def restore_bot_profile(bot: Bot) -> None:
-    """Вернуть чистое имя бота и описание без счётчика пользователей."""
+    """Вернуть чистое имя бота и нейтральное описание сервиса."""
     name = (config.BOT_NAME or "TsuloVPN").strip()
     try:
         await bot.set_my_name(name=name[:64])
         await bot.set_my_short_description(
             short_description=(
-                f"{name} — обход блокировок и глушилок. "
-                f"Быстрый и стабильный интернет."
+                f"{name} — быстрый и стабильный цифровой доступ. "
+                f"Подключение за минуту."
             )[:120]
         )
         await bot.set_my_description(
             description=(
-                f"{name} — обход блокировок и глушилок.\n"
-                f"Быстрый, стабильный и защищённый интернет без границ.\n\n"
+                f"{name} — цифровой сервис доступа.\n"
+                f"Быстрый, стабильный и удобный интернет-профиль.\n\n"
+                f"Документы: тарифы, политика и соглашение — в боте.\n"
                 f"Нажмите /start или «Мой доступ»."
             )
         )

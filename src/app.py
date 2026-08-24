@@ -26,6 +26,8 @@ async def setup_bot_commands(bot: Bot) -> None:
         BotCommand(command="start", description="Главная"),
         BotCommand(command="access", description="Мой доступ"),
         BotCommand(command="help", description="Подключение"),
+        BotCommand(command="tariffs", description="Тарифы"),
+        BotCommand(command="docs", description="Документы"),
         BotCommand(command="donate", description="Поддержать проект"),
     ]
     await bot.set_my_commands(commands)
@@ -41,8 +43,8 @@ async def run_subscription_server() -> None:
         subscription_app,
         host="0.0.0.0",
         port=config.SUBSCRIPTION_PORT,
-        log_level="info",
-        access_log=True,
+        log_level="warning",
+        access_log=False,
     )
     server = uvicorn.Server(server_config)
     await server.serve()
