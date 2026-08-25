@@ -74,7 +74,6 @@ def kb_home(*, is_admin: bool) -> InlineKeyboardMarkup:
     b.button(text=f"Тарифы{price}", callback_data="tariffs")
     b.button(text="Документы", callback_data="docs")
     b.button(text="Поддержка", url=config.SUPPORT_URL)
-    b.button(text="Поддержать проект", callback_data="donate")
     if _webapp_https():
         b.button(text="Кабинет", web_app=WebAppInfo(url=config.miniapp_url))
     if is_admin:
@@ -111,11 +110,7 @@ def kb_help() -> InlineKeyboardMarkup:
 
 
 def kb_donate() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.button(text="Написать в поддержку", url=config.SUPPORT_URL)
-    b.button(text="← Назад", callback_data="back_to_menu")
-    b.adjust(1)
-    return b.as_markup()
+    return kb_home_nav()
 
 
 def kb_docs() -> InlineKeyboardMarkup:
@@ -281,14 +276,10 @@ def screen_access_link(import_url: str) -> str:
 
 
 def screen_donate() -> str:
-    card = _esc(config.donation_card_spaced())
-    bank = _esc(config.DONATE_BANK)
     return (
-        f"<b>Поддержать проект</b>\n\n"
-        f"Добровольный перевод помогает развивать {_esc(config.BOT_NAME)}.\n\n"
-        f"<b>{bank}</b>\n"
-        f"<code>{card}</code>\n\n"
-        f"Нажмите на номер, чтобы скопировать."
+        "<b>Добровольные переводы отключены</b>\n\n"
+        "Актуальные тарифы — в разделе «Тарифы».\n"
+        "Вопросы — в поддержку."
     )
 
 

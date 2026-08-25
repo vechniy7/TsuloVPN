@@ -175,13 +175,13 @@ async def help_cmd(message: Message) -> None:
     )
 
 
-@router.message(Command("donate", "support"))
-async def donate_cmd(message: Message) -> None:
+@router.message(Command("support"))
+async def support_cmd(message: Message) -> None:
     await render_screen(
         message,
-        caption=ui.screen_donate(),
-        markup=ui.kb_donate(),
-        screen="donate",
+        caption=ui.screen_docs(),
+        markup=ui.kb_docs(),
+        screen="help",
         edit=False,
     )
 
@@ -212,9 +212,9 @@ async def donate_callback(callback: CallbackQuery) -> None:
     await callback.answer()
     await render_screen(
         callback.message,
-        caption=ui.screen_donate(),
-        markup=ui.kb_donate(),
-        screen="donate",
+        caption=ui.screen_docs(),
+        markup=ui.kb_docs(),
+        screen="help",
         edit=True,
     )
 
@@ -226,7 +226,7 @@ async def tariffs_callback(callback: CallbackQuery) -> None:
         callback.message,
         caption=ui.screen_tariffs(),
         markup=ui.kb_tariffs(),
-        screen="donate",
+        screen="help",
         edit=True,
     )
 
@@ -249,7 +249,7 @@ async def tariffs_cmd(message: Message) -> None:
         message,
         caption=ui.screen_tariffs(),
         markup=ui.kb_tariffs(),
-        screen="donate",
+        screen="help",
         edit=False,
     )
 
@@ -273,7 +273,7 @@ async def legacy_pay_callback(callback: CallbackQuery) -> None:
         callback.message,
         caption=ui.screen_tariffs() if not config.payments_active else ui.screen_pay_error(),
         markup=ui.kb_tariffs(),
-        screen="donate",
+        screen="help",
         edit=True,
     )
 
@@ -293,7 +293,7 @@ async def check_payment_callback(callback: CallbackQuery) -> None:
         return
 
     await callback.answer(
-        "Касса отключена. Поддержать можно переводом на карту в «Поддержать».",
+        "Онлайн-оплата пока не подключена. Актуальные тарифы — в разделе «Тарифы».",
         show_alert=True,
     )
 

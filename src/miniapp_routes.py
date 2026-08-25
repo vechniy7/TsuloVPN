@@ -76,9 +76,6 @@ async def miniapp_access(body: AccessRequest):
         "ok": True,
         "url": import_url,
         "name": config.BOT_NAME,
-        "card": "".join(ch for ch in config.DONATE_CARD if ch.isdigit()),
-        "card_name": config.DONATE_CARD_NAME,
-        "bank": config.DONATE_BANK,
         "support": config.SUPPORT_URL,
         "instagram": config.INSTAGRAM_URL,
     }
@@ -88,10 +85,6 @@ async def miniapp_access(body: AccessRequest):
 async def miniapp_meta():
     return {
         "name": config.BOT_NAME,
-        "card": "".join(ch for ch in config.DONATE_CARD if ch.isdigit()),
-        "card_spaced": config.donation_card_spaced(),
-        "card_name": config.DONATE_CARD_NAME,
-        "bank": config.DONATE_BANK,
         "support": config.SUPPORT_URL,
         "instagram": config.INSTAGRAM_URL,
     }

@@ -27,7 +27,6 @@ async def setup_bot_commands(bot: Bot) -> None:
         BotCommand(command="access", description="Мой доступ"),
         BotCommand(command="tariffs", description="Тарифы"),
         BotCommand(command="docs", description="Документы"),
-        BotCommand(command="donate", description="Поддержать проект"),
     ]
     await bot.set_my_commands(commands)
     miniapp = config.miniapp_url
