@@ -1,13 +1,12 @@
 :root {
-  --bg: #07060f;
-  --bg-2: #100c1c;
-  --text: #f4f0ff;
-  --muted: #a89cc4;
-  --line: rgba(196, 160, 255, 0.16);
-  --accent: #c084fc;
-  --accent-2: #7c5cff;
-  --card: rgba(18, 12, 32, 0.78);
-  --ok: #6ee7b7;
+  --bg: #f4f2ed;
+  --paper: #fffcf8;
+  --ink: #171717;
+  --muted: #6a675f;
+  --line: #e5e0d6;
+  --accent: #0f6e56;
+  --accent-soft: #e8f5f0;
+  --shadow: 0 14px 40px rgba(23, 23, 23, 0.06);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -15,168 +14,91 @@
 html, body {
   min-height: 100%;
   background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  color: var(--ink);
+  font-family: Manrope, "Segoe UI", system-ui, sans-serif;
 }
 
 body {
   overflow-x: hidden;
-}
-
-.glow {
-  position: fixed;
-  pointer-events: none;
-  filter: blur(80px);
-  opacity: 0.45;
-  z-index: 0;
-}
-
-.glow-a {
-  width: 240px;
-  height: 240px;
-  background: #7c3aed;
-  top: -60px;
-  right: -40px;
-}
-
-.glow-b {
-  width: 200px;
-  height: 200px;
-  background: #4c1d95;
-  bottom: 10%;
-  left: -60px;
+  background:
+    radial-gradient(circle at top right, rgba(15, 110, 86, 0.08), transparent 34%),
+    var(--bg);
 }
 
 .app {
-  position: relative;
-  z-index: 1;
   max-width: 430px;
   margin: 0 auto;
-  padding: 0 16px calc(28px + env(safe-area-inset-bottom));
+  padding: 22px 16px calc(28px + env(safe-area-inset-bottom));
 }
 
-.hero {
-  position: relative;
-  margin: 0 -16px 18px;
-  min-height: 220px;
-}
-
-.hero-img {
-  width: 100%;
-  height: 240px;
-  object-fit: cover;
-  display: block;
-}
-
-.hero-fade {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 110px;
-  background: linear-gradient(to top, var(--bg), transparent);
-}
-
-.hero-copy {
-  position: absolute;
-  left: 20px;
-  bottom: 16px;
+.top {
+  margin-bottom: 18px;
 }
 
 .eyebrow {
   font-size: 11px;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--accent);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  font-weight: 600;
 }
 
-.hero-copy h1 {
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+.top h1 {
+  font-size: 30px;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
 }
 
 .tag {
+  margin-top: 6px;
   color: var(--muted);
   font-size: 14px;
-  margin-top: 2px;
 }
 
-.status-card {
+.status,
+.panel {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow);
+}
+
+.status {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 14px 16px;
-  margin-bottom: 14px;
-  backdrop-filter: blur(16px);
 }
 
 .label {
   font-size: 11px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
+  font-weight: 600;
 }
 
 .value {
   font-size: 18px;
-  font-weight: 650;
+  font-weight: 700;
   margin-top: 2px;
+  letter-spacing: -0.02em;
 }
 
-.pulse {
+.dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 6px rgba(110, 231, 183, 0.16);
+  background: var(--accent);
+  box-shadow: 0 0 0 6px rgba(15, 110, 86, 0.12);
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.tile {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 14px 12px;
-}
-
-.tile-icon {
-  display: inline-block;
-  color: var(--accent);
-  margin-bottom: 8px;
-}
-
-.tile h3 {
-  font-size: 13px;
-  font-weight: 650;
-  margin-bottom: 4px;
-}
-
-.tile p {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-.card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 18px 16px;
-  margin-bottom: 12px;
-}
-
-.card h2 {
+.panel h2 {
   font-size: 16px;
   margin-bottom: 8px;
+  letter-spacing: -0.02em;
 }
 
 .muted {
@@ -186,20 +108,32 @@ body {
   margin-bottom: 14px;
 }
 
+.muted.tight {
+  margin: 4px 0 0;
+}
+
 .btn {
   width: 100%;
   border: 0;
   border-radius: 14px;
   padding: 14px;
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 700;
   cursor: pointer;
+  color: #fff;
+  background: var(--accent);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.btn.primary {
-  color: #1a1028;
-  background: linear-gradient(135deg, #e9d5ff, #c084fc 45%, #7c5cff);
-  box-shadow: 0 10px 30px rgba(124, 92, 255, 0.28);
+.btn.ghost {
+  width: auto;
+  min-width: 110px;
+  padding: 12px 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .hint {
@@ -217,30 +151,38 @@ body {
   line-height: 1.7;
 }
 
+.price {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .paybox {
-  background: #0c0916;
+  background: #f7f4ee;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 16px;
+  border-radius: 14px;
+  padding: 14px;
   text-align: center;
 }
 
 .pay-bank {
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--accent);
+  font-weight: 700;
 }
 
 .card-num {
-  margin: 8px 0 6px;
+  margin: 8px 0 0;
   width: 100%;
   border: 0;
   background: transparent;
-  color: var(--text);
-  font-size: 18px;
+  color: var(--ink);
+  font-size: 17px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   cursor: pointer;
 }
@@ -248,31 +190,32 @@ body {
 .pay-name {
   color: var(--muted);
   font-size: 13px;
+  margin-top: 6px;
 }
 
 .links {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin: 8px 0 18px;
+  gap: 8px;
+  margin: 4px 0 16px;
 }
 
-.link-btn {
+.link {
   display: block;
   text-align: center;
   text-decoration: none;
-  color: var(--text);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px 8px;
   font-size: 13px;
-  background: var(--card);
+  font-weight: 600;
+  background: var(--paper);
 }
 
 .footer {
   text-align: center;
   color: var(--muted);
   font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }

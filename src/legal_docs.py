@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
-
 from config import config
 
 DOC_DATE = "25 августа 2026 г."
@@ -21,31 +19,114 @@ def _support_line() -> str:
     return " · ".join(parts) if parts else "через Telegram-бота"
 
 
-def _base_css() -> str:
+def _plan_price() -> tuple[str, int]:
+    try:
+        from payments import PLANS
+
+        plan = next(iter(PLANS.values()), None)
+        if plan:
+            return plan.title, plan.price_rub
+    except Exception:
+        pass
+    return "1 месяц", 69
+
+
+def _css() -> str:
     return """
-:root { color-scheme: light; }
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap');
+:root {
+  --bg: #f3f1ec;
+  --paper: #fffcf7;
+  --ink: #171717;
+  --muted: #5c5a55;
+  --line: #e4dfd4;
+  --accent: #0f6e56;
+  --accent-soft: #e7f4ef;
+  --shadow: 0 18px 50px rgba(23, 23, 23, 0.06);
+}
 * { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 body {
-  margin: 0; font-family: Georgia, "Times New Roman", serif;
-  background: #f7f5f1; color: #1a1a1a; line-height: 1.55;
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(15,110,86,0.08), transparent 28%),
+    linear-gradient(180deg, #f7f5f0 0%, var(--bg) 100%);
+  font-family: Manrope, system-ui, sans-serif;
+  line-height: 1.6;
 }
-.wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; }
-h1 { font-size: 1.75rem; margin: 0 0 8px; }
-h2 { font-size: 1.15rem; margin: 28px 0 10px; }
-p, li { font-size: 1rem; }
-.meta { color: #555; font-size: 0.95rem; margin-bottom: 24px; }
-.nav a { color: #1a1a1a; margin-right: 14px; }
+.wrap { max-width: 820px; margin: 0 auto; padding: 28px 18px 72px; }
+.top {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  justify-content: space-between; margin-bottom: 28px;
+}
+.brand {
+  font-weight: 700; letter-spacing: -0.02em; font-size: 1.05rem;
+  text-decoration: none; color: var(--ink);
+}
+.nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.nav a {
+  text-decoration: none; color: var(--muted); font-size: 0.92rem;
+  padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.65);
+  border: 1px solid var(--line);
+}
+.nav a:hover { color: var(--ink); border-color: #cfc8ba; }
+.hero {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 24px;
+  padding: 28px 24px; box-shadow: var(--shadow); margin-bottom: 18px;
+}
+.hero h1 {
+  margin: 0 0 8px; font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.15; letter-spacing: -0.02em;
+}
+.meta { color: var(--muted); margin: 0; font-size: 0.95rem; }
 .card {
-  background: #fff; border: 1px solid #e4e0d8; border-radius: 12px;
-  padding: 18px 20px; margin: 18px 0;
+  background: var(--paper); border: 1px solid var(--line); border-radius: 20px;
+  padding: 22px 20px; margin: 14px 0; box-shadow: var(--shadow);
 }
-.marker { font-family: ui-monospace, Consolas, monospace; letter-spacing: 0.02em; }
-.footer { margin-top: 36px; color: #666; font-size: 0.9rem; }
-ul { padding-left: 1.2em; }
+.card h2 {
+  margin: 0 0 10px; font-size: 1.05rem; letter-spacing: -0.01em;
+}
+.price {
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;
+  justify-content: space-between; margin-top: 8px;
+}
+.price .amount {
+  font-size: 2.4rem; font-weight: 700; letter-spacing: -0.04em; line-height: 1;
+}
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 999px; padding: 8px 12px; font-size: 0.86rem; font-weight: 600;
+}
+ul { margin: 8px 0 0; padding-left: 1.15em; }
+li { margin: 4px 0; }
+p { margin: 0 0 12px; }
+.section h2 {
+  margin: 28px 0 10px; font-size: 1.15rem;
+  font-family: "Source Serif 4", Georgia, serif;
+}
+.footer {
+  margin-top: 28px; color: var(--muted); font-size: 0.88rem;
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+}
+.marker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: #fff; border: 1px solid var(--line); border-radius: 8px;
+  padding: 4px 8px; color: var(--ink);
+}
+.cta {
+  display: inline-block; margin-top: 8px; text-decoration: none;
+  background: var(--accent); color: #fff; font-weight: 600;
+  padding: 12px 16px; border-radius: 12px;
+}
+@media (max-width: 640px) {
+  .hero, .card { padding: 20px 16px; border-radius: 18px; }
+}
 """
 
 
-def _page(title: str, body: str) -> str:
+def _shell(title: str, body: str) -> str:
     name = config.BOT_NAME or "TsuloVPN"
     return f"""<!DOCTYPE html>
 <html lang="ru">
@@ -53,19 +134,24 @@ def _page(title: str, body: str) -> str:
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>{title} · {name}</title>
-<style>{_base_css()}</style>
+<style>{_css()}</style>
 </head>
 <body>
 <div class="wrap">
-<nav class="nav">
-  <a href="/tariffs">Тарифы</a>
-  <a href="/privacy">Конфиденциальность</a>
-  <a href="/terms">Соглашение</a>
-  <a href="/miniapp">Кабинет</a>
-</nav>
-{body}
-<p class="footer">{name} · цифровой сервис доступа · код согласования:
-<span class="marker">{BANK_MARKER}</span></p>
+  <div class="top">
+    <a class="brand" href="/">{name}</a>
+    <nav class="nav">
+      <a href="/tariffs">Тарифы</a>
+      <a href="/privacy">Конфиденциальность</a>
+      <a href="/terms">Соглашение</a>
+      <a href="{config.SUPPORT_URL}">Поддержка</a>
+    </nav>
+  </div>
+  {body}
+  <div class="footer">
+    <span>{name} · цифровой сервис доступа</span>
+    <span>код согласования: <span class="marker">{BANK_MARKER}</span></span>
+  </div>
 </div>
 </body>
 </html>"""
@@ -73,45 +159,45 @@ def _page(title: str, body: str) -> str:
 
 def tariffs_html() -> str:
     name = config.BOT_NAME or "TsuloVPN"
-    plan = None
-    try:
-        from payments import PLANS
-
-        plan = next(iter(PLANS.values()), None)
-    except Exception:
-        plan = None
-    price = plan.price_rub if plan else 75
-    title = plan.title if plan else "1 месяц"
+    title, price = _plan_price()
     free_note = (
         "Сейчас доступ предоставляется бесплатно для всех пользователей. "
-        "Тариф ниже — актуальная стоимость подписки сервиса."
+        "Ниже указана актуальная стоимость подписки сервиса."
         if not config.payments_active
-        else "Оплата активирует подписку на указанный срок."
+        else "Оплата активирует подписку на выбранный срок."
     )
-    return _page(
+    return _shell(
         "Тарифы",
         f"""
-<h1>Тарифы и цены</h1>
-<p class="meta">Актуально на {DOC_DATE} · сервис {name}</p>
-<div class="card">
-  <h2 style="margin-top:0">{name} — подписка</h2>
-  <p><b>{title}</b> — <b>{price} ₽</b></p>
-  <p>Один тариф. Оплата за период доступа к цифровому сервису {name}
-  (персональная ссылка профиля и обновления конфигурации).</p>
-  <p>{free_note}</p>
-</div>
-<div class="card">
-  <h2 style="margin-top:0">Что входит</h2>
+<section class="hero">
+  <p class="meta">Актуально на {DOC_DATE}</p>
+  <h1>Тарифы и цены</h1>
+  <p class="meta">Прозрачная стоимость цифрового доступа {name}</p>
+</section>
+<section class="card">
+  <span class="badge">один тариф</span>
+  <div class="price">
+    <div>
+      <h2 style="margin-bottom:4px">{title}</h2>
+      <p class="meta" style="margin:0">цифровой доступ к профилю · обновления · поддержка</p>
+    </div>
+    <div class="amount">{price} ₽</div>
+  </div>
+  <p style="margin-top:16px">{free_note}</p>
+</section>
+<section class="card">
+  <h2>Что входит</h2>
   <ul>
-    <li>доступ к персональной ссылке профиля в Telegram-боте;</li>
+    <li>персональная ссылка профиля в Telegram-боте;</li>
     <li>автоматическое обновление профиля;</li>
     <li>техническая поддержка пользователей.</li>
   </ul>
-</div>
-<div class="card">
-  <h2 style="margin-top:0">Поддержка</h2>
+</section>
+<section class="card">
+  <h2>Поддержка</h2>
   <p>По вопросам оплаты и доступа: <b>{_support_line()}</b></p>
-</div>
+  <a class="cta" href="{config.SUPPORT_URL}">Написать в поддержку</a>
+</section>
 """,
     )
 
@@ -119,20 +205,24 @@ def tariffs_html() -> str:
 def privacy_html() -> str:
     name = config.BOT_NAME or "TsuloVPN"
     site = (config.SUBSCRIPTION_PUBLIC_URL or "").rstrip("/") or "Telegram-бот"
-    return _page(
+    return _shell(
         "Политика конфиденциальности",
         f"""
-<h1>Политика конфиденциальности</h1>
-<p class="meta">Дата редакции: {DOC_DATE}</p>
+<section class="hero">
+  <p class="meta">Дата редакции: {DOC_DATE}</p>
+  <h1>Политика конфиденциальности</h1>
+  <p class="meta">Сервис {name} · {site}</p>
+</section>
+<section class="card section">
 <p>Политика конфиденциальности регулирует сбор, использование и защиту информации
-пользователей сервиса <b>{name}</b> ({site} / Telegram-бот). Собираются идентификаторы
-аккаунта, техническая информация и история взаимодействий. Данные используются для
-обеспечения работы сервиса, связи с пользователем и анализа. Передача информации
-третьим лицам возможна только в законодательно установленных случаях, с согласия
-пользователя или для исполнения обязательств (в том числе перед платёжными системами).
-Хранение данных осуществляется в течение необходимого срока, их защита — в разумных
-пределах. Администрация вправе вносить изменения в Политику без предварительного
-уведомления — согласие считается принятым при дальнейшем использовании сервиса.</p>
+пользователей сервиса <b>{name}</b>. Собираются идентификаторы аккаунта, техническая
+информация и история взаимодействий. Данные используются для обеспечения работы сервиса,
+связи с пользователем и анализа. Передача информации третьим лицам возможна только в
+законодательно установленных случаях, с согласия пользователя или для исполнения
+обязательств (в том числе перед платёжными системами). Хранение данных осуществляется в
+течение необходимого срока, их защита — в разумных пределах. Администрация вправе вносить
+изменения в Политику без предварительного уведомления — согласие считается принятым при
+дальнейшем использовании сервиса.</p>
 
 <h2>1. Общие положения</h2>
 <p>1.1. Настоящая Политика конфиденциальности (далее — «Политика») регулирует порядок
@@ -184,6 +274,7 @@ def privacy_html() -> str:
 
 <h2>8. Контакты</h2>
 <p>По вопросам обработки данных: <b>{_support_line()}</b></p>
+</section>
 """,
     )
 
@@ -191,12 +282,15 @@ def privacy_html() -> str:
 def terms_html() -> str:
     name = config.BOT_NAME or "TsuloVPN"
     site = (config.SUBSCRIPTION_PUBLIC_URL or "").rstrip("/") or "Telegram-бот"
-    return _page(
+    return _shell(
         "Пользовательское соглашение",
         f"""
-<h1>Пользовательское соглашение</h1>
-<p class="meta">Дата редакции: {DOC_DATE}</p>
-
+<section class="hero">
+  <p class="meta">Дата редакции: {DOC_DATE}</p>
+  <h1>Пользовательское соглашение</h1>
+  <p class="meta">Сервис {name} · {site}</p>
+</section>
+<section class="card section">
 <h2>1. Общие положения</h2>
 <p>1.1. Настоящее Пользовательское соглашение (далее — «Соглашение») регулирует порядок
 использования онлайн-сервиса {name} ({site} / Telegram-бот) (далее — «Сервис»),
@@ -269,9 +363,6 @@ def terms_html() -> str:
 <p>10.1. Поддержка: <b>{_support_line()}</b></p>
 <p>Используя Сервис (в том числе запуская бота и/или команду /start), Пользователь
 подтверждает, что ознакомлен с Соглашением и принимает его условия.</p>
+</section>
 """,
     )
-
-
-# silence unused import warning helpers
-_ = date

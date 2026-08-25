@@ -3,98 +3,70 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>Tsulo</title>
+  <title>TsuloVPN</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/miniapp/static/style.css" />
 </head>
 <body>
-  <div class="glow glow-a"></div>
-  <div class="glow glow-b"></div>
-
   <main class="app">
-    <header class="hero">
-      <img class="hero-img" src="/miniapp/media/1vpn.PNG" alt="Tsulo" />
-      <div class="hero-fade"></div>
-      <div class="hero-copy">
-        <p class="eyebrow">цифровой доступ</p>
-        <h1>Tsulo</h1>
-        <p class="tag">всегда на связи · без границ</p>
-      </div>
+    <header class="top">
+      <p class="eyebrow">цифровой сервис</p>
+      <h1>TsuloVPN</h1>
+      <p class="tag">профиль · обновления · поддержка</p>
     </header>
 
-    <section class="status-card" id="status-card">
+    <section class="status" id="status-card">
       <div>
         <p class="label">статус</p>
-        <p class="value" id="status-value">открыт</p>
+        <p class="value" id="status-value">активен</p>
       </div>
-      <span class="pulse"></span>
+      <span class="dot" aria-hidden="true"></span>
     </section>
 
-    <section class="grid">
-      <article class="tile">
-        <span class="tile-icon">◆</span>
-        <h3>Стабильность</h3>
-        <p>Надёжный контур связи в любых условиях</p>
-      </article>
-      <article class="tile">
-        <span class="tile-icon">⚡</span>
-        <h3>Скорость</h3>
-        <p>Чистый канал и быстрый отклик</p>
-      </article>
-      <article class="tile">
-        <span class="tile-icon">◎</span>
-        <h3>Мир</h3>
-        <p>Профили по странам в одном ключе</p>
-      </article>
-      <article class="tile">
-        <span class="tile-icon">✦</span>
-        <h3>Авто</h3>
-        <p>Ссылка обновляется сама</p>
-      </article>
-    </section>
-
-    <section class="card">
+    <section class="panel">
       <h2>Ваш профиль</h2>
-      <p class="muted">Скопируйте ссылку и добавьте её в Happ. Автообновление — включить.</p>
-      <button class="btn primary" id="btn-copy">Скопировать ссылку</button>
+      <p class="muted">Скопируйте ссылку и добавьте её в Happ. Автообновление включите сразу.</p>
+      <button class="btn" id="btn-copy" type="button">Скопировать ссылку</button>
       <p class="hint" id="copy-hint"></p>
     </section>
 
-    <section class="card">
-      <h2>Подключение</h2>
+    <section class="panel">
+      <h2>Как подключить</h2>
       <ol class="steps">
         <li>Скопируйте ссылку профиля</li>
         <li>Happ → добавить подписку</li>
-        <li>Автообновление — вкл.</li>
-        <li>На мобильном берите профиль с ping</li>
+        <li>Включите автообновление</li>
       </ol>
     </section>
 
-    <section class="card">
-      <h2>Тарифы</h2>
-      <p class="muted">1 месяц — 75 ₽. Сейчас доступ бесплатный для всех.</p>
-      <a class="link-btn" href="/tariffs" target="_blank" rel="noopener">Открыть тарифы</a>
+    <section class="panel price">
+      <div>
+        <p class="label">тариф</p>
+        <p class="value">69 ₽ / месяц</p>
+        <p class="muted tight">Сейчас доступ бесплатный для всех</p>
+      </div>
+      <a class="btn ghost" href="/tariffs" target="_blank" rel="noopener">Подробнее</a>
     </section>
 
-    <section class="card donate">
+    <section class="panel">
       <h2>Поддержать проект</h2>
-      <p class="muted">Проект живёт на добровольных переводах. Любая сумма — уже помощь.</p>
+      <p class="muted">Добровольный перевод помогает развивать сервис.</p>
       <div class="paybox">
         <p class="pay-bank" id="pay-bank">Сбербанк</p>
         <button class="card-num" id="btn-card" type="button">2202 2092 2654 0747</button>
-        <p class="pay-name" id="pay-name"></p>
+        <p class="pay-name" id="pay-name" hidden></p>
       </div>
       <p class="hint" id="card-hint">Нажмите на номер, чтобы скопировать</p>
     </section>
 
     <section class="links">
-      <a class="link-btn" id="link-support" href="https://t.me/tsuloew" target="_blank" rel="noopener">✉  Поддержка</a>
-      <a class="link-btn" href="/privacy" target="_blank" rel="noopener">Конфиденциальность</a>
-      <a class="link-btn" href="/terms" target="_blank" rel="noopener">Соглашение</a>
-      <a class="link-btn" id="link-ig" href="https://www.instagram.com/tsulo.it" target="_blank" rel="noopener">Instagram</a>
+      <a class="link" id="link-support" href="https://t.me/tsuloew" target="_blank" rel="noopener">Поддержка</a>
+      <a class="link" href="/privacy" target="_blank" rel="noopener">Конфиденциальность</a>
+      <a class="link" href="/terms" target="_blank" rel="noopener">Соглашение</a>
+      <a class="link" href="/tariffs" target="_blank" rel="noopener">Тарифы</a>
     </section>
 
-    <p class="footer">TsuloVPN · цифровой сервис · плаtega</p>
+    <p class="footer">TsuloVPN · плаtega</p>
   </main>
 
   <script src="/miniapp/static/app.js"></script>

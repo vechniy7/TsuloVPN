@@ -15,7 +15,7 @@ class TariffPlan:
 
 # Единственный тариф сервиса. Доступ сейчас бесплатный (PAYMENTS_ENFORCE=false).
 PLANS: dict[str, TariffPlan] = {
-    "1m": TariffPlan(id="1m", title="1 месяц", months=1, price_rub=75),
+    "1m": TariffPlan(id="1m", title="1 месяц", months=1, price_rub=69),
 }
 
 

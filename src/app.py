@@ -25,7 +25,6 @@ async def setup_bot_commands(bot: Bot) -> None:
     commands = [
         BotCommand(command="start", description="Главная"),
         BotCommand(command="access", description="Мой доступ"),
-        BotCommand(command="help", description="Подключение"),
         BotCommand(command="tariffs", description="Тарифы"),
         BotCommand(command="docs", description="Документы"),
         BotCommand(command="donate", description="Поддержать проект"),

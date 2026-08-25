@@ -18,15 +18,14 @@ async def restore_bot_profile(bot: Bot) -> None:
         await bot.set_my_name(name=name[:64])
         await bot.set_my_short_description(
             short_description=(
-                f"{name} — быстрый и стабильный цифровой доступ. "
-                f"Подключение за минуту."
+                f"{name} — цифровой сервис доступа. "
+                f"Тарифы, документы и поддержка в боте."
             )[:120]
         )
         await bot.set_my_description(
             description=(
                 f"{name} — цифровой сервис доступа.\n"
-                f"Быстрый, стабильный и удобный интернет-профиль.\n\n"
-                f"Документы: тарифы, политика и соглашение — в боте.\n"
+                f"Получите ссылку профиля, тарифы и документы прямо в боте.\n\n"
                 f"Нажмите /start или «Мой доступ»."
             )
         )

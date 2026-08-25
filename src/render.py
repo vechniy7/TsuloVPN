@@ -1,4 +1,4 @@
-"""Отправка экранов бота: фото + подпись, без поломок edit_text/edit_caption."""
+"""Отправка экранов бота: текст (баннеры временно отключены)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from aiogram.types import FSInputFile, InputMediaPhoto, Message
 logger = logging.getLogger(__name__)
 
 PHOTO_DIR = Path(__file__).parent / "photo"
+# Баннеры скрыты: на изображениях были формулировки, нежелательные для согласования.
+USE_SCREEN_PHOTOS = False
 SCREEN_PHOTOS = {
     "home": PHOTO_DIR / "1vpn.PNG",
     "access": PHOTO_DIR / "2vpn.PNG",
@@ -19,12 +21,15 @@ SCREEN_PHOTOS = {
     "donate": PHOTO_DIR / "3vpn.PNG",
     "admin": PHOTO_DIR / "1vpn.PNG",
 }
-CAPTION_LIMIT = 1024
+CAPTION_LIMIT = 4096
+PHOTO_CAPTION_LIMIT = 1024
 
 _file_ids: dict[str, str] = {}
 
 
 def photo_path(screen: str) -> Path | None:
+    if not USE_SCREEN_PHOTOS:
+        return None
     path = SCREEN_PHOTOS.get(screen)
     if path and path.is_file():
         return path
@@ -32,6 +37,8 @@ def photo_path(screen: str) -> Path | None:
 
 
 def _media(screen: str):
+    if not USE_SCREEN_PHOTOS:
+        return None
     file_id = _file_ids.get(screen)
     if file_id:
         return file_id
@@ -55,24 +62,38 @@ async def render_screen(
     edit: bool,
 ) -> Message | None:
     """
-    screen — ключ баннера (home/access/help/donate/admin) или None для текста.
-    edit=True обновляет текущее сообщение; иначе отправляет новое.
+    screen — ключ баннера или None.
+    При USE_SCREEN_PHOTOS=False всегда текстовые сообщения (без пустых фото).
     """
     caption = caption.strip()
-    if screen and len(caption) > CAPTION_LIMIT:
-        caption = caption[: CAPTION_LIMIT - 1].rstrip() + "…"
-
     media = _media(screen) if screen else None
+    limit = PHOTO_CAPTION_LIMIT if media is not None else CAPTION_LIMIT
+    if len(caption) > limit:
+        caption = caption[: limit - 1].rstrip() + "…"
+
     has_photo = bool(message.photo) if edit else False
 
     try:
+        # Старое сообщение с фото → переходим на текст: удаляем и шлём новое.
+        if edit and media is None and has_photo:
+            try:
+                await message.delete()
+            except TelegramBadRequest:
+                pass
+            return await message.answer(
+                caption,
+                reply_markup=markup,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+
         if edit and media is not None and has_photo:
             sent = await message.edit_media(
                 InputMediaPhoto(media=media, caption=caption, parse_mode="HTML"),
                 reply_markup=markup,
             )
             result = sent if isinstance(sent, Message) else message
-            _remember_file_id(screen, result)
+            _remember_file_id(screen or "", result)
             return result
 
         if edit and media is None and not has_photo:
@@ -96,7 +117,7 @@ async def render_screen(
                 reply_markup=markup,
                 parse_mode="HTML",
             )
-            _remember_file_id(screen, sent)
+            _remember_file_id(screen or "", sent)
             return sent
 
         return await message.answer(
@@ -110,18 +131,6 @@ async def render_screen(
         if "message is not modified" in text:
             return message
         logger.warning("render_screen failed (%s/%s): %s", screen, edit, exc)
-        if media is not None:
-            try:
-                sent = await message.answer_photo(
-                    media,
-                    caption=caption,
-                    reply_markup=markup,
-                    parse_mode="HTML",
-                )
-                _remember_file_id(screen, sent)
-                return sent
-            except Exception as inner:
-                logger.warning("photo fallback failed: %s", inner)
         return await message.answer(
             caption,
             reply_markup=markup,
@@ -139,9 +148,10 @@ async def send_screen(
     screen: str,
 ) -> Message:
     caption = caption.strip()
-    if len(caption) > CAPTION_LIMIT:
-        caption = caption[: CAPTION_LIMIT - 1].rstrip() + "…"
     media = _media(screen)
+    limit = PHOTO_CAPTION_LIMIT if media is not None else CAPTION_LIMIT
+    if len(caption) > limit:
+        caption = caption[: limit - 1].rstrip() + "…"
     if media is None:
         return await bot.send_message(
             chat_id,

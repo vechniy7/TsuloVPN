@@ -37,24 +37,29 @@ async def tariffs_page():
 
 @app.get("/")
 async def root_docs_index():
-    """Короткая витрина документов для проверки банком / менеджером."""
+    """Витрина документов для проверки банком / менеджером."""
     name = config.BOT_NAME or "TsuloVPN"
-    body = f"""<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>{name}</title>
-<style>body{{font-family:Georgia,serif;max-width:640px;margin:40px auto;padding:0 16px;line-height:1.5}}
-a{{color:#111}} .m{{font-family:ui-monospace,Consolas,monospace}}</style></head><body>
-<h1>{name}</h1>
-<p>Цифровой сервис доступа · Telegram-бот</p>
-<ul>
-<li><a href="/tariffs">Тарифы и цены</a></li>
-<li><a href="/privacy">Политика конфиденциальности</a></li>
-<li><a href="/terms">Пользовательское соглашение</a></li>
-<li><a href="{config.SUPPORT_URL}">Поддержка</a></li>
-</ul>
-<p>Код согласования: <span class="m">{BANK_MARKER}</span></p>
-</body></html>"""
-    return Response(content=body, media_type="text/html; charset=utf-8")
+    from legal_docs import _shell
+
+    body = f"""
+<section class="hero">
+  <p class="meta">цифровой сервис доступа</p>
+  <h1>{name}</h1>
+  <p class="meta">Telegram-бот · тарифы, документы и поддержка в одном месте</p>
+</section>
+<section class="card">
+  <h2>Документы сервиса</h2>
+  <ul>
+    <li><a href="/tariffs">Тарифы и цены</a></li>
+    <li><a href="/privacy">Политика конфиденциальности</a></li>
+    <li><a href="/terms">Пользовательское соглашение</a></li>
+    <li><a href="{config.SUPPORT_URL}">Поддержка</a></li>
+  </ul>
+  <p style="margin-top:14px">Код согласования: <span class="marker">{BANK_MARKER}</span></p>
+</section>
+"""
+    return Response(content=_shell(name, body), media_type="text/html; charset=utf-8")
+
 
 HAPP_HEADERS = {
     "hide-settings": "1",

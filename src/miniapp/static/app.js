@@ -4,8 +4,8 @@
     tg.ready();
     tg.expand();
     try {
-      tg.setHeaderColor("#07060f");
-      tg.setBackgroundColor("#07060f");
+      tg.setHeaderColor("#f4f2ed");
+      tg.setBackgroundColor("#f4f2ed");
     } catch (_) {
       /* older clients */
     }
@@ -85,7 +85,7 @@
         return;
       }
       accessUrl = data.url || "";
-      statusValue.textContent = "открыт";
+      statusValue.textContent = "активен";
       if (data.card) {
         cardDigits = data.card;
         cardBtn.textContent = spaced(data.card);
