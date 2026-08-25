@@ -25,11 +25,5 @@ services:
         value: "https://t.me/tsuloew"
       - key: INSTAGRAM_URL
         value: "https://www.instagram.com/tsulo.it"
-      - key: DONATE_CARD
-        value: "2202209226540747"
-      - key: DONATE_CARD_NAME
-        value: "АЛИ Ц"
-      - key: DONATE_BANK
-        value: "Сбербанк"
       - key: PYTHON_VERSION
         value: "3.12.8"

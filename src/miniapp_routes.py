@@ -3,7 +3,7 @@ import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from config import config
@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 _STATIC_DIR = Path(__file__).parent / "miniapp" / "static"
 _PHOTO_DIR = Path(__file__).parent / "photo"
+_NO_CACHE = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+}
 
 
 def _safe_file(root: Path, filename: str) -> Path | None:
@@ -39,7 +43,11 @@ async def miniapp_index():
     index = _STATIC_DIR / "index.html"
     if not index.exists():
         raise HTTPException(status_code=404, detail="Mini app not found")
-    return FileResponse(index, media_type="text/html; charset=utf-8")
+    return FileResponse(
+        index,
+        media_type="text/html; charset=utf-8",
+        headers=_NO_CACHE,
+    )
 
 
 @router.get("/miniapp/static/{filename}", include_in_schema=False)
@@ -48,16 +56,17 @@ async def miniapp_static(filename: str):
     if not path:
         raise HTTPException(status_code=404)
     media, _ = mimetypes.guess_type(path.name.lower())
-    return FileResponse(path, media_type=media or "application/octet-stream")
+    return FileResponse(
+        path,
+        media_type=media or "application/octet-stream",
+        headers=_NO_CACHE,
+    )
 
 
 @router.get("/miniapp/media/{filename}", include_in_schema=False)
 async def miniapp_media(filename: str):
-    path = _safe_file(_PHOTO_DIR, filename)
-    if not path:
-        raise HTTPException(status_code=404)
-    media, _ = mimetypes.guess_type(path.name.lower())
-    return FileResponse(path, media_type=media or "image/png")
+    # Баннеры отключены — не отдаём старые изображения из photo/
+    raise HTTPException(status_code=404, detail="Media disabled")
 
 
 @router.post("/miniapp/api/access", include_in_schema=False)
@@ -72,19 +81,23 @@ async def miniapp_access(body: AccessRequest):
 
     sub_url = config.subscription_url_for_token(user.subscription_token)
     import_url = await bot_subscription_import_url(sub_url)
-    return {
-        "ok": True,
-        "url": import_url,
-        "name": config.BOT_NAME,
-        "support": config.SUPPORT_URL,
-        "instagram": config.INSTAGRAM_URL,
-    }
+    return JSONResponse(
+        {
+            "ok": True,
+            "url": import_url,
+            "name": config.BOT_NAME,
+            "support": config.SUPPORT_URL,
+        },
+        headers=_NO_CACHE,
+    )
 
 
 @router.get("/miniapp/api/meta", include_in_schema=False)
 async def miniapp_meta():
-    return {
-        "name": config.BOT_NAME,
-        "support": config.SUPPORT_URL,
-        "instagram": config.INSTAGRAM_URL,
-    }
+    return JSONResponse(
+        {
+            "name": config.BOT_NAME,
+            "support": config.SUPPORT_URL,
+        },
+        headers=_NO_CACHE,
+    )

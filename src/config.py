@@ -221,10 +221,6 @@ class Config(BaseModel):
     SUPPORT_URL: str = os.getenv("SUPPORT_URL", "https://t.me/tsuloew")
     SUPPORT_EMAIL: str = os.getenv("SUPPORT_EMAIL", "").strip()
     INSTAGRAM_URL: str = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/tsulo.it")
-    # Донаты / карта Сбера отключены (требования платёжного провайдера).
-    DONATE_CARD: str = os.getenv("DONATE_CARD", "").strip()
-    DONATE_CARD_NAME: str = os.getenv("DONATE_CARD_NAME", "").strip()
-    DONATE_BANK: str = os.getenv("DONATE_BANK", "").strip()
 
     # Оплата: по умолчанию выключена — доступ бесплатный для всех.
     # Cardlink — legacy; Platega подключается после регистрации кассы.
@@ -433,10 +429,6 @@ class Config(BaseModel):
             "x-device-model": self.SUB_DEVICE_MODEL or DEFAULT_DEVICE_MODEL,
             "x-device-locale": (self.SUB_DEVICE_LOCALE or "ru").strip() or "ru",
         }
-
-    def donation_card_spaced(self) -> str:
-        digits = "".join(ch for ch in self.DONATE_CARD if ch.isdigit())
-        return " ".join(digits[i : i + 4] for i in range(0, len(digits), 4)) or self.DONATE_CARD
 
     def subscription_url_for_token(self, token: str) -> str:
         base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")

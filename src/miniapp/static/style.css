@@ -159,38 +159,13 @@ body {
 }
 
 .paybox {
-  background: #f7f4ee;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 14px;
-  text-align: center;
+  display: none;
 }
 
-.pay-bank {
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.card-num {
-  margin: 8px 0 0;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  cursor: pointer;
-}
-
+.pay-bank,
+.card-num,
 .pay-name {
-  color: var(--muted);
-  font-size: 13px;
-  margin-top: 6px;
+  display: none;
 }
 
 .links {
