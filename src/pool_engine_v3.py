@@ -185,7 +185,7 @@ async def _get_upstream_session() -> aiohttp.ClientSession:
 
 
 def _fetch_headers_for_url(url: str, *, role: str = "") -> dict[str, str]:
-    """Заголовки под тип панели. HWID-панели — Happ + HWID (bypass2 — свой профиль)."""
+    """Заголовки под тип панели. HWID-панели — Happ + единый профиль устройства."""
     if _is_happ_hwid_url(url) or _is_private_source_url(url):
         headers = dict(config.fetch_hwid_headers(role=role))
         if _is_classic_sub_url(url):

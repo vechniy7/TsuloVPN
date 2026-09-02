@@ -30,12 +30,22 @@ PRIVATE_SOURCE_HOST_MARKERS = HAPP_HWID_HOST_MARKERS + (
 
 CLASSIC_SUB_HOST_MARKERS = ("ecobuy.ltd", "shuka.site")
 
-# Стабильный профиль «одного Android-устройства» — не менять без причины (слот HWID в панели)
-DEFAULT_DEVICE_HWID = "8f3a2c1d-4b5e-6f70-8a9b-0c1d2e3f4a5b"
-DEFAULT_DEVICE_OS = "Android"
-DEFAULT_DEVICE_OS_VER = "14"
-DEFAULT_DEVICE_MODEL = "SM-S918B"
-DEFAULT_FETCH_UA = "Happ/3.5.0"
+# Стабильный профиль устройства для Happ HWID (слот в панели — не менять без причины)
+DEFAULT_DEVICE_HWID = "cdjymarydl3xgyv8"
+DEFAULT_DEVICE_OS = "iOS"
+DEFAULT_DEVICE_OS_VER = "17.7"
+DEFAULT_DEVICE_MODEL = "iPhone12,3"  # iPhone 11 Pro
+DEFAULT_FETCH_UA = "Happ/5.5.0"
+
+_DISABLED_SOURCE_MARKERS = frozenset({"-", "none", "null", "off", "disabled", "n/a", "na"})
+
+
+def blank_subscription_url(url: str) -> str:
+    """Пустой или отключённый URL («-», none, …) → \"\"."""
+    raw = (url or "").strip()
+    if not raw or raw.lower() in _DISABLED_SOURCE_MARKERS:
+        return ""
+    return normalize_subscription_url(raw)
 
 
 def normalize_subscription_url(url: str) -> str:
@@ -80,7 +90,7 @@ def is_classic_sub_url(url: str) -> bool:
 def resolve_vpn_source_url() -> str:
     """Одна точка смены ключа: VPN_SOURCE_URL (или legacy PRIMARY_SUB_URL / WIFI_SOURCE_URLS)."""
     for key in ("VPN_SOURCE_URL", "PRIMARY_SUB_URL", "SHADOWNET_CONNECT_URL", "WIFI_SOURCE_URLS"):
-        val = normalize_subscription_url(os.getenv(key, ""))
+        val = blank_subscription_url(os.getenv(key, ""))
         if val:
             return val
     return ""
@@ -88,12 +98,12 @@ def resolve_vpn_source_url() -> str:
 
 def resolve_vpn_bypass_source_url() -> str:
     """Доп. ключ мобильных профилей (LTE). Может быть пустым."""
-    return normalize_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL", "").strip())
+    return blank_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL", ""))
 
 
 def resolve_vpn_bypass_source_url_2() -> str:
     """Второй доп. ключ мобильных профилей (⚡). Может быть пустым."""
-    return normalize_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL_2", "").strip())
+    return blank_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL_2", ""))
 
 
 VPN_SOURCE_URL = resolve_vpn_source_url()
@@ -117,23 +127,13 @@ class Config(BaseModel):
     VPN_BYPASS_SOURCE_URL: str = VPN_BYPASS_SOURCE_URL
     # Второй доп. источник мобильных профилей (⚡).
     VPN_BYPASS_SOURCE_URL_2: str = VPN_BYPASS_SOURCE_URL_2
-    # Отдельный HWID/профиль для bypass2 (projectcube и др. — свой слот на ключе)
-    VPN_BYPASS_SOURCE_URL_2_HWID: str = os.getenv("VPN_BYPASS_SOURCE_URL_2_HWID", "").strip()
-    VPN_BYPASS_SOURCE_URL_2_FETCH_UA: str = os.getenv("VPN_BYPASS_SOURCE_URL_2_FETCH_UA", "").strip()
-    VPN_BYPASS_SOURCE_URL_2_DEVICE_OS: str = os.getenv("VPN_BYPASS_SOURCE_URL_2_DEVICE_OS", "").strip()
-    VPN_BYPASS_SOURCE_URL_2_DEVICE_OS_VER: str = os.getenv(
-        "VPN_BYPASS_SOURCE_URL_2_DEVICE_OS_VER", ""
-    ).strip()
-    VPN_BYPASS_SOURCE_URL_2_DEVICE_MODEL: str = os.getenv(
-        "VPN_BYPASS_SOURCE_URL_2_DEVICE_MODEL", ""
-    ).strip()
     # legacy aliases (читаются, но не нужны в env)
     PRIMARY_SUB_URL: str = VPN_SOURCE_URL
     LIDERVPN_SUB_URL: str = normalize_subscription_url(os.getenv("LIDERVPN_SUB_URL", "")) or VPN_SOURCE_URL
     WIFI_SOURCE_URLS: str = os.getenv("WIFI_SOURCE_URLS", VPN_SOURCE_URL)
     LTE_SOURCE_URLS: str = os.getenv("LTE_SOURCE_URLS", VPN_SOURCE_URL)
 
-    # Профиль устройства для панели подписки (по умолчанию — обычный Samsung Android)
+    # Профиль устройства для всех источников (Happ HWID)
     SUB_HWID: str = os.getenv("SUB_HWID", DEFAULT_DEVICE_HWID)
     SUB_DEVICE_OS: str = os.getenv("SUB_DEVICE_OS", DEFAULT_DEVICE_OS)
     SUB_DEVICE_OS_VER: str = os.getenv("SUB_DEVICE_OS_VER", DEFAULT_DEVICE_OS_VER)
@@ -336,7 +336,7 @@ class Config(BaseModel):
         return url.rstrip("/").split("/")[-1] if url else "не задан"
 
     def bypass_source_url(self) -> str:
-        url = normalize_subscription_url((self.VPN_BYPASS_SOURCE_URL or "").strip())
+        url = blank_subscription_url(self.VPN_BYPASS_SOURCE_URL or "")
         main = self.resolved_source_url()
         if url and main and url.rstrip("/") == main.rstrip("/"):
             return ""
@@ -347,7 +347,7 @@ class Config(BaseModel):
         return url.rstrip("/").split("/")[-1] if url else ""
 
     def bypass_source_url_2(self) -> str:
-        url = normalize_subscription_url((self.VPN_BYPASS_SOURCE_URL_2 or "").strip())
+        url = blank_subscription_url(self.VPN_BYPASS_SOURCE_URL_2 or "")
         main = self.resolved_source_url()
         bypass1 = self.bypass_source_url()
         if not url:
@@ -399,26 +399,8 @@ class Config(BaseModel):
         return max(8, self.SUBSCRIPTION_CONFIG_LIMIT - reserved)
 
     def fetch_hwid_headers(self, *, role: str = "") -> dict[str, str]:
-        """Заголовки Happ для панели. role=bypass2 — отдельный HWID/устройство из env."""
-        if role == "bypass2" and (self.VPN_BYPASS_SOURCE_URL_2_HWID or "").strip():
-            return {
-                "User-Agent": (
-                    self.VPN_BYPASS_SOURCE_URL_2_FETCH_UA or self.SUB_FETCH_UA or DEFAULT_FETCH_UA
-                ).strip(),
-                "Accept": "*/*",
-                "Accept-Encoding": "gzip",
-                "x-hwid": self.VPN_BYPASS_SOURCE_URL_2_HWID.strip(),
-                "x-device-os": self.VPN_BYPASS_SOURCE_URL_2_DEVICE_OS
-                or self.SUB_DEVICE_OS
-                or DEFAULT_DEVICE_OS,
-                "x-ver-os": self.VPN_BYPASS_SOURCE_URL_2_DEVICE_OS_VER
-                or self.SUB_DEVICE_OS_VER
-                or DEFAULT_DEVICE_OS_VER,
-                "x-device-model": self.VPN_BYPASS_SOURCE_URL_2_DEVICE_MODEL
-                or self.SUB_DEVICE_MODEL
-                or DEFAULT_DEVICE_MODEL,
-                "x-device-locale": (self.SUB_DEVICE_LOCALE or "ru").strip() or "ru",
-            }
+        """Заголовки Happ для панели — один профиль устройства для всех источников."""
+        _ = role
         return {
             "User-Agent": (self.SUB_FETCH_UA or DEFAULT_FETCH_UA).strip(),
             "Accept": "*/*",
