@@ -9,13 +9,13 @@ from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from bot_notify import set_bot
 from bot_profile import restore_bot_profile
-from bot_session import create_bot
-from config import config, requires_happ_hwid
+from config import config
 from pool_engine_v3 import POOL_ENGINE_VERSION, close_session, start_refresh_loop
 from database import init_db, update_admins_status
 from handlers import setup_handlers
 from ssl_check import log_public_url_ssl
 from subscription_server import app as subscription_app
+from telegram_webhook import bind_telegram, maintain_webhook, router as telegram_router
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 coloredlogs.install(level="info")
@@ -35,6 +35,21 @@ async def setup_bot_commands(bot: Bot) -> None:
         await bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(text="Кабинет", web_app=WebAppInfo(url=miniapp))
         )
+
+
+async def _telegram_bootstrap(bot: Bot) -> None:
+    try:
+        await asyncio.wait_for(setup_bot_commands(bot), timeout=30)
+    except Exception as exc:
+        logger.warning("Bot commands setup failed: %s", exc)
+    await restore_bot_profile(bot)
+    if config.telegram_webhook_enabled():
+        await maintain_webhook(bot)
+    else:
+        try:
+            await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=30)
+        except Exception as exc:
+            logger.warning("delete_webhook failed: %s", exc)
 
 
 async def run_subscription_server() -> None:
@@ -67,52 +82,39 @@ async def main() -> None:
 
     log_public_url_ssl(config.SUBSCRIPTION_PUBLIC_URL)
 
-    source_url = config.resolved_source_url()
-    if requires_happ_hwid(source_url):
-        if config.upstream_proxy_configured():
-            logger.info(
-                "Upstream HWID panel (%s): fetch via proxy %s",
-                config.source_label(),
-                config.upstream_proxy_label(),
-            )
-        else:
-            logger.warning(
-                "Upstream HWID panel (%s) without UPSTREAM_PROXY_URL — "
-                "requests go from server IP (high ban risk on eu-fffast)",
-                config.source_label(),
-            )
-
     await init_db()
     asyncio.create_task(update_admins_status())
 
-    bot = create_bot()
+    bot = Bot(token=config.BOT_TOKEN)
     set_bot(bot)
     dp = Dispatcher()
     setup_handlers(dp)
-
-    try:
-        await asyncio.wait_for(setup_bot_commands(bot), timeout=45)
-    except Exception as exc:
-        logger.warning("Bot commands setup failed (will retry via polling): %s", exc)
-
-    await restore_bot_profile(bot)
-
-    try:
-        await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=45)
-    except Exception as exc:
-        logger.warning("delete_webhook failed: %s", exc)
+    bind_telegram(dp, bot)
+    subscription_app.include_router(telegram_router)
 
     asyncio.create_task(start_refresh_loop())
-    asyncio.create_task(run_subscription_server())
+    asyncio.create_task(_telegram_bootstrap(bot))
 
+    mode = (
+        f"webhook {config.telegram_webhook_url()}"
+        if config.telegram_webhook_enabled()
+        else "polling"
+    )
     logger.info(
-        "%s started (Upstash, %s configs, primary subscription%s%s)",
+        "%s started (Upstash, %s configs, Telegram %s%s%s)",
         config.BOT_NAME,
         config.SUBSCRIPTION_CONFIG_LIMIT,
+        mode,
         ", Cardlink ON" if config.use_cardlink else "",
         f", channel gate {config.required_channel_id}" if config.channel_gate_enabled else "",
     )
     logger.info("Pool engine v%s — private JSON passthrough enabled", POOL_ENGINE_VERSION)
+
+    if config.telegram_webhook_enabled():
+        await run_subscription_server()
+        return
+
+    asyncio.create_task(run_subscription_server())
     try:
         await dp.start_polling(bot, drop_pending_updates=True)
     finally:

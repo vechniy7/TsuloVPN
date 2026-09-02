@@ -164,24 +164,8 @@ async def _get_session() -> aiohttp.ClientSession:
 
 
 async def _get_upstream_session() -> aiohttp.ClientSession:
-    """Сессия для VPN_SOURCE_URL — через UPSTREAM_PROXY_URL (HTTP/SOCKS5), если задан."""
-    global _upstream_session
-    if _upstream_session is None or _upstream_session.closed:
-        timeout = aiohttp.ClientTimeout(total=config.FETCH_TIMEOUT)
-        jar = aiohttp.CookieJar(unsafe=True)
-        proxy_url = (config.UPSTREAM_PROXY_URL or "").strip()
-        if proxy_url:
-            from aiohttp_socks import ProxyConnector
-
-            connector = ProxyConnector.from_url(proxy_url)
-            _upstream_session = aiohttp.ClientSession(
-                timeout=timeout,
-                cookie_jar=jar,
-                connector=connector,
-            )
-        else:
-            _upstream_session = aiohttp.ClientSession(timeout=timeout, cookie_jar=jar)
-    return _upstream_session
+    """Прямое подключение к VPN-панели (без прокси)."""
+    return await _get_session()
 
 
 def _fetch_headers_for_url(url: str, *, role: str = "") -> dict[str, str]:
@@ -512,12 +496,11 @@ async def refresh_pool(force: bool = False) -> PoolState:
         bypass_label = config.bypass_source_label()
         bypass2_label = config.bypass_source_label_2()
         logger.info(
-            "pool_engine_v3: main=%s bypass=%s bypass2=%s (happ_hwid=%s, proxy=%s)",
+            "pool_engine_v3: main=%s bypass=%s bypass2=%s (happ_hwid=%s)",
             config.source_label(),
             bypass_label or "—",
             bypass2_label or "—",
             requires_happ_hwid(config.resolved_source_url() or ""),
-            config.upstream_proxy_label() if config.upstream_proxy_configured() else "direct",
         )
 
         try:
@@ -606,8 +589,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                         "http_502",
                         "Панель вернула <b>502 Bad Gateway</b> — часто это <b>бан аккаунта</b> "
                         "за реселл/серверные запросы.\n"
-                        "Нужен <b>новый аккаунт</b> и ключ; включите <code>UPSTREAM_PROXY_URL</code> "
-                        "и увеличьте <code>POOL_REFRESH_INTERVAL</code>.",
+                        "Нужен <b>новый аккаунт</b> и ключ; увеличьте <code>POOL_REFRESH_INTERVAL</code>.",
                     )
                 else:
                     _pool.last_error = f"Failed to fetch source ({err_hint})"

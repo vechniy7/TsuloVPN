@@ -180,10 +180,16 @@ class Config(BaseModel):
     POOL_STARTUP_DELAY_SEC: int = int(os.getenv("POOL_STARTUP_DELAY_SEC", "180"))
     CIDR_REFRESH_INTERVAL: int = int(os.getenv("CIDR_REFRESH_INTERVAL", "86400"))
     SOURCE_FETCH_BACKOFF_SEC: int = int(os.getenv("SOURCE_FETCH_BACKOFF_SEC", "7200"))
-    # HTTP / SOCKS5 прокси для fetch VPN-панелей (не с IP Amvera)
+    # legacy — не используется (оставлено для совместимости env)
     UPSTREAM_PROXY_URL: str = os.getenv("UPSTREAM_PROXY_URL", "").strip()
-    # Прокси для api.telegram.org (Amvera часто блокирует напрямую). Пусто = UPSTREAM_PROXY_URL.
-    TELEGRAM_PROXY_URL: str = os.getenv("TELEGRAM_PROXY_URL", "").strip()
+    # Telegram: webhook вместо long polling (рекомендуется на Amvera)
+    TELEGRAM_WEBHOOK_ENABLED: bool = os.getenv("TELEGRAM_WEBHOOK_ENABLED", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    TELEGRAM_WEBHOOK_PATH: str = os.getenv("TELEGRAM_WEBHOOK_PATH", "/telegram/webhook").strip()
+    TELEGRAM_WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
     ADMIN_FORCE_REFRESH_COOLDOWN_SEC: int = int(
         os.getenv("ADMIN_FORCE_REFRESH_COOLDOWN_SEC", "3600")
     )
@@ -379,31 +385,28 @@ class Config(BaseModel):
             plan.append(("bypass2", bypass2))
         return plan
 
-    def upstream_proxy_configured(self) -> bool:
-        return bool((self.UPSTREAM_PROXY_URL or "").strip())
+    def telegram_webhook_enabled(self) -> bool:
+        if not self.TELEGRAM_WEBHOOK_ENABLED:
+            return False
+        return self.SUBSCRIPTION_PUBLIC_URL.lower().startswith("https://")
 
-    def upstream_proxy_label(self) -> str:
-        """host:port для логов без логина/пароля."""
-        return self._proxy_label(self.UPSTREAM_PROXY_URL)
+    def telegram_webhook_url(self) -> str:
+        base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
+        path = self.TELEGRAM_WEBHOOK_PATH or "/telegram/webhook"
+        if not path.startswith("/"):
+            path = f"/{path}"
+        return f"{base}{path}"
 
-    def telegram_proxy_url(self) -> str:
-        explicit = (self.TELEGRAM_PROXY_URL or "").strip()
+    def telegram_webhook_secret(self) -> str:
+        explicit = (self.TELEGRAM_WEBHOOK_SECRET or "").strip()
         if explicit:
             return explicit
-        return (self.UPSTREAM_PROXY_URL or "").strip()
+        token = (self.BOT_TOKEN or "").strip()
+        if not token:
+            return ""
+        import hashlib
 
-    def telegram_proxy_label(self) -> str:
-        return self._proxy_label(self.telegram_proxy_url())
-
-    def _proxy_label(self, raw: str) -> str:
-        raw = (raw or "").strip()
-        if not raw:
-            return "none"
-        parsed = urlparse(raw if "://" in raw else f"http://{raw}")
-        host = parsed.hostname or "?"
-        port = parsed.port
-        scheme = parsed.scheme or "http"
-        return f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
+        return hashlib.sha256(f"tsulovpn-webhook:{token}".encode()).hexdigest()[:32]
 
     def subscription_wifi_limit(self) -> int:
         """Слоты под страны/Wi‑Fi; обходные конфиги не вытесняют «Мобильный Интернет»."""
