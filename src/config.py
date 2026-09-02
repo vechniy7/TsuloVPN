@@ -180,8 +180,10 @@ class Config(BaseModel):
     POOL_STARTUP_DELAY_SEC: int = int(os.getenv("POOL_STARTUP_DELAY_SEC", "180"))
     CIDR_REFRESH_INTERVAL: int = int(os.getenv("CIDR_REFRESH_INTERVAL", "86400"))
     SOURCE_FETCH_BACKOFF_SEC: int = int(os.getenv("SOURCE_FETCH_BACKOFF_SEC", "7200"))
-    # HTTP / SOCKS5 прокси только для запросов к VPN_SOURCE_URL (не с IP Amvera)
+    # HTTP / SOCKS5 прокси для fetch VPN-панелей (не с IP Amvera)
     UPSTREAM_PROXY_URL: str = os.getenv("UPSTREAM_PROXY_URL", "").strip()
+    # Прокси для api.telegram.org (Amvera часто блокирует напрямую). Пусто = UPSTREAM_PROXY_URL.
+    TELEGRAM_PROXY_URL: str = os.getenv("TELEGRAM_PROXY_URL", "").strip()
     ADMIN_FORCE_REFRESH_COOLDOWN_SEC: int = int(
         os.getenv("ADMIN_FORCE_REFRESH_COOLDOWN_SEC", "3600")
     )
@@ -382,7 +384,19 @@ class Config(BaseModel):
 
     def upstream_proxy_label(self) -> str:
         """host:port для логов без логина/пароля."""
-        raw = (self.UPSTREAM_PROXY_URL or "").strip()
+        return self._proxy_label(self.UPSTREAM_PROXY_URL)
+
+    def telegram_proxy_url(self) -> str:
+        explicit = (self.TELEGRAM_PROXY_URL or "").strip()
+        if explicit:
+            return explicit
+        return (self.UPSTREAM_PROXY_URL or "").strip()
+
+    def telegram_proxy_label(self) -> str:
+        return self._proxy_label(self.telegram_proxy_url())
+
+    def _proxy_label(self, raw: str) -> str:
+        raw = (raw or "").strip()
         if not raw:
             return "none"
         parsed = urlparse(raw if "://" in raw else f"http://{raw}")

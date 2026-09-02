@@ -9,6 +9,7 @@ from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from bot_notify import set_bot
 from bot_profile import restore_bot_profile
+from bot_session import create_bot
 from config import config, requires_happ_hwid
 from pool_engine_v3 import POOL_ENGINE_VERSION, close_session, start_refresh_loop
 from database import init_db, update_admins_status
@@ -82,16 +83,24 @@ async def main() -> None:
             )
 
     await init_db()
-    await update_admins_status()
+    asyncio.create_task(update_admins_status())
 
-    bot = Bot(token=config.BOT_TOKEN)
+    bot = create_bot()
     set_bot(bot)
     dp = Dispatcher()
     setup_handlers(dp)
-    await setup_bot_commands(bot)
+
+    try:
+        await asyncio.wait_for(setup_bot_commands(bot), timeout=45)
+    except Exception as exc:
+        logger.warning("Bot commands setup failed (will retry via polling): %s", exc)
+
     await restore_bot_profile(bot)
 
-    await bot.delete_webhook(drop_pending_updates=True)
+    try:
+        await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=45)
+    except Exception as exc:
+        logger.warning("delete_webhook failed: %s", exc)
 
     asyncio.create_task(start_refresh_loop())
     asyncio.create_task(run_subscription_server())

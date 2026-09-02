@@ -171,13 +171,20 @@ async def update_admins_status() -> None:
     def _update():
         redis = _get_redis()
         admin_ids = set(config.ADMINS)
+        updated = 0
         for tid_raw in redis.smembers(USERS_SET):
             telegram_id = int(tid_raw)
             user = _parse_user(redis.get(_user_key(telegram_id)))
             if not user:
                 continue
-            user.is_admin = telegram_id in admin_ids
+            should_be_admin = telegram_id in admin_ids
+            if user.is_admin == should_be_admin:
+                continue
+            user.is_admin = should_be_admin
             redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+            updated += 1
+        if updated:
+            logger.info("Admin flags updated for %s users", updated)
 
     await _run(_update)
 
