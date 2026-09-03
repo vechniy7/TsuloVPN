@@ -8,16 +8,18 @@ Telegram выполняет их сам, без исходящего запро�
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from contextvars import ContextVar
 from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import Default
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.methods import TelegramMethod
 from aiogram.methods.base import TelegramType
 from aiogram.types import Chat, ChatMemberMember, Message, Update, User as TgUser
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
 from config import config
@@ -30,6 +32,7 @@ _dp: Dispatcher | None = None
 _bot: Bot | None = None
 
 _capture: ContextVar[list[TelegramMethod] | None] = ContextVar("tg_capture", default=None)
+_UNSET = object()
 
 _SEND_METHODS = frozenset(
     {
@@ -90,10 +93,39 @@ def _dummy_result(method: TelegramMethod[TelegramType]) -> TelegramType:
     return True  # type: ignore[return-value]
 
 
+def _scrub(value):
+    """Убрать aiogram Default и сделать значение JSON-safe."""
+    if isinstance(value, Default):
+        return _UNSET
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            scrubbed = _scrub(item)
+            if scrubbed is _UNSET:
+                continue
+            out[key] = scrubbed
+        return out
+    if isinstance(value, (list, tuple)):
+        out = []
+        for item in value:
+            scrubbed = _scrub(item)
+            if scrubbed is _UNSET:
+                continue
+            out.append(scrubbed)
+        return out
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    return value
+
+
 def method_to_webhook_json(method: TelegramMethod) -> dict:
-    data = method.model_dump(mode="json", exclude_none=True, exclude_unset=True, by_alias=True)
+    raw = method.model_dump(mode="python", exclude_none=True, exclude_unset=True, by_alias=True)
+    data = _scrub(raw)
+    if not isinstance(data, dict):
+        data = {}
     data["method"] = method.__api_method__
-    return data
+    # Финальная проверка JSON-сериализации
+    return json.loads(json.dumps(data, ensure_ascii=False))
 
 
 def pick_reply_method(calls: list[TelegramMethod]) -> TelegramMethod | None:
