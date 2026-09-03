@@ -116,20 +116,130 @@ async def health():
     return payload
 
 
-async def _subscription_user(token: str):
+def _pay_channel() -> str:
+    ch = (config.required_channel_id or config.BOT_NAME or "TsuloVPN").lstrip("@").strip()
+    return ch or "TsuloVPN"
+
+
+def _payment_notice_profiles(*, reason: str) -> list[dict]:
+    """
+    Заглушка вместо серверов: Happ ОБЯЗАН получить HTTP 200 и заменить список.
+    При 403/404 клиент часто оставляет старые рабочие конфиги в кэше.
+    """
+    channel = _pay_channel()
+    if reason == "disabled":
+        title = f"⛔ Доступ закрыт · @{channel}"
+        desc = f"Ключ отключён. Напишите в поддержку или откройте бота @{channel}"
+    elif reason == "not_found":
+        title = f"🔑 Ключ недействителен · @{channel}"
+        desc = f"Ключ удалён или заменён. Получите новый в боте @{channel}"
+    else:
+        title = f"⚠️ Оплатите @{channel}"
+        desc = f"Подписка неактивна. Оформите оплату в боте / канале @{channel}"
+
+    # Нерабочий outbound: в списке Happ виден только текст, подключиться нельзя.
+    return [
+        {
+            "remarks": title,
+            "meta": {
+                "serverDescription": base64.b64encode(desc.encode("utf-8")).decode("ascii"),
+            },
+            "log": {"loglevel": "warning"},
+            "inbounds": [],
+            "outbounds": [
+                {
+                    "tag": "proxy",
+                    "protocol": "blackhole",
+                    "settings": {"response": {"type": "none"}},
+                },
+                {"tag": "direct", "protocol": "freedom", "settings": {}},
+                {"tag": "block", "protocol": "blackhole", "settings": {}},
+            ],
+            "routing": {
+                "domainStrategy": "AsIs",
+                "rules": [
+                    {"type": "field", "network": "tcp,udp", "outboundTag": "block"},
+                ],
+            },
+        }
+    ]
+
+
+def _subscription_response(
+    profiles: list[dict],
+    *,
+    profile_title: str,
+    expire_ts: int,
+    cache_max_age: int,
+    update_interval: str,
+) -> Response:
+    body = json.dumps(profiles, ensure_ascii=False, separators=(",", ":"))
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Profile-Update-Interval": update_interval,
+        "Profile-Title": f"base64:{base64.b64encode(profile_title.encode()).decode()}",
+        "Subscription-Userinfo": f"upload=0; download=0; total=0; expire={expire_ts}",
+        "Content-Disposition": f'inline; filename="{config.BOT_NAME}.json"',
+        "Cache-Control": f"private, max-age={cache_max_age}",
+        **HAPP_HEADERS,
+    }
+    return Response(content=body, media_type="application/json; charset=utf-8", headers=headers)
+
+
+def _parse_expire_ts(user) -> int:
+    if user and user.expires_at:
+        try:
+            from datetime import datetime, timezone
+
+            exp = datetime.fromisoformat(user.expires_at)
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            return int(exp.timestamp())
+        except ValueError:
+            pass
+    return int(time.time()) + 31536000
+
+
+async def _subscription_access(token: str) -> tuple[object | None, str | None]:
+    """Возвращает (user, reason). reason=None — доступ разрешён."""
     user = await get_user_by_token(token)
     if not user:
-        raise HTTPException(status_code=404, detail="Subscription not found")
+        return None, "not_found"
     if getattr(user, "disabled", False):
-        raise HTTPException(status_code=403, detail="Subscription disabled")
-    if config.payments_active and not user.is_admin and not is_subscription_active(user):
-        raise HTTPException(status_code=403, detail="Subscription expired")
-    return user
+        return user, "disabled"
+    if user.is_admin:
+        return user, None
+    if config.payments_active and not is_subscription_active(user):
+        return user, "expired"
+    return user, None
 
 
 @app.get("/sub/{token}")
 async def subscription(token: str):
-    user = await _subscription_user(token)
+    user, reason = await _subscription_access(token)
+
+    if reason:
+        # Важно: HTTP 200 + одна «оплата»-запись, иначе Happ оставит старые сервера.
+        channel = _pay_channel()
+        profiles = _payment_notice_profiles(reason=reason)
+        if user is not None:
+            try:
+                await touch_subscription_fetch(user.telegram_id)
+            except Exception as exc:
+                logger.warning("touch_subscription_fetch failed: %s", exc)
+        logger.info(
+            "JSON subscription blocked token=%s… reason=%s user=%s",
+            (token or "")[:8],
+            reason,
+            getattr(user, "telegram_id", None),
+        )
+        return _subscription_response(
+            profiles,
+            profile_title=f"⚠️ Оплатите @{channel}",
+            expire_ts=int(time.time()) - 60,
+            cache_max_age=60,
+            update_interval="1",
+        )
 
     profiles = get_happ_json_profiles()
     if not profiles:
@@ -140,39 +250,18 @@ async def subscription(token: str):
     except Exception as exc:
         logger.warning("touch_subscription_fetch failed: %s", exc)
 
-    body = json.dumps(profiles, ensure_ascii=False, separators=(",", ":"))
-    profile_title = f"🔮 {config.BOT_NAME}"
-
-    expire_ts = int(time.time()) + 31536000
-    if user.expires_at:
-        try:
-            from datetime import datetime, timezone
-
-            exp = datetime.fromisoformat(user.expires_at)
-            if exp.tzinfo is None:
-                exp = exp.replace(tzinfo=timezone.utc)
-            expire_ts = int(exp.timestamp())
-        except ValueError:
-            pass
-
-    headers = {
-        "Content-Type": "application/json; charset=utf-8",
-        "Profile-Update-Interval": "12",
-        "Profile-Title": f"base64:{base64.b64encode(profile_title.encode()).decode()}",
-        "Subscription-Userinfo": (
-            f"upload=0; download=0; total=0; expire={expire_ts}"
-        ),
-        "Content-Disposition": f'inline; filename="{config.BOT_NAME}.json"',
-        "Cache-Control": "private, max-age=600",
-        **HAPP_HEADERS,
-    }
-
     logger.info(
         "JSON subscription user=%s configs=%s",
         user.telegram_id,
         len(profiles),
     )
-    return Response(content=body, media_type="application/json; charset=utf-8", headers=headers)
+    return _subscription_response(
+        profiles,
+        profile_title=f"🔮 {config.BOT_NAME}",
+        expire_ts=_parse_expire_ts(user),
+        cache_max_age=300,
+        update_interval="12",
+    )
 
 
 def _ikev2_token_allowed(token: str) -> bool:
@@ -190,8 +279,11 @@ async def ikev2_catalog(token: str):
     Amvera only serves this JSON — the actual VPN daemon runs on a separate VPS.
     """
     if not _ikev2_token_allowed(token):
-        # Fall back to normal user token check (same as /sub/)
-        await _subscription_user(token)
+        user, reason = await _subscription_access(token)
+        if reason:
+            raise HTTPException(status_code=403, detail=f"Subscription {reason}")
+        if not user:
+            raise HTTPException(status_code=404, detail="Subscription not found")
 
     gateways = config.ikev2_gateways()
     if not gateways:
