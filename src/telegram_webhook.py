@@ -51,11 +51,11 @@ _SEND_METHODS = frozenset(
 )
 
 _METHOD_PRIORITY = (
-    "sendMessage",
     "sendPhoto",
+    "editMessageMedia",
+    "sendMessage",
     "editMessageText",
     "editMessageCaption",
-    "editMessageMedia",
     "editMessageReplyMarkup",
     "sendDocument",
     "deleteMessage",
@@ -143,7 +143,19 @@ def method_to_webhook_json(method: TelegramMethod) -> dict:
     if not isinstance(data, dict):
         data = {}
     data["method"] = method.__api_method__
-    return json.loads(json.dumps(data, ensure_ascii=False))
+    # FSInputFile / локальные файлы в webhook JSON нельзя — только URL/file_id.
+    return json.loads(json.dumps(data, ensure_ascii=False, default=_json_default))
+
+
+def _json_default(obj):
+    name = type(obj).__name__
+    if name in ("FSInputFile", "BufferedInputFile", "URLInputFile"):
+        path = getattr(obj, "path", None) or getattr(obj, "url", None)
+        raise TypeError(
+            f"{name} cannot be sent via webhook reply "
+            f"(use HTTPS photo URL). path={path!r}"
+        )
+    raise TypeError(f"Object of type {name} is not JSON serializable")
 
 
 def pick_reply_method(calls: list[TelegramMethod]) -> TelegramMethod | None:

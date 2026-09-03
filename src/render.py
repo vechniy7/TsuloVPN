@@ -1,4 +1,4 @@
-"""Отправка экранов бота: текст (баннеры временно отключены)."""
+"""Отправка экранов бота. Баннеры — по HTTPS URL (webhook не умеет FSInputFile)."""
 
 from __future__ import annotations
 
@@ -7,52 +7,60 @@ from pathlib import Path
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import FSInputFile, InputMediaPhoto, Message
+from aiogram.types import InputMediaPhoto, Message
+
+from config import config
 
 logger = logging.getLogger(__name__)
 
 PHOTO_DIR = Path(__file__).parent / "photo"
-# Баннеры включены — фото из src/photo (как у типичных VPN-ботов).
 USE_SCREEN_PHOTOS = True
-SCREEN_PHOTOS = {
-    "home": PHOTO_DIR / "1vpn.PNG",
-    "access": PHOTO_DIR / "2vpn.PNG",
-    "help": PHOTO_DIR / "2vpn.PNG",
-    "tariffs": PHOTO_DIR / "3vpn.PNG",
-    "docs": PHOTO_DIR / "3vpn.PNG",
-    "channel": PHOTO_DIR / "1vpn.PNG",
-    "donate": PHOTO_DIR / "3vpn.PNG",
-    "admin": PHOTO_DIR / "1vpn.PNG",
+
+# Имена файлов в cloudflare/pages/public и src/photo
+SCREEN_PHOTO_FILES = {
+    "home": "1vpn.PNG",
+    "access": "2vpn.PNG",
+    "help": "2vpn.PNG",
+    "tariffs": "3vpn.PNG",
+    "docs": "3vpn.PNG",
+    "channel": "1vpn.PNG",
+    "donate": "3vpn.PNG",
+    "admin": "1vpn.PNG",
 }
+
 CAPTION_LIMIT = 4096
 PHOTO_CAPTION_LIMIT = 1024
 
 _file_ids: dict[str, str] = {}
 
 
-def photo_path(screen: str) -> Path | None:
+def photo_url(screen: str) -> str | None:
     if not USE_SCREEN_PHOTOS:
         return None
-    path = SCREEN_PHOTOS.get(screen)
-    if path and path.is_file():
-        return path
-    return None
+    filename = SCREEN_PHOTO_FILES.get(screen or "")
+    if not filename:
+        return None
+    # Локальный файл должен существовать на диске (sanity).
+    if not (PHOTO_DIR / filename).is_file():
+        return None
+    base = (config.SUBSCRIPTION_PUBLIC_URL or "").rstrip("/")
+    if not base.startswith("https://"):
+        return None
+    return f"{base}/{filename}"
 
 
-def _media(screen: str):
+def _media(screen: str) -> str | None:
+    """file_id или публичный HTTPS URL — оба сериализуются в webhook JSON."""
     if not USE_SCREEN_PHOTOS:
         return None
     file_id = _file_ids.get(screen)
     if file_id:
         return file_id
-    path = photo_path(screen)
-    if not path:
-        return None
-    return FSInputFile(path)
+    return photo_url(screen)
 
 
 def _remember_file_id(screen: str, message: Message) -> None:
-    if message.photo:
+    if screen and message.photo:
         _file_ids[screen] = message.photo[-1].file_id
 
 
@@ -64,10 +72,6 @@ async def render_screen(
     screen: str | None,
     edit: bool,
 ) -> Message | None:
-    """
-    screen — ключ баннера или None.
-    При USE_SCREEN_PHOTOS=False всегда текстовые сообщения (без пустых фото).
-    """
     caption = caption.strip()
     media = _media(screen) if screen else None
     limit = PHOTO_CAPTION_LIMIT if media is not None else CAPTION_LIMIT
@@ -77,7 +81,6 @@ async def render_screen(
     has_photo = bool(message.photo) if edit else False
 
     try:
-        # Старое сообщение с фото → переходим на текст: удаляем и шлём новое.
         if edit and media is None and has_photo:
             try:
                 await message.delete()

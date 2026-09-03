@@ -72,6 +72,11 @@ export async function onRequest(context) {
   const { request, env, next } = context;
   const incoming = new URL(request.url);
 
+  // Статика баннеров бота — с Pages, не через Amvera
+  if (/\.(png|jpe?g|webp|gif|ico|css|js|map|txt)$/i.test(incoming.pathname)) {
+    return next();
+  }
+
   // Telegram webhook обрабатывает functions/telegram/webhook.js (channel gate).
   if (
     incoming.pathname === "/telegram/webhook" ||
