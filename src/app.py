@@ -15,7 +15,12 @@ from database import init_db, update_admins_status
 from handlers import setup_handlers
 from ssl_check import log_public_url_ssl
 from subscription_server import app as subscription_app
-from telegram_webhook import bind_telegram, maintain_webhook, router as telegram_router
+from telegram_webhook import (
+    bind_telegram,
+    create_bot,
+    maintain_webhook,
+    router as telegram_router,
+)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 coloredlogs.install(level="info")
@@ -39,7 +44,7 @@ async def setup_bot_commands(bot: Bot) -> None:
 
 async def _telegram_bootstrap(bot: Bot) -> None:
     try:
-        await asyncio.wait_for(setup_bot_commands(bot), timeout=30)
+        await asyncio.wait_for(setup_bot_commands(bot), timeout=20)
     except Exception as exc:
         logger.warning("Bot commands setup failed: %s", exc)
     await restore_bot_profile(bot)
@@ -47,7 +52,7 @@ async def _telegram_bootstrap(bot: Bot) -> None:
         await maintain_webhook(bot)
     else:
         try:
-            await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=30)
+            await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=20)
         except Exception as exc:
             logger.warning("delete_webhook failed: %s", exc)
 
@@ -85,7 +90,7 @@ async def main() -> None:
     await init_db()
     asyncio.create_task(update_admins_status())
 
-    bot = Bot(token=config.BOT_TOKEN)
+    bot = create_bot()
     set_bot(bot)
     dp = Dispatcher()
     setup_handlers(dp)

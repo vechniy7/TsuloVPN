@@ -36,10 +36,14 @@ async def is_channel_member(bot: Bot, user_id: int, *, force: bool = False) -> b
     try:
         member = await bot.get_chat_member(channel, user_id)
     except Exception as exc:
-        logger.warning("Channel membership check failed for %s: %s", user_id, exc)
-        # При сбое API не спамим проверками: коротко кэшируем отрицательный результат.
-        _member_cache[user_id] = (now, False)
-        return False
+        # Amvera часто не достучится до api.telegram.org — не блокируем /start.
+        logger.warning(
+            "Channel membership check failed for %s: %s — allowing access",
+            user_id,
+            exc,
+        )
+        _member_cache[user_id] = (now, True)
+        return True
 
     if member.status == ChatMemberStatus.RESTRICTED:
         ok = bool(getattr(member, "is_member", False))

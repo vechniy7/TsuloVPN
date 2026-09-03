@@ -398,15 +398,8 @@ class Config(BaseModel):
         return f"{base}{path}"
 
     def telegram_webhook_secret(self) -> str:
-        explicit = (self.TELEGRAM_WEBHOOK_SECRET or "").strip()
-        if explicit:
-            return explicit
-        token = (self.BOT_TOKEN or "").strip()
-        if not token:
-            return ""
-        import hashlib
-
-        return hashlib.sha256(f"tsulovpn-webhook:{token}".encode()).hexdigest()[:32]
+        """Только явный TELEGRAM_WEBHOOK_SECRET. Пусто = без проверки (проще для Amvera)."""
+        return (self.TELEGRAM_WEBHOOK_SECRET or "").strip()
 
     def subscription_wifi_limit(self) -> int:
         """Слоты под страны/Wi‑Fi; обходные конфиги не вытесняют «Мобильный Интернет»."""
