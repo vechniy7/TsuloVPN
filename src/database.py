@@ -1,3 +1,7 @@
+"""Хранение пользователей и платежей в Upstash Redis."""
+
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
