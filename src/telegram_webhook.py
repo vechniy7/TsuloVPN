@@ -169,6 +169,11 @@ def method_to_webhook_json(method: TelegramMethod) -> dict:
     if not isinstance(data, dict):
         data = {}
     data["method"] = method.__api_method__
+    # aiogram с exclude_unset выкидывает type у InputMedia → Telegram отклоняет editMessageMedia.
+    if data["method"] == "editMessageMedia":
+        media = data.get("media")
+        if isinstance(media, dict) and not media.get("type"):
+            media["type"] = "photo"
     # FSInputFile / локальные файлы в webhook JSON нельзя — только URL/file_id.
     return json.loads(json.dumps(data, ensure_ascii=False, default=_json_default))
 

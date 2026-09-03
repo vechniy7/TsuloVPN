@@ -68,12 +68,24 @@ function extractUser(update) {
 }
 
 async function tgApi(token, method, body) {
+  // aiogram exclude_unset роняет type у InputMedia — подстрахуем на edge.
+  if (method === "editMessageMedia" && body && body.media && typeof body.media === "object") {
+    if (!body.media.type) body.media.type = "photo";
+  }
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!data || data.ok === false) {
+    console.log(
+      "tgApi fail",
+      method,
+      data && data.description ? data.description : res.status,
+    );
+  }
+  return data;
 }
 
 async function isMember(token, channel, userId) {
