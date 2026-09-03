@@ -86,7 +86,7 @@ async def prompt_channel_subscription(
         message,
         caption=ui.screen_channel_required(),
         markup=ui.kb_channel_required(),
-        screen="home",
+        screen="channel",
         edit=edit,
     )
 

@@ -84,6 +84,8 @@ class User:
     sub_fetch_count: int = 0
     disabled: bool = False
     note: str | None = None
+    bound_hwid: str | None = None
+    hwid_bound_at: str | None = None
 
 
 @dataclass
@@ -146,6 +148,8 @@ def _parse_user(raw: str | bytes | None) -> User | None:
     data.setdefault("sub_fetch_count", 0)
     data.setdefault("disabled", False)
     data.setdefault("note", None)
+    data.setdefault("bound_hwid", None)
+    data.setdefault("hwid_bound_at", None)
     try:
         data["sub_fetch_count"] = int(data.get("sub_fetch_count") or 0)
     except (TypeError, ValueError):
@@ -400,11 +404,72 @@ async def regenerate_user_token(telegram_id: int) -> User | None:
         old = user.subscription_token
         new = _new_token()
         user.subscription_token = new
+        # Новый ключ — новое устройство можно привязать заново.
+        user.bound_hwid = None
+        user.hwid_bound_at = None
         redis.delete(_token_key(old))
         redis.set(_token_key(new), str(telegram_id))
         redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
         return user
 
     user = await _run(_regen)
+    _invalidate_users_cache()
+    return user
+
+
+def normalize_client_hwid(raw: str | None) -> str:
+    if not raw or not isinstance(raw, str):
+        return ""
+    import re
+
+    hwid = re.sub(r"[^a-zA-Z0-9=\-_.:]", "", raw.strip())
+    return hwid[:128]
+
+
+async def check_and_bind_hwid(telegram_id: int, client_hwid: str) -> tuple[User | None, str | None]:
+    """
+    Лимит 1 устройство на ключ.
+    Возвращает (user, reason). reason='hwid_limit' если другое устройство.
+    Пустой HWID — не блокируем (старые клиенты), но и не привязываем.
+    """
+    hwid = normalize_client_hwid(client_hwid)
+    if not config.DEVICE_LIMIT_ENABLED or config.DEVICE_LIMIT <= 0:
+        return await get_user(telegram_id), None
+
+    def _check():
+        redis = _get_redis()
+        user = _parse_user(redis.get(_user_key(telegram_id)))
+        if not user:
+            return None, "not_found", False
+        if not hwid:
+            return user, None, False
+        bound = (user.bound_hwid or "").strip()
+        if not bound:
+            user.bound_hwid = hwid
+            user.hwid_bound_at = datetime.now(timezone.utc).isoformat()
+            redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+            return user, None, True
+        if bound == hwid:
+            return user, None, False
+        return user, "hwid_limit", False
+
+    user, reason, changed = await _run(_check)
+    if changed:
+        _invalidate_users_cache()
+    return user, reason
+
+
+async def reset_user_hwid(telegram_id: int) -> User | None:
+    def _reset():
+        redis = _get_redis()
+        user = _parse_user(redis.get(_user_key(telegram_id)))
+        if not user:
+            return None
+        user.bound_hwid = None
+        user.hwid_bound_at = None
+        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+        return user
+
+    user = await _run(_reset)
     _invalidate_users_cache()
     return user

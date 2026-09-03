@@ -4,3 +4,7 @@ pages_build_output_dir = "public"
 
 [vars]
 AMVERA_ORIGIN = "https://tsulovpn-culoebali.amvera.io"
+REQUIRED_CHANNEL = "@TsuloVPN"
+CHANNEL_URL = "https://t.me/TsuloVPN"
+CHANNEL_GATE_ENABLED = "true"
+# BOT_TOKEN и ADMINS — только через Pages Secrets (не в git)

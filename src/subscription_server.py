@@ -3,11 +3,11 @@ import json
 import logging
 import time
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 
 from config import config
 from pool_engine_v3 import get_happ_json_profiles, get_pool_state
-from database import get_user_by_token, touch_subscription_fetch
+from database import check_and_bind_hwid, get_user_by_token, touch_subscription_fetch
 from legal_docs import privacy_html, tariffs_html, terms_html
 from miniapp_routes import router as miniapp_router
 from cardlink_routes import router as cardlink_router
@@ -133,6 +133,12 @@ def _payment_notice_profiles(*, reason: str) -> list[dict]:
     elif reason == "not_found":
         title = f"🔑 Ключ недействителен · @{channel}"
         desc = f"Ключ удалён или заменён. Получите новый в боте @{channel}"
+    elif reason == "hwid_limit":
+        title = f"📱 Лимит устройств · @{channel}"
+        desc = (
+            f"Ключ уже привязан к другому устройству. "
+            f"Сброс HWID — в боте @{channel} / поддержке"
+        )
     else:
         title = f"⚠️ Оплатите @{channel}"
         desc = f"Подписка неактивна. Оформите оплату в боте / канале @{channel}"
@@ -215,13 +221,31 @@ async def _subscription_access(token: str) -> tuple[object | None, str | None]:
 
 
 @app.get("/sub/{token}")
-async def subscription(token: str):
+async def subscription(token: str, request: Request):
     user, reason = await _subscription_access(token)
 
+    if not reason and user is not None and not user.is_admin:
+        client_hwid = (
+            request.headers.get("x-hwid")
+            or request.headers.get("X-Hwid")
+            or request.headers.get("x-device-id")
+            or ""
+        )
+        user, hwid_reason = await check_and_bind_hwid(user.telegram_id, client_hwid)
+        if hwid_reason:
+            reason = hwid_reason
+
     if reason:
-        # Важно: HTTP 200 + одна «оплата»-запись, иначе Happ оставит старые сервера.
+        # Важно: HTTP 200 + одна запись-заглушка, иначе Happ оставит старые сервера.
         channel = _pay_channel()
         profiles = _payment_notice_profiles(reason=reason)
+        title = f"⚠️ Оплатите @{channel}"
+        if reason == "hwid_limit":
+            title = f"📱 Лимит устройств · @{channel}"
+        elif reason == "disabled":
+            title = f"⛔ Доступ закрыт · @{channel}"
+        elif reason == "not_found":
+            title = f"🔑 Ключ недействителен · @{channel}"
         if user is not None:
             try:
                 await touch_subscription_fetch(user.telegram_id)
@@ -235,7 +259,7 @@ async def subscription(token: str):
         )
         return _subscription_response(
             profiles,
-            profile_title=f"⚠️ Оплатите @{channel}",
+            profile_title=title,
             expire_ts=int(time.time()) - 60,
             cache_max_age=60,
             update_interval="1",
@@ -251,9 +275,10 @@ async def subscription(token: str):
         logger.warning("touch_subscription_fetch failed: %s", exc)
 
     logger.info(
-        "JSON subscription user=%s configs=%s",
+        "JSON subscription user=%s configs=%s hwid=%s",
         user.telegram_id,
         len(profiles),
+        (getattr(user, "bound_hwid", None) or "")[:12],
     )
     return _subscription_response(
         profiles,

@@ -181,7 +181,7 @@ async def support_cmd(message: Message) -> None:
         message,
         caption=ui.screen_docs(),
         markup=ui.kb_docs(),
-        screen="help",
+        screen="docs",
         edit=False,
     )
 
@@ -215,7 +215,7 @@ async def donate_callback(callback: CallbackQuery) -> None:
         callback.message,
         caption=ui.screen_docs(),
         markup=ui.kb_docs(),
-        screen="help",
+        screen="docs",
         edit=True,
     )
 
@@ -227,7 +227,7 @@ async def tariffs_callback(callback: CallbackQuery) -> None:
         callback.message,
         caption=ui.screen_tariffs(),
         markup=ui.kb_tariffs(),
-        screen="help",
+        screen="tariffs",
         edit=True,
     )
 
@@ -239,7 +239,7 @@ async def docs_callback(callback: CallbackQuery) -> None:
         callback.message,
         caption=ui.screen_docs(),
         markup=ui.kb_docs(),
-        screen="help",
+        screen="docs",
         edit=True,
     )
 
@@ -250,7 +250,7 @@ async def tariffs_cmd(message: Message) -> None:
         message,
         caption=ui.screen_tariffs(),
         markup=ui.kb_tariffs(),
-        screen="help",
+        screen="tariffs",
         edit=False,
     )
 
@@ -261,7 +261,7 @@ async def docs_cmd(message: Message) -> None:
         message,
         caption=ui.screen_docs(),
         markup=ui.kb_docs(),
-        screen="help",
+        screen="docs",
         edit=False,
     )
 

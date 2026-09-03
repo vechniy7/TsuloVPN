@@ -60,8 +60,8 @@ def format_access_until(user: User) -> str:
 
 def kb_channel_required() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Подписаться на канал", url=config.required_channel_url)
-    b.button(text="Проверить подписку", callback_data="check_channel_sub")
+    b.button(text="📢 Подписаться на канал", url=config.required_channel_url)
+    b.button(text="✅ Проверить подписку", callback_data="check_channel_sub")
     b.adjust(1)
     return b.as_markup()
 
@@ -70,71 +70,71 @@ def screen_channel_required() -> str:
     channel = _esc(config.required_channel_id.lstrip("@") or "TsuloVPN")
     name = _esc(config.BOT_NAME)
     return (
-        f"<b>{name}</b>\n\n"
-        f"Чтобы продолжить, подпишитесь на канал <b>@{channel}</b>.\n\n"
-        f"1. Нажмите «Подписаться на канал»\n"
-        f"2. Вернитесь и нажмите «Проверить подписку»"
+        f"💜 <b>{name}</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"Для доступа подпишитесь на канал\n"
+        f"<b>@{channel}</b>\n\n"
+        f"① «Подписаться на канал»\n"
+        f"② Вернитесь → «Проверить подписку»"
     )
 
 
 def kb_home(*, is_admin: bool) -> InlineKeyboardMarkup:
-    """Короткое меню: одно действие на строку."""
+    """Меню как у популярных VPN-ботов: ключ сверху, оплата, гайд, поддержка."""
     b = InlineKeyboardBuilder()
-    b.button(text="Мой доступ", callback_data="get_key")
     plan = _main_plan()
-    price = f" · {plan.price_rub} ₽" if plan else ""
-    b.button(text=f"Тарифы{price}", callback_data="tariffs")
-    b.button(text="Инструкция", callback_data="help")
-    b.button(text="Документы", callback_data="docs")
-    b.button(text="Поддержка", url=config.SUPPORT_URL)
+    price = f"{plan.price_rub}₽" if plan else ""
+    b.button(text="🔑  Мой ключ", callback_data="get_key")
+    b.button(text=f"💳  Тарифы · {price}/мес" if price else "💳  Тарифы", callback_data="tariffs")
+    b.button(text="📖  Инструкция", callback_data="help")
+    b.button(text="💬  Поддержка", url=config.SUPPORT_URL)
     if _webapp_https():
-        b.button(text="Кабинет", web_app=WebAppInfo(url=config.miniapp_url))
+        b.button(text="🖥  Кабинет", web_app=WebAppInfo(url=config.miniapp_url))
     if is_admin:
-        b.button(text="Админ", callback_data="admin_menu")
+        b.button(text="🛠  Админ", callback_data="admin_menu")
     b.adjust(1)
     return b.as_markup()
 
 
 def kb_home_nav() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="← Назад", callback_data="back_to_menu")
+    b.button(text="◀️  В меню", callback_data="back_to_menu")
     return b.as_markup()
 
 
 def kb_access(*, inactive: bool = False) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if inactive:
-        b.button(text="Оформить подписку", callback_data="tariffs")
-        b.button(text="Инструкция", callback_data="help")
-        b.button(text="Поддержка", url=config.SUPPORT_URL)
-        b.button(text="← Назад", callback_data="back_to_menu")
+        b.button(text="💳  Оформить подписку", callback_data="tariffs")
+        b.button(text="📖  Инструкция", callback_data="help")
+        b.button(text="💬  Поддержка", url=config.SUPPORT_URL)
+        b.button(text="◀️  В меню", callback_data="back_to_menu")
         b.adjust(1)
         return b.as_markup()
-    b.button(text="Инструкция", callback_data="help")
+    b.button(text="🔄  Обновить ключ", callback_data="get_key")
+    b.button(text="📖  Как подключить", callback_data="help")
     if _webapp_https():
-        b.button(text="Открыть кабинет", web_app=WebAppInfo(url=config.miniapp_url))
-    b.button(text="Тарифы", callback_data="tariffs")
-    b.button(text="Поддержка", url=config.SUPPORT_URL)
-    b.button(text="← Назад", callback_data="back_to_menu")
+        b.button(text="🖥  Кабинет", web_app=WebAppInfo(url=config.miniapp_url))
+    b.button(text="◀️  В меню", callback_data="back_to_menu")
     b.adjust(1)
     return b.as_markup()
 
 
 def kb_help() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Мой доступ", callback_data="get_key")
-    b.button(text="← Назад", callback_data="back_to_menu")
+    b.button(text="🔑  Получить ключ", callback_data="get_key")
+    b.button(text="◀️  В меню", callback_data="back_to_menu")
     b.adjust(1)
     return b.as_markup()
 
 
 def kb_docs() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Тарифы и цены", url=config.tariffs_page_url)
-    b.button(text="Политика конфиденциальности", url=config.privacy_page_url)
-    b.button(text="Пользовательское соглашение", url=config.terms_page_url)
-    b.button(text="Поддержка", url=config.SUPPORT_URL)
-    b.button(text="← Назад", callback_data="back_to_menu")
+    b.button(text="📄 Тарифы", url=config.tariffs_page_url)
+    b.button(text="🔒 Конфиденциальность", url=config.privacy_page_url)
+    b.button(text="📋 Соглашение", url=config.terms_page_url)
+    b.button(text="💬 Поддержка", url=config.SUPPORT_URL)
+    b.button(text="◀️  В меню", callback_data="back_to_menu")
     b.adjust(1)
     return b.as_markup()
 
@@ -143,12 +143,14 @@ def kb_tariffs() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if config.payments_active:
         for plan in _plans():
-            b.button(text=f"Оплатить · {plan.price_rub} ₽ / мес", callback_data=f"order:{plan.id}")
+            b.button(
+                text=f"💜  Оплатить {plan.price_rub} ₽ / мес",
+                callback_data=f"order:{plan.id}",
+            )
     else:
-        b.button(text="Мой доступ", callback_data="get_key")
-    b.button(text="Подробнее на сайте", url=config.tariffs_page_url)
-    b.button(text="Поддержка", url=config.SUPPORT_URL)
-    b.button(text="← Назад", callback_data="back_to_menu")
+        b.button(text="🔑  Мой ключ", callback_data="get_key")
+    b.button(text="📄  Подробнее", url=config.tariffs_page_url)
+    b.button(text="◀️  В меню", callback_data="back_to_menu")
     b.adjust(1)
     return b.as_markup()
 
@@ -159,9 +161,9 @@ def kb_order(_plan_id: str) -> InlineKeyboardMarkup:
 
 def kb_pay(pay_url: str, bill_id: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Перейти к оплате", url=pay_url)
-    b.button(text="Я оплатил · проверить", callback_data=f"check:{bill_id}")
-    b.button(text="← Назад", callback_data="tariffs")
+    b.button(text="💜  Перейти к оплате", url=pay_url)
+    b.button(text="✅  Я оплатил", callback_data=f"check:{bill_id}")
+    b.button(text="◀️  Назад", callback_data="tariffs")
     b.adjust(1)
     return b.as_markup()
 
@@ -234,25 +236,25 @@ def screen_home(user: User, *, is_admin: bool = False, users_total: int | None =
     badge, detail, active = status_info(user)
     name = _esc(config.BOT_NAME)
     plan = _main_plan()
-    price_line = f"{plan.price_rub} ₽ / месяц" if plan else "тариф на сайте"
+    price_line = f"{plan.price_rub} ₽ / мес" if plan else "—"
+    status_emoji = "🟢" if active else "🔴"
     users_line = ""
     if users_total is not None:
-        users_line = f"\nПользователей: <b>{format_users_count_spaced(users_total)}</b>\n"
-    if config.payments_active:
-        pay_hint = (
-            "Нажмите «Мой доступ», чтобы получить ключ."
-            if active
-            else "Чтобы открыть доступ — «Тарифы» → оплата."
-        )
+        users_line = f"👥  {_esc(format_users_count_spaced(users_total))}\n"
+    if active:
+        cta = "Нажмите «Мой ключ» — скопируйте ссылку в Happ."
     else:
-        pay_hint = "Нажмите «Мой доступ», чтобы получить ключ."
+        cta = "Оформите подписку в «Тарифы», затем получите ключ."
     return (
-        f"<b>{name}</b>{users_line}\n"
-        f"VPN-доступ через Happ\n\n"
-        f"Статус: <b>{_esc(badge)}</b>\n"
-        f"{_esc(detail)}\n\n"
-        f"Тариф: <b>{price_line}</b>\n\n"
-        f"{pay_hint}"
+        f"💜 <b>{name}</b>\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"{users_line}"
+        f"{status_emoji}  Статус: <b>{_esc(badge)}</b>\n"
+        f"📅  {_esc(detail)}\n"
+        f"💎  Тариф: <b>{price_line}</b>\n"
+        f"📱  Устройств: <b>1</b>\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"{cta}"
     )
 
 
@@ -260,64 +262,61 @@ def screen_access_inactive() -> str:
     plan = _main_plan()
     price = f"{plan.price_rub} ₽" if plan else "по тарифу"
     return (
-        "<b>Подписка не активна</b>\n\n"
-        f"Оформите доступ в разделе «Тарифы» — {price} / месяц.\n"
-        "После оплаты вернитесь и нажмите «Мой доступ»."
+        f"💜 <b>Подписка неактивна</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"Доступ закрыт. Оформите тариф — <b>{price}/мес</b>.\n\n"
+        f"После оплаты нажмите «Мой ключ»."
     )
 
 
 def screen_access_loading() -> str:
     return (
-        "<b>Профиль обновляется</b>\n\n"
-        "Подождите около минуты и снова нажмите «Мой доступ»."
+        f"💜 <b>Обновляем серверы</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"Подождите ~1 минуту и снова нажмите «Мой ключ»."
     )
 
 
 def screen_access(user: User, import_url: str) -> str:
     badge, detail, _ = status_info(user)
     return (
-        f"<b>Ваш ключ (ссылка подписки)</b>\n\n"
-        f"Статус: <b>{_esc(badge)}</b>\n"
-        f"{_esc(detail)}\n\n"
-        f"<b>↓ Это ваш ключ — скопируйте его:</b>\n"
+        f"💜 <b>Ваш ключ</b>\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"🟢  {_esc(badge)} · {_esc(detail)}\n"
+        f"📱  Лимит: <b>1 устройство</b>\n\n"
+        f"<b>Ссылка подписки</b> — удерживайте → Копировать:\n"
         f"<code>{_esc(import_url)}</code>\n\n"
-        f"<b>Как подключить в Happ</b>\n"
-        f"1. Нажмите и удерживайте ссылку выше → «Копировать»\n"
-        f"2. Откройте приложение Happ\n"
-        f"3. «+» или «Добавить подписку» → вставьте ссылку\n"
-        f"4. Включите автообновление подписки\n"
-        f"5. Подключитесь к серверу"
+        f"① Happ → «+» / Добавить подписку\n"
+        f"② Вставьте ключ\n"
+        f"③ Включите автообновление\n"
+        f"④ Подключитесь"
     )
 
 
 def screen_access_short(user: User) -> str:
     badge, detail, _ = status_info(user)
     return (
-        f"<b>Ваш ключ</b>\n\n"
-        f"Статус: <b>{_esc(badge)}</b>\n"
-        f"{_esc(detail)}\n\n"
-        f"Ключ (ссылка подписки) — в следующем сообщении.\n"
-        f"Нажмите и удерживайте его → «Копировать», затем вставьте в Happ."
+        f"💜 <b>Ваш ключ</b>\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"🟢  {_esc(badge)} · {_esc(detail)}\n\n"
+        f"Ключ — в следующем сообщении.\n"
+        f"Удерживайте → Копировать → Happ."
     )
 
 
 def screen_access_link(import_url: str) -> str:
     return (
-        f"<b>Ключ — скопируйте эту ссылку:</b>\n"
-        f"<code>{_esc(import_url)}</code>\n\n"
-        f"Удерживайте ссылку → Копировать → Happ → Добавить подписку"
+        f"<b>🔑 Ключ · скопируйте:</b>\n"
+        f"<code>{_esc(import_url)}</code>"
     )
 
 
 def screen_docs() -> str:
     name = _esc(config.BOT_NAME)
     return (
-        f"<b>Документы · {name}</b>\n\n"
-        f"Откройте нужный документ кнопкой ниже:\n\n"
-        f"• Тарифы и цены\n"
-        f"• Политика конфиденциальности\n"
-        f"• Пользовательское соглашение\n\n"
-        f"Поддержка: {_esc(config.SUPPORT_URL)}"
+        f"💜 <b>Документы · {name}</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"Откройте нужный раздел кнопкой ниже."
     )
 
 
@@ -325,34 +324,34 @@ def screen_tariffs() -> str:
     plan = _main_plan()
     name = _esc(config.BOT_NAME)
     if not plan:
-        return f"<b>Тарифы · {name}</b>\n\nТариф временно недоступен."
+        return f"💜 <b>Тарифы · {name}</b>\n\nВременно недоступно."
     if config.payments_active:
-        status = (
-            f"Подписка на <b>{_esc(plan.title)}</b> — <b>{plan.price_rub} ₽</b>.\n"
-            f"После оплаты доступ открывается автоматически."
+        body = (
+            f"<b>{_esc(plan.title)}</b> — <b>{plan.price_rub} ₽</b>\n"
+            f"Серверы · автообновление · 1 устройство\n\n"
+            f"Нажмите «Оплатить» — безопасная оплата Platega."
         )
-        action = "Нажмите «Оплатить», чтобы перейти на страницу оплаты."
     else:
-        status = (
-            f"Тариф: <b>{_esc(plan.title)}</b> — <b>{plan.price_rub} ₽</b> / месяц.\n"
+        body = (
+            f"<b>{_esc(plan.title)}</b> — <b>{plan.price_rub} ₽</b>/мес\n"
             f"Сейчас доступ открыт без оплаты."
         )
-        action = "Нажмите «Мой доступ», чтобы получить ключ."
     return (
-        f"<b>Тарифы · {name}</b>\n\n"
-        f"{status}\n\n"
-        f"В подписку входит доступ к серверам, обновления профиля и поддержка.\n\n"
-        f"{action}"
+        f"💜 <b>Тарифы · {name}</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"{body}"
     )
 
 
 def screen_order(plan: TariffPlan) -> str:
     return (
-        f"<b>Оплата · {_esc(plan.title)}</b>\n\n"
-        f"Сумма: <b>{plan.price_rub} ₽</b>\n"
-        f"Срок: {plan.months} мес.\n\n"
-        f"Нажмите «Перейти к оплате» — откроется безопасная страница Platega.\n"
-        f"После оплаты вернитесь в бот и нажмите «Я оплатил · проверить»."
+        f"💜 <b>Оплата</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"Тариф: <b>{_esc(plan.title)}</b>\n"
+        f"Сумма: <b>{plan.price_rub} ₽</b>\n\n"
+        f"① «Перейти к оплате»\n"
+        f"② Вернитесь → «Я оплатил»\n"
+        f"③ «Мой ключ»"
     )
 
 
@@ -362,42 +361,38 @@ def screen_pay(plan: TariffPlan) -> str:
 
 def screen_pay_error() -> str:
     return (
-        "<b>Не удалось создать платёж</b>\n\n"
-        "Попробуйте ещё раз через минуту или напишите в поддержку."
+        f"💜 <b>Ошибка оплаты</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"Не удалось создать платёж. Попробуйте позже или напишите в поддержку."
     )
 
 
 def screen_help() -> str:
     name = _esc(config.BOT_NAME)
     return (
-        f"<b>Инструкция · {name}</b>\n\n"
-        f"<b>Что такое ключ?</b>\n"
-        f"Это длинная ссылка подписки. Она появляется после нажатия «Мой доступ».\n"
-        f"Ключ начинается с <code>https://</code> или <code>happ://</code>.\n\n"
-        f"<b>Шаг 1 — получить ключ</b>\n"
-        f"Главное меню → «Мой доступ».\n"
-        f"Ниже статуса будет блок «Это ваш ключ».\n\n"
-        f"<b>Шаг 2 — скопировать</b>\n"
-        f"Нажмите и <b>удерживайте</b> ссылку (не просто тап),\n"
-        f"в меню выберите «Копировать».\n\n"
-        f"<b>Шаг 3 — вставить в Happ</b>\n"
-        f"1. Установите приложение Happ (App Store / Google Play)\n"
-        f"2. Откройте Happ → «+» / «Добавить подписку»\n"
-        f"3. Вставьте скопированную ссылку\n"
-        f"4. Включите автообновление\n"
-        f"5. Выберите сервер и подключитесь\n\n"
-        f"Не получается — кнопка «Поддержка»."
+        f"💜 <b>Инструкция · {name}</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"<b>Ключ</b> — длинная ссылка из «Мой ключ».\n"
+        f"Начинается с <code>https://</code> или <code>happ://</code>.\n\n"
+        f"<b>Подключение</b>\n"
+        f"① Получите ключ в боте\n"
+        f"② Удерживайте → Копировать\n"
+        f"③ Happ → Добавить подписку\n"
+        f"④ Автообновление ON\n"
+        f"⑤ Выберите сервер\n\n"
+        f"<b>1 устройство</b> на ключ. Смена телефона — поддержка.\n\n"
+        f"Вопросы — «Поддержка»."
     )
 
 
 def screen_payment_success(plan_title: str, user: User) -> str:
     badge, detail, _ = status_info(user)
     return (
-        f"<b>Оплата принята</b>\n\n"
+        f"💜 <b>Оплата принята</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
         f"Тариф: {_esc(plan_title)}\n"
-        f"Статус: <b>{_esc(badge)}</b>\n"
-        f"{_esc(detail)}\n\n"
-        f"Откройте «Мой доступ» — там ваш ключ для Happ."
+        f"🟢  {_esc(badge)} · {_esc(detail)}\n\n"
+        f"Откройте «Мой ключ» и добавьте в Happ."
     )
 
 

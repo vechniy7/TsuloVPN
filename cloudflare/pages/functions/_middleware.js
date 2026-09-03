@@ -69,8 +69,16 @@ function copyResponseHeaders(upstream) {
 }
 
 export async function onRequest(context) {
-  const { request, env } = context;
+  const { request, env, next } = context;
   const incoming = new URL(request.url);
+
+  // Telegram webhook обрабатывает functions/telegram/webhook.js (channel gate).
+  if (
+    incoming.pathname === "/telegram/webhook" ||
+    incoming.pathname === "/telegram/webhook/"
+  ) {
+    return next();
+  }
 
   // Служебная проверка самого edge (без Amvera)
   if (incoming.pathname === "/_edge" || incoming.pathname === "/_edge/") {

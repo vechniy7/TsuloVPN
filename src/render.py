@@ -12,12 +12,15 @@ from aiogram.types import FSInputFile, InputMediaPhoto, Message
 logger = logging.getLogger(__name__)
 
 PHOTO_DIR = Path(__file__).parent / "photo"
-# Баннеры скрыты: на изображениях были формулировки, нежелательные для согласования.
-USE_SCREEN_PHOTOS = False
+# Баннеры включены — фото из src/photo (как у типичных VPN-ботов).
+USE_SCREEN_PHOTOS = True
 SCREEN_PHOTOS = {
     "home": PHOTO_DIR / "1vpn.PNG",
     "access": PHOTO_DIR / "2vpn.PNG",
     "help": PHOTO_DIR / "2vpn.PNG",
+    "tariffs": PHOTO_DIR / "3vpn.PNG",
+    "docs": PHOTO_DIR / "3vpn.PNG",
+    "channel": PHOTO_DIR / "1vpn.PNG",
     "donate": PHOTO_DIR / "3vpn.PNG",
     "admin": PHOTO_DIR / "1vpn.PNG",
 }

@@ -19,6 +19,7 @@ from database import (
     get_user,
     get_user_count,
     regenerate_user_token,
+    reset_user_hwid,
     save_user,
 )
 from payments import PLANS, extend_subscription, get_plan, is_subscription_active
@@ -105,8 +106,11 @@ def _user_payload(user) -> dict[str, Any]:
         "last_seen_at": user.last_seen_at,
         "sub_fetch_count": int(user.sub_fetch_count or 0),
         "note": user.note or "",
+        "bound_hwid": user.bound_hwid or "",
+        "hwid_bound_at": user.hwid_bound_at,
         "data_limit": "∞",
         "used_traffic": "—",
+        "device_limit": config.DEVICE_LIMIT,
         "online": bool(
             user.last_seen_at
             and (_utcnow() - (_parse_iso(user.last_seen_at) or _utcnow())).total_seconds() < 86400
@@ -385,6 +389,14 @@ async def panel_user_disable(
 @router.post("/panel/api/users/{telegram_id}/regen")
 async def panel_user_regen(telegram_id: int, _: str = Depends(require_admin)):
     user = await regenerate_user_token(telegram_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _user_payload(user)
+
+
+@router.post("/panel/api/users/{telegram_id}/reset-hwid")
+async def panel_user_reset_hwid(telegram_id: int, _: str = Depends(require_admin)):
+    user = await reset_user_hwid(telegram_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return _user_payload(user)

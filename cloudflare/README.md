@@ -48,8 +48,23 @@ npx wrangler pages deploy public --project-name=tsulo-tg-relay --commit-dirty=tr
 AMVERA_ORIGIN=https://tsulovpn-culoebali.amvera.io
 ```
 
-## Важно
+## Channel gate (Telegram)
 
-- `*.workers.dev` в этом аккаунте с битым SSL — **не использовать** для Happ.
-- Origin Amvera не светим пользователям: в боте только `pages.dev` (или свой домен на CF).
-- Свой домен: Cloudflare Pages → Custom domains → DNS → тот же проект.
+Проверка подписки на `@TsuloVPN` делается **на Cloudflare** (Amvera не достучится до Bot API).
+
+В Cloudflare Pages → Settings → Environment variables (Production) добавьте **Secrets**:
+
+```
+BOT_TOKEN=<токен бота>
+ADMINS=<ваш telegram id>
+```
+
+Уже в `wrangler.toml` [vars]:
+
+```
+REQUIRED_CHANNEL=@TsuloVPN
+CHANNEL_URL=https://t.me/TsuloVPN
+CHANNEL_GATE_ENABLED=true
+```
+
+Проверка: `https://tsulo-tg-relay.pages.dev/telegram/webhook` (GET) → `has_token: true`.

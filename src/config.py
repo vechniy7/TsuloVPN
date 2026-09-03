@@ -195,6 +195,13 @@ class Config(BaseModel):
     )
     # Пароль входа в веб-панель /panel (обязателен для доступа)
     ADMIN_PANEL_TOKEN: str = os.getenv("ADMIN_PANEL_TOKEN", "").strip()
+    # Лимит устройств на один ключ (Happ x-hwid). 1 = как у типичных VPN-ботов.
+    DEVICE_LIMIT: int = int(os.getenv("DEVICE_LIMIT", "1") or "1")
+    DEVICE_LIMIT_ENABLED: bool = os.getenv("DEVICE_LIMIT_ENABLED", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     SOURCE_ALERT_COOLDOWN_SEC: int = int(os.getenv("SOURCE_ALERT_COOLDOWN_SEC", "3600"))
     SOURCE_MIN_REAL_CONFIGS: int = int(os.getenv("SOURCE_MIN_REAL_CONFIGS", "2"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))

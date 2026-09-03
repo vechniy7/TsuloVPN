@@ -187,6 +187,7 @@
       <div class="row"><b>Data</b><span>${u.data_limit} · used ${u.used_traffic}</span></div>
       <div class="row"><b>Fetches</b><span>${u.sub_fetch_count} · last ${fmtTs(u.last_seen_at)}</span></div>
       <div class="row"><b>Registered</b><span>${fmtTs(u.registration_date)}</span></div>
+      <div class="row"><b>HWID</b><code>${escapeHtml(u.bound_hwid || "— не привязан")}</code></div>
       <div class="row"><b>Token</b><code>${escapeHtml(u.subscription_token)}</code></div>
       <div class="row"><b>Key URL</b><code id="modal-url">${escapeHtml(u.subscription_url)}</code></div>
     `;
@@ -209,6 +210,10 @@
     if (name === "regen") {
       if (!confirm("Сгенерировать новый ключ? Старый URL в Happ перестанет работать.")) return;
       await api(`/panel/api/users/${id}/regen`, { method: "POST", body: "{}" });
+    }
+    if (name === "reset-hwid") {
+      if (!confirm("Сбросить привязку устройства? Ключ можно будет добавить на новый телефон.")) return;
+      await api(`/panel/api/users/${id}/reset-hwid`, { method: "POST", body: "{}" });
     }
     if (name === "note") {
       await api(`/panel/api/users/${id}/note`, {
