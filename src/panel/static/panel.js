@@ -222,14 +222,31 @@
   }
 
   async function refresh() {
+    const title = $("#page-title");
+    const prev = title.textContent;
+    title.textContent = prev + " · загрузка…";
     try {
       if (state.view === "dashboard" || state.view === "settings") await loadDashboard();
       if (state.view === "users") await loadUsers();
       if (state.view === "orders") await loadOrders();
       if (state.view === "nodes") await loadNodes();
     } catch (err) {
+      console.error(err);
       if (err.status === 401 || err.status === 503) showLogin(err.message || "Нужен вход");
-      else alert(err.message || String(err));
+      else {
+        const msg = err.message || String(err);
+        $("#dash-cards").innerHTML = `<div class="stat"><div class="label">Ошибка</div><div class="value">!</div><div class="sub">${msg}</div></div>`;
+        alert(msg);
+      }
+    } finally {
+      const titles = {
+        dashboard: "Dashboard",
+        users: "Users",
+        orders: "Payments",
+        nodes: "Nodes / Pool",
+        settings: "Settings",
+      };
+      title.textContent = titles[state.view] || state.view;
     }
   }
 
@@ -240,7 +257,14 @@
         showLogin("ADMIN_PANEL_TOKEN не задан в Amvera");
         return;
       }
-      await api("/panel/api/dashboard");
+      try {
+        await api("/panel/api/stats/users-count");
+      } catch (err) {
+        if (err.status === 401 || err.status === 503) {
+          showLogin(err.message || "");
+          return;
+        }
+      }
       showApp();
       setView("dashboard");
     } catch (err) {

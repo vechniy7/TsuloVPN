@@ -205,9 +205,14 @@ async def panel_logout():
 
 @router.get("/panel/api/dashboard")
 async def panel_dashboard(_: str = Depends(require_admin)):
-    users = await get_all_users()
+    # Один проход по кэшу пользователей + pool в памяти (без N+1 в Upstash).
+    users = await get_all_users(use_cache=True)
     pool = get_pool_state()
-    orders = await get_all_orders(limit=500)
+    try:
+        orders = await get_all_orders(limit=200)
+    except Exception as exc:
+        logger.warning("panel orders load failed: %s", exc)
+        orders = []
 
     active = 0
     expired = 0
@@ -228,6 +233,13 @@ async def panel_dashboard(_: str = Depends(require_admin)):
 
     paid = [o for o in orders if o.status == "paid"]
     revenue = sum(o.amount for o in paid)
+
+    logger.info(
+        "panel dashboard users=%s active=%s configs=%s",
+        len(users),
+        active,
+        pool.subscription_count,
+    )
 
     return {
         "bot_name": config.BOT_NAME,
@@ -273,7 +285,7 @@ async def panel_users(
     query = (q or "").strip().lower()
     status_f = (status or "").strip().lower()
 
-    users = await get_all_users()
+    users = await get_all_users(use_cache=True)
     rows = [_user_payload(u) for u in users]
     if query:
         rows = [

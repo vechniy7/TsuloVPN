@@ -14,6 +14,56 @@ USERS_SET = f"{PREFIX}:users"
 ORDERS_PREFIX = f"{PREFIX}:order"
 
 _redis = None
+_users_cache: list[User] | None = None
+_users_cache_at: float = 0.0
+_USERS_CACHE_TTL = 45.0
+_MGET_CHUNK = 80
+
+
+def _invalidate_users_cache() -> None:
+    global _users_cache, _users_cache_at
+    _users_cache = None
+    _users_cache_at = 0.0
+
+
+def _as_str(value) -> str:
+    if isinstance(value, bytes):
+        return value.decode()
+    return str(value)
+
+
+def _mget_users(redis, telegram_ids: list[int]) -> list[User]:
+    users: list[User] = []
+    if not telegram_ids:
+        return users
+    for i in range(0, len(telegram_ids), _MGET_CHUNK):
+        chunk_ids = telegram_ids[i : i + _MGET_CHUNK]
+        keys = [_user_key(tid) for tid in chunk_ids]
+        values = redis.mget(*keys)
+        if not values:
+            continue
+        for raw in values:
+            user = _parse_user(raw)
+            if user:
+                users.append(user)
+    return users
+
+
+def _mget_orders(redis, order_ids: list[str]) -> list[PaymentOrder]:
+    orders: list[PaymentOrder] = []
+    if not order_ids:
+        return orders
+    for i in range(0, len(order_ids), _MGET_CHUNK):
+        chunk = order_ids[i : i + _MGET_CHUNK]
+        keys = [_order_key(oid) for oid in chunk]
+        values = redis.mget(*keys)
+        if not values:
+            continue
+        for raw in values:
+            order = _parse_order(raw)
+            if order:
+                orders.append(order)
+    return orders
 
 
 @dataclass
@@ -146,6 +196,7 @@ async def save_user(user: User) -> User:
         redis.set(_user_key(user.telegram_id), json.dumps(asdict(user), ensure_ascii=False))
 
     await _run(_save)
+    _invalidate_users_cache()
     return user
 
 
@@ -176,6 +227,7 @@ async def create_user(
         redis.sadd(USERS_SET, str(telegram_id))
 
     await _run(_save)
+    _invalidate_users_cache()
     logger.info("New user: %s (token %s…)", telegram_id, user.subscription_token[:8])
     return user
 
@@ -187,37 +239,50 @@ async def update_admins_status() -> None:
     def _update():
         redis = _get_redis()
         admin_ids = set(config.ADMINS)
-        updated = 0
-        for tid_raw in redis.smembers(USERS_SET):
-            telegram_id = int(tid_raw)
-            user = _parse_user(redis.get(_user_key(telegram_id)))
-            if not user:
+        ids: list[int] = []
+        for tid_raw in redis.smembers(USERS_SET) or []:
+            try:
+                ids.append(int(_as_str(tid_raw)))
+            except (TypeError, ValueError):
                 continue
-            should_be_admin = telegram_id in admin_ids
+        updated = 0
+        for user in _mget_users(redis, ids):
+            should_be_admin = user.telegram_id in admin_ids
             if user.is_admin == should_be_admin:
                 continue
             user.is_admin = should_be_admin
-            redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+            redis.set(_user_key(user.telegram_id), json.dumps(asdict(user), ensure_ascii=False))
             updated += 1
         if updated:
             logger.info("Admin flags updated for %s users", updated)
 
     await _run(_update)
+    _invalidate_users_cache()
 
 
-async def get_all_users() -> list[User]:
+async def get_all_users(*, use_cache: bool = True) -> list[User]:
+    global _users_cache, _users_cache_at
+    import time as _time
+
+    if use_cache and _users_cache is not None and (_time.monotonic() - _users_cache_at) < _USERS_CACHE_TTL:
+        return list(_users_cache)
+
     def _all():
         redis = _get_redis()
-        users: list[User] = []
-        for tid_raw in redis.smembers(USERS_SET):
-            user = _parse_user(redis.get(_user_key(int(tid_raw))))
-            if user:
-                users.append(user)
+        ids: list[int] = []
+        for tid_raw in redis.smembers(USERS_SET) or []:
+            try:
+                ids.append(int(_as_str(tid_raw)))
+            except (TypeError, ValueError):
+                continue
+        users = _mget_users(redis, ids)
         users.sort(key=lambda item: item.registration_date, reverse=True)
         return users
 
-    return await _run(_all)
-
+    users = await _run(_all)
+    _users_cache = list(users)
+    _users_cache_at = _time.monotonic()
+    return list(users)
 
 async def get_all_user_ids() -> list[int]:
     """ID всех пользователей — один запрос к Redis (для рассылки)."""
@@ -297,13 +362,10 @@ async def mark_payment_order_paid(order_id: str) -> PaymentOrder | None:
 async def get_all_orders(*, limit: int = 200) -> list[PaymentOrder]:
     def _all():
         redis = _get_redis()
-        orders: list[PaymentOrder] = []
-        for oid_raw in redis.smembers(ORDERS_SET):
-            if isinstance(oid_raw, bytes):
-                oid_raw = oid_raw.decode()
-            order = _parse_order(redis.get(_order_key(str(oid_raw))))
-            if order:
-                orders.append(order)
+        ids: list[str] = []
+        for oid_raw in redis.smembers(ORDERS_SET) or []:
+            ids.append(_as_str(oid_raw))
+        orders = _mget_orders(redis, ids)
         orders.sort(key=lambda item: item.created_at, reverse=True)
         return orders[: max(1, limit)]
 
@@ -339,4 +401,6 @@ async def regenerate_user_token(telegram_id: int) -> User | None:
         redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
         return user
 
-    return await _run(_regen)
+    user = await _run(_regen)
+    _invalidate_users_cache()
+    return user
