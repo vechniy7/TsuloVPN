@@ -167,6 +167,8 @@ def kb_pay(pay_url: str, bill_id: str) -> InlineKeyboardMarkup:
 
 def kb_admin() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    if config.panel_enabled:
+        b.button(text="🌐 Открыть панель", url=config.panel_url)
     b.button(text="Обновить данные", callback_data="admin_refresh")
     b.button(text="Пользователи", callback_data="admin_users")
     b.button(text="Рассылка", callback_data="admin_broadcast")

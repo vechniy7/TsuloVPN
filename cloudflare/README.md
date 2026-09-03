@@ -19,7 +19,7 @@ https://tsulo-tg-relay.pages.dev
 | Кабинет | `https://tsulo-tg-relay.pages.dev/miniapp` |
 | Подписка Happ | `https://tsulo-tg-relay.pages.dev/sub/<token>` |
 | Telegram webhook | `https://tsulo-tg-relay.pages.dev/telegram/webhook` |
-| Platega webhook | `https://tsulo-tg-relay.pages.dev/platega/webhook` |
+| Админ-панель | `https://tsulo-tg-relay.pages.dev/panel` |
 
 ## Amvera env (обязательно)
 

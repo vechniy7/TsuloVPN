@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>TsuloVPN Panel</title>
+  <link rel="stylesheet" href="/panel/static/panel.css?v=1" />
+</head>
+<body>
+  <div id="login-view" class="login hidden">
+    <form id="login-form" class="login-card">
+      <div class="login-brand">Tsulo<span>VPN</span></div>
+      <p class="login-sub">Admin panel · Marzban-style</p>
+      <label>Токен доступа</label>
+      <input id="login-token" type="password" autocomplete="current-password" placeholder="ADMIN_PANEL_TOKEN" required />
+      <button type="submit">Войти</button>
+      <p id="login-error" class="error"></p>
+      <p class="hint">Задайте <code>ADMIN_PANEL_TOKEN</code> в Amvera</p>
+    </form>
+  </div>
+
+  <div id="app" class="layout hidden">
+    <aside class="sidebar">
+      <div class="brand">Tsulo<span>VPN</span></div>
+      <nav>
+        <button data-view="dashboard" class="nav active">Dashboard</button>
+        <button data-view="users" class="nav">Users</button>
+        <button data-view="orders" class="nav">Payments</button>
+        <button data-view="nodes" class="nav">Nodes</button>
+        <button data-view="settings" class="nav">Settings</button>
+      </nav>
+      <button id="btn-logout" class="logout">Выйти</button>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1 id="page-title">Dashboard</h1>
+        <div class="top-actions">
+          <span id="badge-payments" class="badge">payments</span>
+          <button id="btn-refresh" class="ghost">Обновить</button>
+        </div>
+      </header>
+
+      <section id="view-dashboard" class="view">
+        <div class="cards" id="dash-cards"></div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Pool / Nodes</h3>
+            <div id="dash-pool" class="muted">…</div>
+          </div>
+          <div class="card">
+            <h3>Тарифы</h3>
+            <div id="dash-plans" class="muted">…</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-users" class="view hidden">
+        <div class="toolbar">
+          <input id="users-q" type="search" placeholder="Поиск: id, @user, имя, token…" />
+          <select id="users-status">
+            <option value="">Все статусы</option>
+            <option value="active">active</option>
+            <option value="expired">expired</option>
+            <option value="disabled">disabled</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Status</th>
+                <th>Expire</th>
+                <th>Fetches</th>
+                <th>Last seen</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button id="users-prev" class="ghost">←</button>
+          <span id="users-page">1</span>
+          <button id="users-next" class="ghost">→</button>
+        </div>
+      </section>
+
+      <section id="view-orders" class="view hidden">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>User</th>
+                <th>Plan</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody id="orders-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-nodes" class="view hidden">
+        <div class="toolbar">
+          <button id="btn-pool-refresh" class="primary">Force refresh pool</button>
+        </div>
+        <div class="card" id="nodes-detail"></div>
+      </section>
+
+      <section id="view-settings" class="view hidden">
+        <div class="card">
+          <h3>Сервис</h3>
+          <div id="settings-box" class="kv"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="user-modal">
+    <form method="dialog" id="user-form" class="modal">
+      <header>
+        <h2 id="modal-title">User</h2>
+        <button type="button" id="modal-close" class="ghost">✕</button>
+      </header>
+      <div id="modal-body" class="modal-body"></div>
+      <div class="modal-actions">
+        <button type="button" data-act="extend30" class="primary">+30 дней</button>
+        <button type="button" data-act="extend7" class="ghost">+7 дней</button>
+        <button type="button" data-act="expire" class="ghost">Снять доступ</button>
+        <button type="button" data-act="disable" class="danger">Disable</button>
+        <button type="button" data-act="enable" class="ghost">Enable</button>
+        <button type="button" data-act="regen" class="danger">Новый ключ</button>
+        <button type="button" data-act="copy" class="ghost">Копировать URL</button>
+      </div>
+      <label class="note-label">Заметка</label>
+      <div class="note-row">
+        <input id="modal-note" type="text" maxlength="500" />
+        <button type="button" data-act="note" class="ghost">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/panel/static/panel.js?v=1"></script>
+</body>
+</html>

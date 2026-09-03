@@ -193,6 +193,8 @@ class Config(BaseModel):
     ADMIN_FORCE_REFRESH_COOLDOWN_SEC: int = int(
         os.getenv("ADMIN_FORCE_REFRESH_COOLDOWN_SEC", "3600")
     )
+    # Пароль входа в веб-панель /panel (обязателен для доступа)
+    ADMIN_PANEL_TOKEN: str = os.getenv("ADMIN_PANEL_TOKEN", "").strip()
     SOURCE_ALERT_COOLDOWN_SEC: int = int(os.getenv("SOURCE_ALERT_COOLDOWN_SEC", "3600"))
     SOURCE_MIN_REAL_CONFIGS: int = int(os.getenv("SOURCE_MIN_REAL_CONFIGS", "2"))
     FETCH_TIMEOUT: int = int(os.getenv("FETCH_TIMEOUT", "45"))
@@ -331,6 +333,14 @@ class Config(BaseModel):
     @property
     def tariffs_page_url(self) -> str:
         return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/tariffs"
+
+    @property
+    def panel_url(self) -> str:
+        return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/panel"
+
+    @property
+    def panel_enabled(self) -> bool:
+        return bool(self.ADMIN_PANEL_TOKEN)
 
     def resolved_source_url(self) -> str:
         for candidate in (

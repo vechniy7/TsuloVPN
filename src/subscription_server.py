@@ -7,11 +7,12 @@ from fastapi import FastAPI, HTTPException, Response
 
 from config import config
 from pool_engine_v3 import get_happ_json_profiles, get_pool_state
-from database import get_user_by_token
+from database import get_user_by_token, touch_subscription_fetch
 from legal_docs import privacy_html, tariffs_html, terms_html
 from miniapp_routes import router as miniapp_router
 from cardlink_routes import router as cardlink_router
 from platega_routes import router as platega_router
+from panel_routes import router as panel_router
 from payments import is_subscription_active
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ app = FastAPI(title="TsuloVPN Subscription Server", docs_url=None, redoc_url=Non
 app.include_router(miniapp_router)
 app.include_router(cardlink_router)
 app.include_router(platega_router)
+app.include_router(panel_router)
 
 
 @app.get("/privacy")
@@ -118,6 +120,8 @@ async def _subscription_user(token: str):
     user = await get_user_by_token(token)
     if not user:
         raise HTTPException(status_code=404, detail="Subscription not found")
+    if getattr(user, "disabled", False):
+        raise HTTPException(status_code=403, detail="Subscription disabled")
     if config.payments_active and not user.is_admin and not is_subscription_active(user):
         raise HTTPException(status_code=403, detail="Subscription expired")
     return user
@@ -131,15 +135,32 @@ async def subscription(token: str):
     if not profiles:
         raise HTTPException(status_code=503, detail="Configs loading, try again in a minute")
 
+    try:
+        await touch_subscription_fetch(user.telegram_id)
+    except Exception as exc:
+        logger.warning("touch_subscription_fetch failed: %s", exc)
+
     body = json.dumps(profiles, ensure_ascii=False, separators=(",", ":"))
     profile_title = f"🔮 {config.BOT_NAME}"
+
+    expire_ts = int(time.time()) + 31536000
+    if user.expires_at:
+        try:
+            from datetime import datetime, timezone
+
+            exp = datetime.fromisoformat(user.expires_at)
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            expire_ts = int(exp.timestamp())
+        except ValueError:
+            pass
 
     headers = {
         "Content-Type": "application/json; charset=utf-8",
         "Profile-Update-Interval": "12",
         "Profile-Title": f"base64:{base64.b64encode(profile_title.encode()).decode()}",
         "Subscription-Userinfo": (
-            f"upload=0; download=0; total=0; expire={int(time.time()) + 31536000}"
+            f"upload=0; download=0; total=0; expire={expire_ts}"
         ),
         "Content-Disposition": f'inline; filename="{config.BOT_NAME}.json"',
         "Cache-Control": "private, max-age=600",

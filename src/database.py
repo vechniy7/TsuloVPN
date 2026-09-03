@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timezone
 
 from config import config
@@ -26,6 +26,10 @@ class User:
     is_admin: bool = False
     expires_at: str | None = None
     plan: str | None = None
+    last_seen_at: str | None = None
+    sub_fetch_count: int = 0
+    disabled: bool = False
+    note: str | None = None
 
 
 @dataclass
@@ -55,6 +59,8 @@ def _bill_order_key(bill_id: str) -> str:
     return f"{ORDERS_PREFIX}:bill:{bill_id}"
 
 
+ORDERS_SET = f"{PREFIX}:orders"
+
 def _new_token() -> str:
     return uuid.uuid4().hex
 
@@ -82,7 +88,17 @@ def _parse_user(raw: str | bytes | None) -> User | None:
     data = json.loads(raw)
     data.setdefault("expires_at", None)
     data.setdefault("plan", None)
-    return User(**data)
+    data.setdefault("last_seen_at", None)
+    data.setdefault("sub_fetch_count", 0)
+    data.setdefault("disabled", False)
+    data.setdefault("note", None)
+    try:
+        data["sub_fetch_count"] = int(data.get("sub_fetch_count") or 0)
+    except (TypeError, ValueError):
+        data["sub_fetch_count"] = 0
+    data["disabled"] = bool(data.get("disabled"))
+    allowed = {f.name for f in fields(User)}
+    return User(**{k: v for k, v in data.items() if k in allowed})
 
 
 async def init_db() -> None:
@@ -241,12 +257,12 @@ async def save_payment_order(order: PaymentOrder) -> PaymentOrder:
         redis = _get_redis()
         payload = json.dumps(asdict(order), ensure_ascii=False)
         redis.set(_order_key(order.order_id), payload)
+        redis.sadd(ORDERS_SET, order.order_id)
         if order.bill_id:
             redis.set(_bill_order_key(order.bill_id), order.order_id)
 
     await _run(_save)
     return order
-
 
 async def get_payment_order(order_id: str) -> PaymentOrder | None:
     def _get():
@@ -276,3 +292,51 @@ async def mark_payment_order_paid(order_id: str) -> PaymentOrder | None:
         return order
     order.status = "paid"
     return await save_payment_order(order)
+
+
+async def get_all_orders(*, limit: int = 200) -> list[PaymentOrder]:
+    def _all():
+        redis = _get_redis()
+        orders: list[PaymentOrder] = []
+        for oid_raw in redis.smembers(ORDERS_SET):
+            if isinstance(oid_raw, bytes):
+                oid_raw = oid_raw.decode()
+            order = _parse_order(redis.get(_order_key(str(oid_raw))))
+            if order:
+                orders.append(order)
+        orders.sort(key=lambda item: item.created_at, reverse=True)
+        return orders[: max(1, limit)]
+
+    return await _run(_all)
+
+
+async def touch_subscription_fetch(telegram_id: int) -> None:
+    """Учёт обновлений ключа в Happ (для админ-панели)."""
+
+    def _touch():
+        redis = _get_redis()
+        user = _parse_user(redis.get(_user_key(telegram_id)))
+        if not user:
+            return
+        user.last_seen_at = datetime.now(timezone.utc).isoformat()
+        user.sub_fetch_count = int(user.sub_fetch_count or 0) + 1
+        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+
+    await _run(_touch)
+
+
+async def regenerate_user_token(telegram_id: int) -> User | None:
+    def _regen():
+        redis = _get_redis()
+        user = _parse_user(redis.get(_user_key(telegram_id)))
+        if not user:
+            return None
+        old = user.subscription_token
+        new = _new_token()
+        user.subscription_token = new
+        redis.delete(_token_key(old))
+        redis.set(_token_key(new), str(telegram_id))
+        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+        return user
+
+    return await _run(_regen)
