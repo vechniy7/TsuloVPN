@@ -108,7 +108,7 @@ def main() -> int:
     if not BOT_TOKEN:
         print("BOT_TOKEN required", file=sys.stderr)
         return 1
-    print("Bridge start →", AMVERA_WEBHOOK, flush=True)
+    print("Bridge start ->", AMVERA_WEBHOOK, flush=True)
     delete_webhook()
     offset: int | None = None
     while True:
