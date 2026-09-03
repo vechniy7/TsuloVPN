@@ -8,3 +8,6 @@ __pycache__/
 venv/
 *.tgz
 tmp_sub.txt
+.wrangler/
+cloudflare/**/.wrangler/
+фыв
