@@ -1,6 +1,15 @@
 name = "tsulo-telegram-relay"
 main = "telegram-relay-worker.js"
 compatibility_date = "2024-11-01"
+workers_dev = true
 
 [vars]
 AMVERA_WEBHOOK_URL = "https://tsulovpn-culoebali.amvera.io/telegram/webhook"
+
+[[kv_namespaces]]
+binding = "OFFSETS"
+id = "08104c0dd0524b698902f89a0b731411"
+preview_id = "b8035a4849c1425d8e4da807ed3ab332"
+
+[triggers]
+crons = ["* * * * *"]

@@ -1,11 +1,12 @@
-# Регистрация Telegram webhook с GitHub (Amvera часто не видит api.telegram.org).
-# Нужен secret: BOT_TOKEN в Settings → Secrets and variables → Actions.
+# Keep Telegram webhook on Cloudflare Pages relay (Amvera is unreachable from Telegram).
 name: Register Telegram webhook
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"
 
 jobs:
   set-webhook:
@@ -15,16 +16,16 @@ jobs:
       - name: setWebhook
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          WEBHOOK_URL: https://tsulovpn-culoebali.amvera.io/telegram/webhook
+          WEBHOOK_URL: https://tsulo-tg-relay.pages.dev/telegram/webhook
         run: |
           if [ -z "$BOT_TOKEN" ]; then
-            echo "BOT_TOKEN secret is missing — skip (register via scripts/set_webhook.py)"
+            echo "BOT_TOKEN secret missing — skip"
             exit 0
           fi
           echo "Registering $WEBHOOK_URL"
           curl -sS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
             --data-urlencode "url=${WEBHOOK_URL}" \
-            --data-urlencode "drop_pending_updates=true" \
+            --data-urlencode "drop_pending_updates=false" \
             --data-urlencode 'allowed_updates=["message","callback_query"]'
           echo
           curl -sS "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
