@@ -34,6 +34,8 @@ _bot: Bot | None = None
 _capture: ContextVar[list[TelegramMethod] | None] = ContextVar("tg_capture", default=None)
 _UNSET = object()
 
+# Во время обработки webhook НИКОГДА не ходим в api.telegram.org
+# (иначе Telegram ждёт ответ >10s → Connection timed out → /start «молчит»).
 _SEND_METHODS = frozenset(
     {
         "sendMessage",
@@ -60,6 +62,8 @@ _METHOD_PRIORITY = (
     "answerCallbackQuery",
 )
 
+_WEBHOOK_HANDLE_TIMEOUT_SEC = 8.0
+
 
 def bind_telegram(dp: Dispatcher, bot: Bot) -> None:
     global _dp, _bot
@@ -67,14 +71,29 @@ def bind_telegram(dp: Dispatcher, bot: Bot) -> None:
     _bot = bot
 
 
-def _dummy_result(method: TelegramMethod[TelegramType]) -> TelegramType:
+def bot_id_from_token(token: str) -> int:
+    try:
+        return int((token or "").split(":", 1)[0])
+    except (TypeError, ValueError):
+        return 0
+
+
+def _dummy_result(method: TelegramMethod[TelegramType], *, bot: Bot | None = None) -> TelegramType:
     name = method.__api_method__
+    if name == "getMe":
+        tid = bot_id_from_token(config.BOT_TOKEN)
+        return TgUser(  # type: ignore[return-value]
+            id=tid,
+            is_bot=True,
+            first_name=(config.BOT_NAME or "TsuloVPN")[:64],
+            username="TsuloVPN_bot",
+        )
     if name == "getChatMember":
         uid = int(getattr(method, "user_id", 0) or 0)
         return ChatMemberMember(  # type: ignore[return-value]
             user=TgUser(id=uid, is_bot=False, first_name="user"),
         )
-    if name in _SEND_METHODS and name != "answerCallbackQuery" and name != "deleteMessage":
+    if name in _SEND_METHODS and name not in ("answerCallbackQuery", "deleteMessage"):
         chat_id = getattr(method, "chat_id", 0) or 0
         try:
             chat_id = int(chat_id)
@@ -124,7 +143,6 @@ def method_to_webhook_json(method: TelegramMethod) -> dict:
     if not isinstance(data, dict):
         data = {}
     data["method"] = method.__api_method__
-    # Финальная проверка JSON-сериализации
     return json.loads(json.dumps(data, ensure_ascii=False))
 
 
@@ -139,7 +157,7 @@ def pick_reply_method(calls: list[TelegramMethod]) -> TelegramMethod | None:
 
 
 class HybridSession(AiohttpSession):
-    """Во время webhook: send* не уходят в сеть, а копятся для HTTP-ответа."""
+    """Во время webhook: все Bot API-вызовы локальные (без сети к Telegram)."""
 
     async def make_request(
         self,
@@ -150,27 +168,39 @@ class HybridSession(AiohttpSession):
         capture = _capture.get()
         name = method.__api_method__
 
-        # На Amvera getChatMember почти всегда падает — не ждём таймаут.
-        if capture is not None and name == "getChatMember":
-            return _dummy_result(method)
-
-        if capture is not None and name in _SEND_METHODS:
-            capture.append(method)
-            return _dummy_result(method)
-
-        try:
-            return await super().make_request(bot, method, timeout=timeout)
-        except Exception:
-            if name == "getChatMember":
-                return _dummy_result(method)
-            if capture is not None and name in _SEND_METHODS:
+        if capture is not None:
+            if name in _SEND_METHODS:
                 capture.append(method)
-                return _dummy_result(method)
+            return _dummy_result(method, bot=bot)
+
+        # Вне webhook — короткий таймаут, чтобы не вешать event loop на Amvera.
+        try:
+            return await asyncio.wait_for(
+                super().make_request(bot, method, timeout=timeout),
+                timeout=5.0,
+            )
+        except Exception:
+            if name in ("getMe", "getChatMember"):
+                return _dummy_result(method, bot=bot)
             raise
 
 
 def create_bot() -> Bot:
-    return Bot(token=config.BOT_TOKEN, session=HybridSession())
+    bot = Bot(token=config.BOT_TOKEN, session=HybridSession())
+    # Кладём getMe в кэш без сети — иначе aiogram дергает api.telegram.org на каждый апдейт.
+    tid = bot_id_from_token(config.BOT_TOKEN)
+    if tid:
+        object.__setattr__(
+            bot,
+            "_me",
+            TgUser(
+                id=tid,
+                is_bot=True,
+                first_name=(config.BOT_NAME or "TsuloVPN")[:64],
+                username="TsuloVPN_bot",
+            ),
+        )
+    return bot
 
 
 @router.get(config.TELEGRAM_WEBHOOK_PATH)
@@ -220,12 +250,19 @@ async def telegram_webhook(request: Request) -> Response:
     token = _capture.set(calls)
     try:
         try:
-            await _dp.feed_update(_bot, update)
+            await asyncio.wait_for(
+                _dp.feed_update(_bot, update),
+                timeout=_WEBHOOK_HANDLE_TIMEOUT_SEC,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Webhook handler timed out after %ss", _WEBHOOK_HANDLE_TIMEOUT_SEC)
+            return JSONResponse({"ok": False, "error": "handler timeout", "captured": len(calls)})
         except Exception as exc:
             logger.exception("Webhook update handling failed: %s", exc)
             return JSONResponse(
                 {"ok": False, "error": f"handler: {exc}", "captured": len(calls)}
             )
+
         reply = pick_reply_method(calls)
         if reply is not None:
             try:
@@ -243,35 +280,11 @@ async def telegram_webhook(request: Request) -> Response:
         _capture.reset(token)
 
 
-async def register_webhook(bot: Bot) -> None:
-    url = config.telegram_webhook_url()
-    secret = config.telegram_webhook_secret()
-    kwargs: dict = {
-        "drop_pending_updates": True,
-        "allowed_updates": ["message", "callback_query"],
-    }
-    if secret:
-        kwargs["secret_token"] = secret
-    await bot.set_webhook(url, **kwargs)
-    logger.info("Telegram webhook registered: %s", url)
-
-
 async def maintain_webhook(bot: Bot) -> None:
-    """Пытаемся setWebhook с Amvera; если сеть закрыта — нужна внешняя регистрация."""
-    for attempt in range(1, 8):
-        try:
-            await register_webhook(bot)
-            return
-        except Exception as exc:
-            delay = min(45, 5 * attempt)
-            logger.warning(
-                "Telegram webhook setup attempt %s failed: %s (retry in %ss)",
-                attempt,
-                exc,
-                delay,
-            )
-            await asyncio.sleep(delay)
-    logger.error(
-        "Telegram webhook NOT registered from Amvera (api.telegram.org unreachable). "
-        "Register externally: scripts/set_webhook.py or GitHub Action."
+    """С Amvera setWebhook почти всегда невозможен — не пытаемся (висит и мешает)."""
+    logger.info(
+        "Skip setWebhook from Amvera (no outbound to api.telegram.org). "
+        "Webhook must be registered externally: scripts/set_webhook.py / GitHub Action. "
+        "Expected URL: %s",
+        config.telegram_webhook_url(),
     )

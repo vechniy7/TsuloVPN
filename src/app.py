@@ -43,18 +43,20 @@ async def setup_bot_commands(bot: Bot) -> None:
 
 
 async def _telegram_bootstrap(bot: Bot) -> None:
+    # Amvera не достучится до api.telegram.org — любые setMyCommands/setWebhook
+    # только жгут таймауты и мешают принимать входящий webhook.
+    if config.telegram_webhook_enabled():
+        await maintain_webhook(bot)
+        return
     try:
-        await asyncio.wait_for(setup_bot_commands(bot), timeout=20)
+        await asyncio.wait_for(setup_bot_commands(bot), timeout=15)
     except Exception as exc:
         logger.warning("Bot commands setup failed: %s", exc)
     await restore_bot_profile(bot)
-    if config.telegram_webhook_enabled():
-        await maintain_webhook(bot)
-    else:
-        try:
-            await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=20)
-        except Exception as exc:
-            logger.warning("delete_webhook failed: %s", exc)
+    try:
+        await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=15)
+    except Exception as exc:
+        logger.warning("delete_webhook failed: %s", exc)
 
 
 async def run_subscription_server() -> None:
