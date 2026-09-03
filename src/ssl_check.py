@@ -55,6 +55,12 @@ def _wildcard_covers(sans: list[str], host: str) -> bool:
 
 
 def log_public_url_ssl(public_url: str) -> None:
+    parsed = urlparse((public_url or "").strip())
+    host = (parsed.hostname or "").lower()
+    # Amvera часто не достучится до Cloudflare Pages — ложный ERROR в логах.
+    if host.endswith(".pages.dev") or host.endswith(".workers.dev"):
+        logger.info("Skip SSL probe for Cloudflare edge %s", host)
+        return
     ok, detail = verify_public_url_ssl(public_url)
     if ok:
         logger.info(detail)

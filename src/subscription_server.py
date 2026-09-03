@@ -246,11 +246,7 @@ async def subscription(token: str, request: Request):
             title = f"⛔ Доступ закрыт · @{channel}"
         elif reason == "not_found":
             title = f"🔑 Ключ недействителен · @{channel}"
-        if user is not None:
-            try:
-                await touch_subscription_fetch(user.telegram_id)
-            except Exception as exc:
-                logger.warning("touch_subscription_fetch failed: %s", exc)
+        # Не трогаем Upstash на заглушке: Happ опрашивает часто → шторм Redis.
         logger.info(
             "JSON subscription blocked token=%s… reason=%s user=%s",
             (token or "")[:8],
@@ -261,8 +257,8 @@ async def subscription(token: str, request: Request):
             profiles,
             profile_title=title,
             expire_ts=int(time.time()) - 60,
-            cache_max_age=60,
-            update_interval="1",
+            cache_max_age=600,
+            update_interval="12",
         )
 
     profiles = get_happ_json_profiles()

@@ -149,6 +149,36 @@ async function forwardToAmvera(request, env, bodyBuf) {
     body: bodyBuf,
   });
   const text = await upstream.text();
+  let payload = null;
+  try {
+    payload = JSON.parse(text);
+  } catch (_) {
+    payload = null;
+  }
+
+  const token = (env.BOT_TOKEN || "").trim();
+  // Amvera может вернуть пачку методов — Cloudflare исполняет их сам
+  // (иначе из webhook-ответа уходит только один, и callback «висит»).
+  if (token && payload && Array.isArray(payload.methods) && payload.methods.length) {
+    for (const item of payload.methods) {
+      if (!item || typeof item !== "object") continue;
+      const method = item.method;
+      if (!method || typeof method !== "string") continue;
+      const body = { ...item };
+      delete body.method;
+      try {
+        await tgApi(token, method, body);
+      } catch (err) {
+        console.log("tg method failed", method, String(err));
+      }
+    }
+    return Response.json({
+      ok: true,
+      via: "cf-multi",
+      count: payload.methods.length,
+    });
+  }
+
   return new Response(text, {
     status: upstream.status,
     headers: {
@@ -161,7 +191,6 @@ async function forwardToAmvera(request, env, bodyBuf) {
 
 export async function onRequest(context) {
   const { request, env } = context;
-  const url = new URL(request.url);
 
   if (request.method === "GET") {
     return Response.json({
@@ -180,7 +209,7 @@ export async function onRequest(context) {
   const bodyBuf = await request.arrayBuffer();
   const token = (env.BOT_TOKEN || "").trim();
 
-  // Без токена — просто прокси на Amvera (как раньше).
+  // Всегда пробуем Amvera; multi-method исполняем в forwardToAmvera при наличии BOT_TOKEN.
   if (!token || !gateEnabled(env)) {
     return forwardToAmvera(request, env, bodyBuf);
   }
@@ -204,7 +233,6 @@ export async function onRequest(context) {
 
   const member = await isMember(token, channelId(env), ctx.user.id);
 
-  // Кнопка «Проверить подписку»
   if (ctx.kind === "callback" && ctx.data === CHECK_CB) {
     if (member) {
       await tgApi(token, "answerCallbackQuery", {

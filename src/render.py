@@ -32,6 +32,8 @@ CAPTION_LIMIT = 4096
 PHOTO_CAPTION_LIMIT = 1024
 
 _file_ids: dict[str, str] = {}
+# message_id → имя файла баннера (чтобы не дергать editMessageMedia зря)
+_message_banner: dict[int, str] = {}
 
 
 def photo_url(screen: str) -> str | None:
@@ -62,6 +64,15 @@ def _media(screen: str) -> str | None:
 def _remember_file_id(screen: str, message: Message) -> None:
     if screen and message.photo:
         _file_ids[screen] = message.photo[-1].file_id
+        filename = SCREEN_PHOTO_FILES.get(screen)
+        if filename:
+            _message_banner[message.message_id] = filename
+
+
+def _banner_file(screen: str | None) -> str | None:
+    if not screen:
+        return None
+    return SCREEN_PHOTO_FILES.get(screen)
 
 
 async def render_screen(
@@ -79,6 +90,12 @@ async def render_screen(
         caption = caption[: limit - 1].rstrip() + "…"
 
     has_photo = bool(message.photo) if edit else False
+    want_file = _banner_file(screen)
+    prev_file = _message_banner.get(message.message_id) if edit else None
+    # Нет кэша или тот же PNG — только caption (без повторной загрузки).
+    keep_photo = has_photo and media is not None and (
+        prev_file is None or want_file is None or prev_file == want_file
+    )
 
     try:
         if edit and media is None and has_photo:
@@ -92,6 +109,21 @@ async def render_screen(
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
+
+        if edit and keep_photo:
+            try:
+                sent = await message.edit_caption(
+                    caption=caption,
+                    reply_markup=markup,
+                    parse_mode="HTML",
+                )
+                result = sent if isinstance(sent, Message) else message
+                if want_file:
+                    _message_banner[result.message_id] = want_file
+                return result
+            except TelegramBadRequest:
+                # caption edit недоступен — fallback на media
+                pass
 
         if edit and media is not None and has_photo:
             sent = await message.edit_media(

@@ -51,16 +51,42 @@ _SEND_METHODS = frozenset(
 )
 
 _METHOD_PRIORITY = (
+    "answerCallbackQuery",
     "sendPhoto",
     "editMessageMedia",
+    "editMessageCaption",
     "sendMessage",
     "editMessageText",
-    "editMessageCaption",
     "editMessageReplyMarkup",
     "sendDocument",
     "deleteMessage",
-    "answerCallbackQuery",
 )
+
+
+def pick_reply_methods(calls: list[TelegramMethod]) -> list[TelegramMethod]:
+    """Все исходящие методы для CF multi-exec (порядок важен)."""
+    if not calls:
+        return []
+    priority = {name: i for i, name in enumerate(_METHOD_PRIORITY)}
+    ordered = sorted(
+        calls,
+        key=lambda m: priority.get(m.__api_method__, 100),
+    )
+    # Один method на тип — последний побеждает (актуальный экран).
+    by_name: dict[str, TelegramMethod] = {}
+    for method in ordered:
+        by_name[method.__api_method__] = method
+    result = sorted(
+        by_name.values(),
+        key=lambda m: priority.get(m.__api_method__, 100),
+    )
+    return result
+
+
+def pick_reply_method(calls: list[TelegramMethod]) -> TelegramMethod | None:
+    methods = pick_reply_methods(calls)
+    return methods[0] if methods else None
+
 
 _WEBHOOK_HANDLE_TIMEOUT_SEC = 8.0
 
@@ -156,16 +182,6 @@ def _json_default(obj):
             f"(use HTTPS photo URL). path={path!r}"
         )
     raise TypeError(f"Object of type {name} is not JSON serializable")
-
-
-def pick_reply_method(calls: list[TelegramMethod]) -> TelegramMethod | None:
-    if not calls:
-        return None
-    by_name = {m.__api_method__: m for m in calls}
-    for name in _METHOD_PRIORITY:
-        if name in by_name:
-            return by_name[name]
-    return calls[0]
 
 
 class HybridSession(AiohttpSession):
@@ -275,16 +291,20 @@ async def telegram_webhook(request: Request) -> Response:
                 {"ok": False, "error": f"handler: {exc}", "captured": len(calls)}
             )
 
-        reply = pick_reply_method(calls)
-        if reply is not None:
-            try:
-                body = method_to_webhook_json(reply)
-            except Exception as exc:
-                logger.exception("Webhook serialize failed: %s", exc)
-                return JSONResponse({"ok": False, "error": f"serialize: {exc}"})
-            logger.info("Webhook reply method=%s", reply.__api_method__)
-            return JSONResponse(content=body)
-        return JSONResponse({"ok": True, "note": "no reply method", "captured": len(calls)})
+        replies = pick_reply_methods(calls)
+        if not replies:
+            return JSONResponse({"ok": True, "note": "no reply method", "captured": len(calls)})
+        try:
+            methods_json = [method_to_webhook_json(m) for m in replies]
+        except Exception as exc:
+            logger.exception("Webhook serialize failed: %s", exc)
+            return JSONResponse({"ok": False, "error": f"serialize: {exc}"})
+        names = [m.__api_method__ for m in replies]
+        logger.info("Webhook reply methods=%s", ",".join(names))
+        # CF Pages исполняет весь список через Bot API (токен на edge).
+        # Один method оставляем на верхнем уровне — fallback, если edge старый.
+        body = {"ok": True, "methods": methods_json, **methods_json[0]}
+        return JSONResponse(content=body)
     except Exception as exc:
         logger.exception("Webhook fatal: %s", exc)
         return JSONResponse(content={"ok": False, "error": str(exc)[:500]})
