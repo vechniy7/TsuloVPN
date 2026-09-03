@@ -152,24 +152,30 @@ async def telegram_webhook_probe() -> JSONResponse:
     )
 
 
+@router.post("/telegram/ping")
+async def telegram_ping(request: Request) -> JSONResponse:
+    raw = await request.body()
+    return JSONResponse({"ok": True, "bytes": len(raw)})
+
+
 @router.post(config.TELEGRAM_WEBHOOK_PATH)
 async def telegram_webhook(request: Request) -> Response:
     if not _dp or not _bot:
-        raise HTTPException(status_code=503, detail="bot not ready")
+        return JSONResponse({"ok": False, "error": "bot not ready"}, status_code=503)
 
     secret = config.telegram_webhook_secret()
     if secret:
         header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         if header != secret:
             logger.warning("Webhook rejected: invalid secret token")
-            raise HTTPException(status_code=403, detail="invalid webhook secret")
+            return JSONResponse({"ok": False, "error": "invalid webhook secret"}, status_code=403)
 
     try:
         payload = await request.json()
         update = Update.model_validate(payload)
     except Exception as exc:
         logger.warning("Webhook bad payload: %s", exc)
-        raise HTTPException(status_code=400, detail="bad update") from exc
+        return JSONResponse({"ok": False, "error": f"bad update: {exc}"}, status_code=400)
 
     kind = "unknown"
     if update.message:
@@ -181,19 +187,28 @@ async def telegram_webhook(request: Request) -> Response:
     calls: list[TelegramMethod] = []
     token = _capture.set(calls)
     try:
-        await _dp.feed_update(_bot, update)
+        try:
+            await _dp.feed_update(_bot, update)
+        except Exception as exc:
+            logger.exception("Webhook update handling failed: %s", exc)
+            return JSONResponse(
+                {"ok": False, "error": f"handler: {exc}", "captured": len(calls)}
+            )
+        reply = pick_reply_method(calls)
+        if reply is not None:
+            try:
+                body = method_to_webhook_json(reply)
+            except Exception as exc:
+                logger.exception("Webhook serialize failed: %s", exc)
+                return JSONResponse({"ok": False, "error": f"serialize: {exc}"})
+            logger.info("Webhook reply method=%s", reply.__api_method__)
+            return JSONResponse(content=body)
+        return JSONResponse({"ok": True, "note": "no reply method", "captured": len(calls)})
     except Exception as exc:
-        logger.warning("Webhook update handling failed: %s", exc)
+        logger.exception("Webhook fatal: %s", exc)
+        return JSONResponse(content={"ok": False, "error": str(exc)[:500]})
     finally:
         _capture.reset(token)
-
-    reply = pick_reply_method(calls)
-    if reply is not None:
-        body = method_to_webhook_json(reply)
-        logger.info("Webhook reply method=%s", reply.__api_method__)
-        return JSONResponse(content=body)
-
-    return Response(status_code=200)
 
 
 async def register_webhook(bot: Bot) -> None:
