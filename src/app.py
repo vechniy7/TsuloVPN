@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 async def setup_bot_commands(bot: Bot) -> None:
     commands = [
         BotCommand(command="start", description="Главная"),
-        BotCommand(command="access", description="Мой доступ"),
+        BotCommand(command="access", description="Мой доступ / ключ"),
+        BotCommand(command="help", description="Инструкция"),
         BotCommand(command="tariffs", description="Тарифы"),
         BotCommand(command="docs", description="Документы"),
     ]
@@ -108,11 +109,12 @@ async def main() -> None:
         else "polling"
     )
     logger.info(
-        "%s started (Upstash, %s configs, Telegram %s%s%s)",
+        "%s started (Upstash, %s configs, Telegram %s%s%s%s)",
         config.BOT_NAME,
         config.SUBSCRIPTION_CONFIG_LIMIT,
         mode,
-        ", Cardlink ON" if config.use_cardlink else "",
+        ", Platega ON" if config.use_platega else "",
+        ", payments ON" if config.payments_active else "",
         f", channel gate {config.required_channel_id}" if config.channel_gate_enabled else "",
     )
     logger.info("Pool engine v%s — private JSON passthrough enabled", POOL_ENGINE_VERSION)

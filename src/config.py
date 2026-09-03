@@ -236,8 +236,10 @@ class Config(BaseModel):
     CARDLINK_API_TOKEN: str = os.getenv("CARDLINK_API_TOKEN", "")
     CARDLINK_SHOP_ID: str = os.getenv("CARDLINK_SHOP_ID", "")
     CARDLINK_PAYMENT_METHOD: str = os.getenv("CARDLINK_PAYMENT_METHOD", "")
-    PLATEGA_MERCHANT_ID: str = os.getenv("PLATEGA_MERCHANT_ID", "")
-    PLATEGA_API_KEY: str = os.getenv("PLATEGA_API_KEY", "")
+    PLATEGA_MERCHANT_ID: str = os.getenv("PLATEGA_MERCHANT_ID", "").strip()
+    PLATEGA_API_KEY: str = os.getenv("PLATEGA_API_KEY", "").strip()
+    # Пусто = пользователь выбирает способ на пейформе. 2=СБП, 11=карты RUB.
+    PLATEGA_PAYMENT_METHOD: str = os.getenv("PLATEGA_PAYMENT_METHOD", "").strip()
 
     UPSTASH_REDIS_REST_URL: str = os.getenv("UPSTASH_REDIS_REST_URL", "")
     UPSTASH_REDIS_REST_TOKEN: str = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
@@ -286,13 +288,16 @@ class Config(BaseModel):
 
     @property
     def payments_active(self) -> bool:
-        # Не включаем оплату только из-за legacy Cardlink-ключей:
-        # доступ остаётся бесплатным, пока явно не включён PAYMENTS_ENFORCE.
-        return self.PAYMENTS_ENFORCE
+        # Платные подписки только при Platega + явном флаге.
+        return self.PAYMENTS_ENFORCE and self.use_platega
 
     @property
     def use_platega(self) -> bool:
         return bool(self.PLATEGA_MERCHANT_ID and self.PLATEGA_API_KEY)
+
+    @property
+    def platega_webhook_url(self) -> str:
+        return f"{self.SUBSCRIPTION_PUBLIC_URL.rstrip('/')}/platega/webhook"
 
     @field_validator("SUB_HWID", mode="before")
     @classmethod

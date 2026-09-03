@@ -10,9 +10,9 @@
 <body>
   <main class="app">
     <header class="top">
-      <p class="eyebrow">цифровой сервис</p>
+      <p class="eyebrow">VPN</p>
       <h1>TsuloVPN</h1>
-      <p class="tag">профиль · обновления · поддержка</p>
+      <p class="tag">ключ · Happ · поддержка</p>
     </header>
 
     <section class="status" id="status-card">
@@ -24,18 +24,19 @@
     </section>
 
     <section class="panel">
-      <h2>Ваш профиль</h2>
-      <p class="muted">Скопируйте ссылку и добавьте её в Happ. Автообновление включите сразу.</p>
-      <button class="btn" id="btn-copy" type="button">Скопировать ссылку</button>
+      <h2>Ваш ключ</h2>
+      <p class="muted">Это ссылка подписки. Скопируйте и вставьте в Happ → Добавить подписку. Включите автообновление.</p>
+      <button class="btn" id="btn-copy" type="button">Скопировать ключ</button>
       <p class="hint" id="copy-hint"></p>
     </section>
 
     <section class="panel">
       <h2>Как подключить</h2>
       <ol class="steps">
-        <li>Скопируйте ссылку профиля</li>
-        <li>Happ → добавить подписку</li>
-        <li>Включите автообновление</li>
+        <li>Нажмите «Скопировать ключ»</li>
+        <li>Откройте Happ → «+» / Добавить подписку</li>
+        <li>Вставьте ключ и включите автообновление</li>
+        <li>Выберите сервер и подключитесь</li>
       </ol>
     </section>
 
@@ -43,7 +44,7 @@
       <div>
         <p class="label">тариф</p>
         <p class="value">69 ₽ / месяц</p>
-        <p class="muted tight">Сейчас доступ бесплатный для всех</p>
+        <p class="muted tight" id="price-note">Оплата в боте → Тарифы</p>
       </div>
       <a class="btn ghost" href="/tariffs" target="_blank" rel="noopener">Подробнее</a>
     </section>
@@ -55,7 +56,7 @@
       <a class="link" href="/tariffs" target="_blank" rel="noopener">Тарифы</a>
     </section>
 
-    <p class="footer">TsuloVPN · плаtega</p>
+    <p class="footer">TsuloVPN</p>
   </main>
 
   <script src="/miniapp/static/app.js?v=3"></script>

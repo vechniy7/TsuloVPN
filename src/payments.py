@@ -13,7 +13,7 @@ class TariffPlan:
     price_rub: int
 
 
-# Единственный тариф сервиса. Доступ сейчас бесплатный (PAYMENTS_ENFORCE=false).
+# Единственный тариф: 69 ₽ / месяц.
 PLANS: dict[str, TariffPlan] = {
     "1m": TariffPlan(id="1m", title="1 месяц", months=1, price_rub=69),
 }
@@ -97,7 +97,7 @@ async def create_pending_order(
     return await save_payment_order(order)
 
 
-async def process_cardlink_payment(
+async def process_payment(
     *,
     order_id: str,
     telegram_id: int,
@@ -121,20 +121,37 @@ async def process_cardlink_payment(
     return user, plan, True
 
 
-async def try_activate_from_bill(bill_id: str) -> tuple[User | None, TariffPlan | None, bool]:
-    from cardlink import get_bill_status
-    from database import get_payment_order_by_bill
+# Alias for legacy Cardlink routes
+process_cardlink_payment = process_payment
 
-    status = await get_bill_status(bill_id)
-    if status != "SUCCESS":
-        return None, None, False
+
+async def try_activate_from_bill(bill_id: str) -> tuple[User | None, TariffPlan | None, bool]:
+    from database import get_payment_order_by_bill
 
     order = await get_payment_order_by_bill(bill_id)
     if not order:
         return None, None, False
 
-    return await process_cardlink_payment(
-        order_id=order.order_id,
-        telegram_id=order.telegram_id,
-        plan_id=order.plan_id,
-    )
+    if config.use_platega:
+        from platega import get_transaction_status
+
+        status = await get_transaction_status(bill_id)
+        if status == "CONFIRMED":
+            return await process_payment(
+                order_id=order.order_id,
+                telegram_id=order.telegram_id,
+                plan_id=order.plan_id,
+            )
+
+    if config.use_cardlink:
+        from cardlink import get_bill_status
+
+        status = await get_bill_status(bill_id)
+        if status == "SUCCESS":
+            return await process_payment(
+                order_id=order.order_id,
+                telegram_id=order.telegram_id,
+                plan_id=order.plan_id,
+            )
+
+    return None, None, False

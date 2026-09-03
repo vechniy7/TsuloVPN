@@ -8,9 +8,10 @@ from fastapi import FastAPI, HTTPException, Response
 from config import config
 from pool_engine_v3 import get_happ_json_profiles, get_pool_state
 from database import get_user_by_token
-from legal_docs import BANK_MARKER, privacy_html, tariffs_html, terms_html
+from legal_docs import privacy_html, tariffs_html, terms_html
 from miniapp_routes import router as miniapp_router
 from cardlink_routes import router as cardlink_router
+from platega_routes import router as platega_router
 from payments import is_subscription_active
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="TsuloVPN Subscription Server", docs_url=None, redoc_url=None)
 app.include_router(miniapp_router)
 app.include_router(cardlink_router)
+app.include_router(platega_router)
 
 
 @app.get("/privacy")
@@ -43,9 +45,9 @@ async def root_docs_index():
 
     body = f"""
 <section class="hero">
-  <p class="meta">цифровой сервис доступа</p>
+  <p class="meta">VPN-доступ</p>
   <h1>{name}</h1>
-  <p class="meta">Telegram-бот · тарифы, документы и поддержка в одном месте</p>
+  <p class="meta">Telegram-бот · тарифы, ключ для Happ и поддержка</p>
 </section>
 <section class="card">
   <h2>Документы сервиса</h2>
@@ -55,7 +57,6 @@ async def root_docs_index():
     <li><a href="/terms">Пользовательское соглашение</a></li>
     <li><a href="{config.SUPPORT_URL}">Поддержка</a></li>
   </ul>
-  <p style="margin-top:14px">Код согласования: <span class="marker">{BANK_MARKER}</span></p>
 </section>
 """
     return Response(content=_shell(name, body), media_type="text/html; charset=utf-8")

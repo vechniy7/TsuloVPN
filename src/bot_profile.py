@@ -12,21 +12,22 @@ logger = logging.getLogger(__name__)
 
 
 async def restore_bot_profile(bot: Bot) -> None:
-    """Вернуть чистое имя бота и нейтральное описание сервиса."""
+    """Имя и описание бота для пользователей."""
     name = (config.BOT_NAME or "TsuloVPN").strip()
     try:
         await bot.set_my_name(name=name[:64])
         await bot.set_my_short_description(
             short_description=(
-                f"{name} — цифровой сервис доступа. "
-                f"Тарифы, документы и поддержка в боте."
+                f"{name} — VPN через Happ. Ключ в боте, тариф 69 ₽/мес."
             )[:120]
         )
         await bot.set_my_description(
             description=(
-                f"{name} — цифровой сервис доступа.\n"
-                f"Получите ссылку профиля, тарифы и документы прямо в боте.\n\n"
-                f"Нажмите /start или «Мой доступ»."
+                f"{name} — быстрый VPN-доступ.\n\n"
+                f"1. /start → «Мой доступ» — получить ключ\n"
+                f"2. Скопировать ссылку и вставить в Happ\n"
+                f"3. Подписка — 69 ₽ / месяц\n\n"
+                f"Инструкция и поддержка — в меню бота."
             )
         )
         logger.info("Bot profile restored: %s", name)

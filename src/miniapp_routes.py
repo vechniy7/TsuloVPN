@@ -79,6 +79,14 @@ async def miniapp_access(body: AccessRequest):
     if not user:
         return JSONResponse({"ok": False, "error": "start_bot"}, status_code=404)
 
+    from payments import is_subscription_active
+
+    if config.payments_active and not is_subscription_active(user):
+        return JSONResponse(
+            {"ok": False, "error": "subscription_required", "message": "Оформите подписку в боте → Тарифы"},
+            status_code=403,
+        )
+
     sub_url = config.subscription_url_for_token(user.subscription_token)
     import_url = await bot_subscription_import_url(sub_url)
     return JSONResponse(

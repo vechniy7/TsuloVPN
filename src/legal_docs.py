@@ -1,11 +1,10 @@
-"""Публичные документы для согласования с банком / платёжным провайдером."""
+"""Публичные юридические документы сервиса."""
 
 from __future__ import annotations
 
 from config import config
 
 DOC_DATE = "25 августа 2026 г."
-BANK_MARKER = "плаtega"
 
 
 def _support_line() -> str:
@@ -149,8 +148,7 @@ def _shell(title: str, body: str) -> str:
   </div>
   {body}
   <div class="footer">
-    <span>{name} · цифровой сервис доступа</span>
-    <span>код согласования: <span class="marker">{BANK_MARKER}</span></span>
+    <span>{name} · VPN-доступ</span>
   </div>
 </div>
 </body>
@@ -161,10 +159,9 @@ def tariffs_html() -> str:
     name = config.BOT_NAME or "TsuloVPN"
     title, price = _plan_price()
     free_note = (
-        "Сейчас доступ предоставляется бесплатно для всех пользователей. "
-        "Ниже указана актуальная стоимость подписки сервиса."
+        "Ниже — стоимость подписки. Актуальный статус оплаты смотрите в Telegram-боте."
         if not config.payments_active
-        else "Оплата активирует подписку на выбранный срок."
+        else "Оплата в Telegram-боте активирует подписку на выбранный срок."
     )
     return _shell(
         "Тарифы",
@@ -179,7 +176,7 @@ def tariffs_html() -> str:
   <div class="price">
     <div>
       <h2 style="margin-bottom:4px">{title}</h2>
-      <p class="meta" style="margin:0">цифровой доступ к профилю · обновления · поддержка</p>
+      <p class="meta" style="margin:0">доступ к серверам · обновления · поддержка</p>
     </div>
     <div class="amount">{price} ₽</div>
   </div>
@@ -188,7 +185,7 @@ def tariffs_html() -> str:
 <section class="card">
   <h2>Что входит</h2>
   <ul>
-    <li>персональная ссылка профиля в Telegram-боте;</li>
+    <li>персональный ключ (ссылка подписки) в Telegram-боте;</li>
     <li>автоматическое обновление профиля;</li>
     <li>техническая поддержка пользователей.</li>
   </ul>

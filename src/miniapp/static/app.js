@@ -63,13 +63,19 @@
       });
       const data = await res.json();
       if (!data.ok) {
-        hint(copyHint, "Нажмите /start в боте, затем откройте кабинет снова");
-        if (statusValue) statusValue.textContent = "нужен /start";
+        if (data.error === "subscription_required") {
+          hint(copyHint, data.message || "Оформите подписку в боте → Тарифы");
+          if (statusValue) statusValue.textContent = "нужна оплата";
+        } else {
+          hint(copyHint, "Нажмите /start в боте, затем откройте кабинет снова");
+          if (statusValue) statusValue.textContent = "нужен /start";
+        }
         return;
       }
       accessUrl = data.url || "";
       if (statusValue) statusValue.textContent = "активен";
       if (data.support && linkSupport) linkSupport.href = data.support;
+      hint(copyHint, "Ключ готов — нажмите кнопку выше");
     } catch (_) {
       hint(copyHint, "Не удалось загрузить ссылку, попробуйте ещё раз");
     }

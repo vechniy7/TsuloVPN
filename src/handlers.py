@@ -209,6 +209,7 @@ async def help_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "donate")
 async def donate_callback(callback: CallbackQuery) -> None:
+    # Старая кнопка → документы
     await callback.answer()
     await render_screen(
         callback.message,
@@ -267,12 +268,69 @@ async def docs_cmd(message: Message) -> None:
 
 @router.callback_query(F.data.startswith("order:"))
 @router.callback_query(F.data.startswith("pay:"))
-async def legacy_pay_callback(callback: CallbackQuery) -> None:
+async def order_pay_callback(callback: CallbackQuery) -> None:
     await callback.answer()
+    if not callback.data or not callback.from_user:
+        return
+
+    plan_id = callback.data.split(":", 1)[1].strip()
+    from payments import create_pending_order, get_plan
+
+    plan = get_plan(plan_id)
+    if not plan:
+        await render_screen(
+            callback.message,
+            caption=ui.screen_tariffs(),
+            markup=ui.kb_tariffs(),
+            screen="help",
+            edit=True,
+        )
+        return
+
+    if not config.payments_active or not config.use_platega:
+        await render_screen(
+            callback.message,
+            caption=ui.screen_pay_error() if config.PAYMENTS_ENFORCE else ui.screen_tariffs(),
+            markup=ui.kb_tariffs(),
+            screen="help",
+            edit=True,
+        )
+        return
+
+    from platega import PlategaError, create_transaction, new_order_id
+
+    order_id = new_order_id(callback.from_user.id, plan.id)
+    try:
+        result = await create_transaction(
+            amount=plan.price_rub,
+            order_id=order_id,
+            description=f"{config.BOT_NAME} · {plan.title}",
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+        )
+    except PlategaError as exc:
+        logger.error("Platega create failed: %s", exc)
+        await render_screen(
+            callback.message,
+            caption=ui.screen_pay_error(),
+            markup=ui.kb_tariffs(),
+            screen="help",
+            edit=True,
+        )
+        return
+
+    await create_pending_order(
+        order_id=order_id,
+        telegram_id=callback.from_user.id,
+        plan_id=plan.id,
+        amount=plan.price_rub,
+        bill_id=result["transaction_id"],
+    )
+
     await render_screen(
         callback.message,
-        caption=ui.screen_tariffs() if not config.payments_active else ui.screen_pay_error(),
-        markup=ui.kb_tariffs(),
+        caption=ui.screen_order(plan),
+        markup=ui.kb_pay(result["pay_url"], result["transaction_id"]),
         screen="help",
         edit=True,
     )
@@ -293,7 +351,7 @@ async def check_payment_callback(callback: CallbackQuery) -> None:
         return
 
     await callback.answer(
-        "Онлайн-оплата пока не подключена. Актуальные тарифы — в разделе «Тарифы».",
+        "Оплата ещё не найдена. Если уже заплатили — подождите 1–2 минуты и нажмите снова.",
         show_alert=True,
     )
 
