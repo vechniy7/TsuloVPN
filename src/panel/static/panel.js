@@ -209,6 +209,7 @@
       <div class="row"><b>HWID</b><code>${hwids}</code></div>
       <div class="row"><b>Токен</b><code>${escapeHtml(u.subscription_token)}</code></div>
       <div class="row"><b>URL ключа</b><code id="modal-url">${escapeHtml(u.subscription_url)}</code></div>
+      <div class="row"><b>Запасной URL</b><code>${escapeHtml(u.subscription_fallback_url || "—")}</code></div>
     `;
     $("#user-modal").showModal();
   }

@@ -108,11 +108,12 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
         )
         return
 
-    # Для кнопок приложений — всегда plain https (универсальный ключ).
+    # Основной ключ — Amvera; запасной — Cloudflare (оба /sub/{тот же token}).
     sub_url = config.subscription_url_for_token(user.subscription_token)
+    fallback_url = config.subscription_fallback_url_for_token(user.subscription_token)
     import_url = await bot_subscription_import_url(sub_url)
     markup = ui.kb_access(user=user, sub_url=sub_url)
-    full = ui.screen_access(user, import_url)
+    full = ui.screen_access(user, import_url, fallback_url=fallback_url)
     if len(full) <= CAPTION_LIMIT:
         await render_screen(
             target,
@@ -131,7 +132,7 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
         edit=edit,
     )
     await target.answer(
-        ui.screen_access_link(import_url),
+        ui.screen_access_link(import_url, fallback_url=fallback_url),
         parse_mode="HTML",
         disable_web_page_preview=True,
     )

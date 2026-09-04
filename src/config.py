@@ -118,8 +118,15 @@ class Config(BaseModel):
     BOT_USERNAME: str = (os.getenv("BOT_USERNAME", "TsuloVPN_bot") or "TsuloVPN_bot").lstrip("@")
 
     SUBSCRIPTION_PUBLIC_URL: str = os.getenv("SUBSCRIPTION_PUBLIC_URL", "https://your-domain.com")
-    # Прямые запросы на Amvera /sub/ → заглушка «Обновите ключ» (рабочий URL — PUBLIC через CF).
-    FORCE_LEGACY_SUB_MIGRATE: bool = os.getenv("FORCE_LEGACY_SUB_MIGRATE", "true").lower() in (
+    # Основной URL ключа для клиентов (Amvera). Пусто = SUBSCRIPTION_PUBLIC_URL.
+    SUBSCRIPTION_KEY_URL: str = os.getenv(
+        "SUBSCRIPTION_KEY_URL",
+        "https://tsulovpn-culoebali.amvera.io",
+    ).strip()
+    # Запасной URL ключа (Cloudflare). Пусто = SUBSCRIPTION_PUBLIC_URL.
+    SUBSCRIPTION_FALLBACK_URL: str = os.getenv("SUBSCRIPTION_FALLBACK_URL", "").strip()
+    # Раньше Amvera /sub отдавал заглушку «Обновите ключ». По умолчанию выкл. — оба домена рабочие.
+    FORCE_LEGACY_SUB_MIGRATE: bool = os.getenv("FORCE_LEGACY_SUB_MIGRATE", "false").lower() in (
         "1",
         "true",
         "yes",
@@ -451,12 +458,34 @@ class Config(BaseModel):
             "x-device-locale": (self.SUB_DEVICE_LOCALE or "ru").strip() or "ru",
         }
 
+    def subscription_key_base(self) -> str:
+        """Основной домен для /sub/{token} (обычно Amvera)."""
+        return (self.SUBSCRIPTION_KEY_URL or self.SUBSCRIPTION_PUBLIC_URL or "").rstrip("/")
+
+    def subscription_fallback_base(self) -> str:
+        """Запасной домен для /sub/{token} (обычно Cloudflare Pages)."""
+        return (
+            self.SUBSCRIPTION_FALLBACK_URL
+            or self.SUBSCRIPTION_PUBLIC_URL
+            or ""
+        ).rstrip("/")
+
     def subscription_url_for_token(self, token: str) -> str:
-        base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
+        base = self.subscription_key_base()
         return f"{base}/sub/{token}"
 
+    def subscription_fallback_url_for_token(self, token: str) -> str | None:
+        primary = self.subscription_url_for_token(token)
+        fb = self.subscription_fallback_base()
+        if not fb:
+            return None
+        alt = f"{fb}/sub/{token}"
+        if alt.rstrip("/") == primary.rstrip("/"):
+            return None
+        return alt
+
     def subscription_lte_url_for_token(self, token: str) -> str:
-        base = self.SUBSCRIPTION_PUBLIC_URL.rstrip("/")
+        base = self.subscription_key_base()
         return f"{base}/sub/{token}/lte"
 
     # --- IKEv2 Personal VPN catalog (iOS Tsulo app; Amvera serves JSON only) ---

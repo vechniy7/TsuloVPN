@@ -338,23 +338,41 @@ def screen_access_loading() -> str:
     )
 
 
-def screen_access(user: User, import_url: str) -> str:
+def screen_access(user: User, import_url: str, *, fallback_url: str | None = None) -> str:
     from devices import MAX_DEVICE_SLOTS, bound_hwid_list, monthly_price_for_user, user_device_limit
 
     badge, detail, _ = status_info(user)
     limit = user_device_limit(user)
     used = len(bound_hwid_list(user))
     month = monthly_price_for_user(user)
+    fallback_block = ""
+    if fallback_url:
+        fallback_block = (
+            f"\n<b>Запасной ключ</b> (если основной не грузится):\n"
+            f"<code>{_esc(fallback_url)}</code>\n"
+        )
     return (
         f"💜 <b>Ваш ключ</b>\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"🟢  {_esc(badge)} · {_esc(detail)}\n"
         f"📱  Устройства: <b>{used} из {limit}</b> (макс. {MAX_DEVICE_SLOTS})\n"
         f"💎  Продление: <b>{month} ₽/мес</b>\n\n"
-        f"<b>Ссылка подписки</b> — нажмите → «Копировать»:\n"
-        f"<code>{_esc(import_url)}</code>\n\n"
-        f"Или кнопки ниже — откроют Happ / INCY / Happ Plus и добавят ключ сами.\n"
+        f"<b>Основной ключ</b> — нажмите → «Копировать»:\n"
+        f"<code>{_esc(import_url)}</code>\n"
+        f"{fallback_block}\n"
+        f"Или кнопки ниже — откроют Happ / INCY / Happ Plus с основным ключом.\n"
         f"«Устройства» — лимит, сброс привязок, отказ от доп. слотов."
+    )
+
+
+def screen_access_link(import_url: str, *, fallback_url: str | None = None) -> str:
+    extra = ""
+    if fallback_url:
+        extra = f"\n\n<b>Запасной:</b>\n<code>{_esc(fallback_url)}</code>"
+    return (
+        f"<b>🔑 Основной ключ · нажмите → Копировать:</b>\n"
+        f"<code>{_esc(import_url)}</code>"
+        f"{extra}"
     )
 
 
@@ -461,13 +479,6 @@ def screen_access_short(user: User) -> str:
         f"🟢  {_esc(badge)} · {_esc(detail)}\n\n"
         f"Ключ — в следующем сообщении.\n"
         f"Нажмите на ссылку → «Копировать»."
-    )
-
-
-def screen_access_link(import_url: str) -> str:
-    return (
-        f"<b>🔑 Ключ · нажмите → Копировать:</b>\n"
-        f"<code>{_esc(import_url)}</code>"
     )
 
 

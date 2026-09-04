@@ -108,6 +108,9 @@ def _user_payload(user) -> dict[str, Any]:
         "username_link": f"https://t.me/{user.username}" if user.username else None,
         "subscription_token": user.subscription_token,
         "subscription_url": sub_url,
+        "subscription_fallback_url": config.subscription_fallback_url_for_token(
+            user.subscription_token
+        ),
         "registration_date": user.registration_date,
         "expires_at": user.expires_at,
         "plan": user.plan,
