@@ -14,6 +14,7 @@ from cardlink_routes import router as cardlink_router
 from platega_routes import router as platega_router
 from panel_routes import router as panel_router
 from payments import is_subscription_active
+from open_apps import APP_DEEPLINKS, decode_open_query, open_app_html
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,23 @@ app.include_router(panel_router)
 @app.get("/privacy")
 async def privacy_page():
     return Response(content=privacy_html(), media_type="text/html; charset=utf-8")
+
+
+@app.get("/open/{app_id}")
+async def open_vpn_app(app_id: str, u: str = ""):
+    """HTTPS → deep link в Happ / INCY / Happ Plus (для кнопок Telegram)."""
+    app_key = (app_id or "").strip().lower()
+    if app_key not in APP_DEEPLINKS:
+        raise HTTPException(status_code=404, detail="Unknown app")
+    sub = decode_open_query(u)
+    if not sub.startswith("https://") and not sub.startswith("http://"):
+        raise HTTPException(status_code=400, detail="Bad subscription URL")
+    html = open_app_html(app_id=app_key, subscription_url=sub)
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/terms")
