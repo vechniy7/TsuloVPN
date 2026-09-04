@@ -115,8 +115,15 @@ class Config(BaseModel):
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
     ADMINS: list[int] = Field(default_factory=list)
     BOT_NAME: str = os.getenv("BOT_NAME", "TsuloVPN")
+    BOT_USERNAME: str = (os.getenv("BOT_USERNAME", "TsuloVPN_bot") or "TsuloVPN_bot").lstrip("@")
 
     SUBSCRIPTION_PUBLIC_URL: str = os.getenv("SUBSCRIPTION_PUBLIC_URL", "https://your-domain.com")
+    # Прямые запросы на Amvera /sub/ → заглушка «Обновите ключ» (рабочий URL — PUBLIC через CF).
+    FORCE_LEGACY_SUB_MIGRATE: bool = os.getenv("FORCE_LEGACY_SUB_MIGRATE", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     SUBSCRIPTION_PORT: int = Field(
         default=int(os.getenv("PORT", os.getenv("SUBSCRIPTION_PORT", "8080")))
     )

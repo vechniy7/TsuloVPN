@@ -121,27 +121,55 @@ def _pay_channel() -> str:
     return ch or "TsuloVPN"
 
 
+def _bot_username() -> str:
+    return (config.BOT_USERNAME or "TsuloVPN_bot").lstrip("@") or "TsuloVPN_bot"
+
+
+def _is_public_edge_request(request: Request) -> bool:
+    """True, если запрос пришёл через Cloudflare Pages (новый ключ)."""
+    edge = (request.headers.get("x-tsulo-edge") or "").strip().lower()
+    if edge in ("cloudflare-pages", "1", "cloudflare"):
+        return True
+    from urllib.parse import urlparse
+
+    public_host = (urlparse(config.SUBSCRIPTION_PUBLIC_URL or "").hostname or "").lower()
+    if not public_host:
+        return False
+    fwd = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip().lower()
+    if fwd == public_host:
+        return True
+    host = (request.headers.get("host") or "").split(":")[0].strip().lower()
+    return host == public_host and "amvera" not in host
+
+
 def _payment_notice_profiles(*, reason: str) -> list[dict]:
     """
     Заглушка вместо серверов: Happ ОБЯЗАН получить HTTP 200 и заменить список.
     При 403/404 клиент часто оставляет старые рабочие конфиги в кэше.
     """
     channel = _pay_channel()
-    if reason == "disabled":
+    bot = _bot_username()
+    if reason == "legacy_host":
+        title = f"🔄 Обновите ключ @{bot}"
+        desc = (
+            f"Старый адрес ключа больше не работает. "
+            f"Откройте бота @{bot} → «Мой ключ» и вставьте новую ссылку в Happ."
+        )
+    elif reason == "disabled":
         title = f"⛔ Доступ закрыт · @{channel}"
-        desc = f"Ключ отключён. Напишите в поддержку или откройте бота @{channel}"
+        desc = f"Ключ отключён. Напишите в поддержку или откройте бота @{bot}"
     elif reason == "not_found":
         title = f"🔑 Ключ недействителен · @{channel}"
-        desc = f"Ключ удалён или заменён. Получите новый в боте @{channel}"
+        desc = f"Ключ удалён или заменён. Получите новый в боте @{bot}"
     elif reason == "hwid_limit":
         title = f"📱 Лимит устройств · @{channel}"
         desc = (
             f"Ключ уже привязан к другому устройству. "
-            f"Сброс HWID — в боте @{channel} / поддержке"
+            f"Сброс HWID — в боте @{bot} / поддержке"
         )
     else:
         title = f"⚠️ Оплатите @{channel}"
-        desc = f"Подписка неактивна. Оформите оплату в боте / канале @{channel}"
+        desc = f"Подписка неактивна. Оформите оплату в боте @{bot}"
 
     # Нерабочий outbound: в списке Happ виден только текст, подключиться нельзя.
     return [
@@ -222,6 +250,24 @@ async def _subscription_access(token: str) -> tuple[object | None, str | None]:
 
 @app.get("/sub/{token}")
 async def subscription(token: str, request: Request):
+    # Старые ключи на amvera.io: Happ должен увидеть 1 заглушку и сменить URL в боте.
+    if config.FORCE_LEGACY_SUB_MIGRATE and not _is_public_edge_request(request):
+        bot = _bot_username()
+        profiles = _payment_notice_profiles(reason="legacy_host")
+        logger.info(
+            "JSON subscription legacy-host migrate token=%s… host=%s edge=%s",
+            (token or "")[:8],
+            request.headers.get("host"),
+            request.headers.get("x-tsulo-edge"),
+        )
+        return _subscription_response(
+            profiles,
+            profile_title=f"🔄 Обновите ключ @{bot}",
+            expire_ts=int(time.time()) - 60,
+            cache_max_age=60,
+            update_interval="1",
+        )
+
     user, reason = await _subscription_access(token)
 
     if not reason and user is not None and not user.is_admin:
