@@ -86,6 +86,10 @@ class User:
     note: str | None = None
     bound_hwid: str | None = None
     hwid_bound_at: str | None = None
+    # Персистентный лимит устройств (1..5). None → config.DEVICE_LIMIT.
+    device_limit: int | None = None
+    # Список привязанных HWID (до device_limit). bound_hwid — legacy/первый.
+    bound_hwids: list | None = None
 
 
 @dataclass
@@ -150,11 +154,34 @@ def _parse_user(raw: str | bytes | None) -> User | None:
     data.setdefault("note", None)
     data.setdefault("bound_hwid", None)
     data.setdefault("hwid_bound_at", None)
+    data.setdefault("device_limit", None)
+    data.setdefault("bound_hwids", None)
     try:
         data["sub_fetch_count"] = int(data.get("sub_fetch_count") or 0)
     except (TypeError, ValueError):
         data["sub_fetch_count"] = 0
     data["disabled"] = bool(data.get("disabled"))
+    # Нормализация device_limit / bound_hwids
+    raw_limit = data.get("device_limit")
+    if raw_limit is not None:
+        try:
+            data["device_limit"] = int(raw_limit)
+        except (TypeError, ValueError):
+            data["device_limit"] = None
+    hwids = data.get("bound_hwids")
+    if isinstance(hwids, str):
+        try:
+            hwids = json.loads(hwids)
+        except json.JSONDecodeError:
+            hwids = [hwids] if hwids.strip() else []
+    if not isinstance(hwids, list):
+        hwids = []
+    hwids = [str(x).strip() for x in hwids if str(x).strip()]
+    legacy = (data.get("bound_hwid") or "").strip()
+    if legacy and legacy not in hwids:
+        hwids.insert(0, legacy)
+    data["bound_hwids"] = hwids or None
+    data["bound_hwid"] = hwids[0] if hwids else None
     allowed = {f.name for f in fields(User)}
     return User(**{k: v for k, v in data.items() if k in allowed})
 
@@ -404,8 +431,9 @@ async def regenerate_user_token(telegram_id: int) -> User | None:
         old = user.subscription_token
         new = _new_token()
         user.subscription_token = new
-        # Новый ключ — новое устройство можно привязать заново.
+        # Новый ключ — устройства можно привязать заново.
         user.bound_hwid = None
+        user.bound_hwids = None
         user.hwid_bound_at = None
         redis.delete(_token_key(old))
         redis.set(_token_key(new), str(telegram_id))
@@ -428,12 +456,14 @@ def normalize_client_hwid(raw: str | None) -> str:
 
 async def check_and_bind_hwid(telegram_id: int, client_hwid: str) -> tuple[User | None, str | None]:
     """
-    Лимит 1 устройство на ключ.
-    Возвращает (user, reason). reason='hwid_limit' если другое устройство.
+    Лимит устройств на ключ (1..5, per-user device_limit).
+    Возвращает (user, reason). reason='hwid_limit' если слотов нет.
     Пустой HWID — не блокируем (старые клиенты), но и не привязываем.
     """
+    from devices import bound_hwid_list, user_device_limit
+
     hwid = normalize_client_hwid(client_hwid)
-    if not config.DEVICE_LIMIT_ENABLED or config.DEVICE_LIMIT <= 0:
+    if not config.DEVICE_LIMIT_ENABLED:
         return await get_user(telegram_id), None
 
     def _check():
@@ -443,15 +473,20 @@ async def check_and_bind_hwid(telegram_id: int, client_hwid: str) -> tuple[User 
             return None, "not_found", False
         if not hwid:
             return user, None, False
-        bound = (user.bound_hwid or "").strip()
-        if not bound:
-            user.bound_hwid = hwid
-            user.hwid_bound_at = datetime.now(timezone.utc).isoformat()
-            redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
-            return user, None, True
-        if bound == hwid:
+        limit = user_device_limit(user)
+        if limit <= 0:
             return user, None, False
-        return user, "hwid_limit", False
+        hwids = bound_hwid_list(user)
+        if hwid in hwids:
+            return user, None, False
+        if len(hwids) >= limit:
+            return user, "hwid_limit", False
+        hwids.append(hwid)
+        user.bound_hwids = hwids
+        user.bound_hwid = hwids[0]
+        user.hwid_bound_at = datetime.now(timezone.utc).isoformat()
+        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+        return user, None, True
 
     user, reason, changed = await _run(_check)
     if changed:
@@ -466,10 +501,33 @@ async def reset_user_hwid(telegram_id: int) -> User | None:
         if not user:
             return None
         user.bound_hwid = None
+        user.bound_hwids = None
         user.hwid_bound_at = None
         redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
         return user
 
     user = await _run(_reset)
+    _invalidate_users_cache()
+    return user
+
+
+async def set_user_device_limit(telegram_id: int, limit: int) -> User | None:
+    from devices import bound_hwid_list, clamp_device_limit
+
+    def _set():
+        redis = _get_redis()
+        user = _parse_user(redis.get(_user_key(telegram_id)))
+        if not user:
+            return None
+        user.device_limit = clamp_device_limit(limit)
+        hwids = bound_hwid_list(user)
+        if len(hwids) > user.device_limit:
+            hwids = hwids[: user.device_limit]
+            user.bound_hwids = hwids or None
+            user.bound_hwid = hwids[0] if hwids else None
+        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+        return user
+
+    user = await _run(_set)
     _invalidate_users_cache()
     return user

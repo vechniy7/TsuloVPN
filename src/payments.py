@@ -3,6 +3,12 @@ from datetime import datetime, timedelta, timezone
 
 from config import config
 from database import PaymentOrder, User, get_payment_order, get_user, mark_payment_order_paid, save_payment_order, save_user
+from devices import (
+    clamp_device_limit,
+    monthly_price_for_user,
+    parse_device_addon_plan,
+    user_device_limit,
+)
 
 
 @dataclass(frozen=True)
@@ -13,7 +19,7 @@ class TariffPlan:
     price_rub: int
 
 
-# Единственный тариф: 69 ₽ / месяц.
+# Единственный базовый тариф: 69 ₽ / месяц (1 устройство).
 PLANS: dict[str, TariffPlan] = {
     "1m": TariffPlan(id="1m", title="1 месяц", months=1, price_rub=69),
 }
@@ -77,6 +83,13 @@ async def extend_subscription(user: User, plan_id: str) -> User:
     return await save_user(user)
 
 
+async def apply_device_addon(user: User, add: int) -> User:
+    add = int(add)
+    current = user_device_limit(user)
+    user.device_limit = clamp_device_limit(current + add)
+    return await save_user(user)
+
+
 async def create_pending_order(
     *,
     order_id: str,
@@ -103,18 +116,32 @@ async def process_payment(
     telegram_id: int,
     plan_id: str,
 ) -> tuple[User | None, TariffPlan | None, bool]:
-    plan = get_plan(plan_id)
-    if not plan:
-        return None, None, False
-
     order = await get_payment_order(order_id)
     if order and order.status == "paid":
         user = await get_user(telegram_id)
+        plan = get_plan(plan_id) or (
+            TariffPlan(id=plan_id, title="Устройства", months=0, price_rub=order.amount)
+            if parse_device_addon_plan(plan_id)
+            else None
+        )
         return user, plan, False
 
     user = await get_user(telegram_id)
     if not user:
-        return None, plan, False
+        return None, get_plan(plan_id), False
+
+    addon = parse_device_addon_plan(plan_id)
+    if addon is not None:
+        user = await apply_device_addon(user, addon)
+        await mark_payment_order_paid(order_id)
+        title = f"+{addon} устройств" if addon > 1 else "+1 устройство"
+        amount = order.amount if order else 0
+        fake = TariffPlan(id=plan_id, title=title, months=0, price_rub=amount)
+        return user, fake, True
+
+    plan = get_plan(plan_id)
+    if not plan:
+        return None, None, False
 
     user = await extend_subscription(user, plan_id)
     await mark_payment_order_paid(order_id)
@@ -155,3 +182,8 @@ async def try_activate_from_bill(bill_id: str) -> tuple[User | None, TariffPlan 
             )
 
     return None, None, False
+
+
+def renewal_amount_for_user(user: User | None) -> int:
+    """Сумма продления с учётом купленных слотов устройств."""
+    return monthly_price_for_user(user)

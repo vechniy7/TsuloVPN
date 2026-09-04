@@ -79,11 +79,16 @@ def screen_channel_required() -> str:
     )
 
 
-def kb_home(*, is_admin: bool) -> InlineKeyboardMarkup:
+def kb_home(*, is_admin: bool, user: User | None = None) -> InlineKeyboardMarkup:
     """Меню как у популярных VPN-ботов: ключ сверху, оплата, гайд, поддержка."""
+    from devices import monthly_price_for_user
+
     b = InlineKeyboardBuilder()
     plan = _main_plan()
-    price = f"{plan.price_rub}₽" if plan else ""
+    if user and config.payments_active:
+        price = f"{monthly_price_for_user(user)}₽"
+    else:
+        price = f"{plan.price_rub}₽" if plan else ""
     b.button(text="🔑  Мой ключ", callback_data="get_key")
     b.button(text=f"💳  Тарифы · {price}/мес" if price else "💳  Тарифы", callback_data="tariffs")
     b.button(text="📖  Инструкция", callback_data="help")
@@ -102,7 +107,9 @@ def kb_home_nav() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def kb_access(*, inactive: bool = False) -> InlineKeyboardMarkup:
+def kb_access(*, inactive: bool = False, user: User | None = None) -> InlineKeyboardMarkup:
+    from devices import MAX_DEVICE_SLOTS, addon_options, user_device_limit
+
     b = InlineKeyboardBuilder()
     if inactive:
         b.button(text="💳  Оформить подписку", callback_data="tariffs")
@@ -112,6 +119,10 @@ def kb_access(*, inactive: bool = False) -> InlineKeyboardMarkup:
         b.adjust(1)
         return b.as_markup()
     b.button(text="🔄  Обновить ключ", callback_data="get_key")
+    b.button(text="📱  Сбросить устройства", callback_data="reset_hwid")
+    if config.payments_active and user is not None and user_device_limit(user) < MAX_DEVICE_SLOTS:
+        if addon_options(user):
+            b.button(text="➕  Доп. устройства", callback_data="devices")
     b.button(text="📖  Как подключить", callback_data="help")
     if _webapp_https():
         b.button(text="🖥  Кабинет", web_app=WebAppInfo(url=config.miniapp_url))
@@ -139,14 +150,31 @@ def kb_docs() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def kb_tariffs() -> InlineKeyboardMarkup:
+def kb_devices(user: User) -> InlineKeyboardMarkup:
+    from devices import addon_options
+
+    b = InlineKeyboardBuilder()
+    for opt in addon_options(user):
+        add = opt["add"]
+        label = f"+{add} устр. · {opt['price_rub']} ₽"
+        b.button(text=label, callback_data=f"order:{opt['plan_id']}")
+    b.button(text="◀️  Назад", callback_data="get_key")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_tariffs(user: User | None = None) -> InlineKeyboardMarkup:
+    from devices import monthly_price_for_user
+
     b = InlineKeyboardBuilder()
     if config.payments_active:
         for plan in _plans():
+            price = monthly_price_for_user(user) if user else plan.price_rub
             b.button(
-                text=f"💜  Оплатить {plan.price_rub} ₽ / мес",
+                text=f"💜  Оплатить {price} ₽ / мес",
                 callback_data=f"order:{plan.id}",
             )
+        b.button(text="➕  Доп. устройства", callback_data="devices")
     else:
         b.button(text="🔑  Мой ключ", callback_data="get_key")
     b.button(text="📄  Подробнее", url=config.tariffs_page_url)
@@ -252,7 +280,7 @@ def screen_home(user: User, *, is_admin: bool = False, users_total: int | None =
         f"{status_emoji}  Статус: <b>{_esc(badge)}</b>\n"
         f"📅  {_esc(detail)}\n"
         f"💎  Тариф: <b>{price_line}</b>\n"
-        f"📱  Устройств: <b>1</b>\n"
+        f"📱  Устройств: <b>до 5</b>\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"{cta}"
     )
@@ -278,18 +306,72 @@ def screen_access_loading() -> str:
 
 
 def screen_access(user: User, import_url: str) -> str:
+    from devices import MAX_DEVICE_SLOTS, bound_hwid_list, monthly_price_for_user, user_device_limit
+
     badge, detail, _ = status_info(user)
+    limit = user_device_limit(user)
+    used = len(bound_hwid_list(user))
+    month = monthly_price_for_user(user)
     return (
         f"💜 <b>Ваш ключ</b>\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"🟢  {_esc(badge)} · {_esc(detail)}\n"
-        f"📱  Лимит: <b>1 устройство</b>\n\n"
+        f"📱  Устройства: <b>{used}/{limit}</b> (макс. {MAX_DEVICE_SLOTS})\n"
+        f"💎  Продление: <b>{month} ₽/мес</b>\n\n"
         f"<b>Ссылка подписки</b> — удерживайте → Копировать:\n"
         f"<code>{_esc(import_url)}</code>\n\n"
         f"① Happ → «+» / Добавить подписку\n"
         f"② Вставьте ключ\n"
         f"③ Включите автообновление\n"
         f"④ Подключитесь"
+    )
+
+
+def screen_devices(user: User) -> str:
+    from devices import (
+        FIRST_EXTRA_SLOT_PRICE,
+        MAX_DEVICE_SLOTS,
+        addon_options,
+        bound_hwid_list,
+        monthly_price_for_user,
+        user_device_limit,
+    )
+
+    limit = user_device_limit(user)
+    used = len(bound_hwid_list(user))
+    opts = addon_options(user)
+    if not opts:
+        return (
+            f"💜 <b>Устройства</b>\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
+            f"Сейчас: <b>{used}/{limit}</b>\n"
+            f"Достигнут максимум — <b>{MAX_DEVICE_SLOTS}</b> устройств.\n\n"
+            f"Продление подписки: <b>{monthly_price_for_user(user)} ₽/мес</b>"
+        )
+    lines = "\n".join(
+        f"· +{o['add']} → лимит {o['new_limit']} · <b>{o['price_rub']} ₽</b>" for o in opts
+    )
+    return (
+        f"💜 <b>Доп. устройства</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"Сейчас: <b>{used}/{limit}</b> (макс. {MAX_DEVICE_SLOTS})\n"
+        f"База в тарифе — 1 устройство.\n"
+        f"Первый доп. слот — <b>{FIRST_EXTRA_SLOT_PRICE} ₽</b>, "
+        f"каждый следующий +5 ₽.\n\n"
+        f"{lines}\n\n"
+        f"После покупки ежемесячная цена станет выше "
+        f"(сейчас продление <b>{monthly_price_for_user(user)} ₽</b>)."
+    )
+
+
+def screen_hwid_reset_ok(user: User) -> str:
+    from devices import user_device_limit
+
+    return (
+        f"💜 <b>Устройства сброшены</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"Привязки сняты. Можно заново добавить ключ "
+        f"на <b>{user_device_limit(user)}</b> устройств(а) в Happ."
     )
 
 
@@ -320,15 +402,21 @@ def screen_docs() -> str:
     )
 
 
-def screen_tariffs() -> str:
+def screen_tariffs(user: User | None = None) -> str:
+    from devices import FIRST_EXTRA_SLOT_PRICE, MAX_DEVICE_SLOTS, monthly_price_for_user, user_device_limit
+
     plan = _main_plan()
     name = _esc(config.BOT_NAME)
     if not plan:
         return f"💜 <b>Тарифы · {name}</b>\n\nВременно недоступно."
+    month = monthly_price_for_user(user) if user else plan.price_rub
+    limit = user_device_limit(user) if user else 1
     if config.payments_active:
         body = (
-            f"<b>{_esc(plan.title)}</b> — <b>{plan.price_rub} ₽</b>\n"
-            f"Серверы · автообновление · 1 устройство\n\n"
+            f"<b>{_esc(plan.title)}</b> — <b>{month} ₽</b>\n"
+            f"База {plan.price_rub} ₽ + устройства (сейчас лимит <b>{limit}</b>)\n"
+            f"Серверы · автообновление · до {MAX_DEVICE_SLOTS} устройств\n"
+            f"Доп. слот от <b>{FIRST_EXTRA_SLOT_PRICE} ₽</b>\n\n"
             f"Нажмите «Оплатить» — безопасная оплата Platega."
         )
     else:
@@ -343,12 +431,14 @@ def screen_tariffs() -> str:
     )
 
 
-def screen_order(plan: TariffPlan) -> str:
+def screen_order(plan: TariffPlan, *, amount: int | None = None, devices_note: str = "") -> str:
+    price = amount if amount is not None else plan.price_rub
+    extra = f"\n{devices_note}\n" if devices_note else "\n"
     return (
         f"💜 <b>Оплата</b>\n"
         f"━━━━━━━━━━━━━━━━\n\n"
         f"Тариф: <b>{_esc(plan.title)}</b>\n"
-        f"Сумма: <b>{plan.price_rub} ₽</b>\n\n"
+        f"Сумма: <b>{price} ₽</b>{extra}"
         f"① «Перейти к оплате»\n"
         f"② Вернитесь → «Я оплатил»\n"
         f"③ «Мой ключ»"
@@ -380,7 +470,7 @@ def screen_help() -> str:
         f"③ Happ → Добавить подписку\n"
         f"④ Автообновление ON\n"
         f"⑤ Выберите сервер\n\n"
-        f"<b>1 устройство</b> на ключ. Смена телефона — поддержка.\n\n"
+        f"<b>1–5 устройств</b> на ключ. Смена телефона — «Сбросить устройства».\n\n"
         f"Вопросы — «Поддержка»."
     )
 

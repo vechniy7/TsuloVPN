@@ -78,7 +78,7 @@ async def show_menu(
         return
     users_total = await _cached_user_count()
     text = ui.screen_home(user, is_admin=_is_admin(user, chat_id), users_total=users_total)
-    markup = ui.kb_home(is_admin=_is_admin(user, chat_id))
+    markup = ui.kb_home(is_admin=_is_admin(user, chat_id), user=user)
     if edit and message:
         await render_screen(message, caption=text, markup=markup, screen="home", edit=True)
         return
@@ -91,7 +91,7 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
             await render_screen(
                 target,
                 caption=ui.screen_access_inactive(),
-                markup=ui.kb_access(inactive=True),
+                markup=ui.kb_access(inactive=True, user=user),
                 screen="access",
                 edit=edit,
             )
@@ -102,7 +102,7 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
         await render_screen(
             target,
             caption=ui.screen_access_loading(),
-            markup=ui.kb_access(),
+            markup=ui.kb_access(user=user),
             screen="access",
             edit=edit,
         )
@@ -115,7 +115,7 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
         await render_screen(
             target,
             caption=full,
-            markup=ui.kb_access(),
+            markup=ui.kb_access(user=user),
             screen="access",
             edit=edit,
         )
@@ -124,7 +124,7 @@ async def send_subscription_key(target: Message, user: User, *, edit: bool = Fal
     await render_screen(
         target,
         caption=ui.screen_access_short(user),
-        markup=ui.kb_access(),
+        markup=ui.kb_access(user=user),
         screen="access",
         edit=edit,
     )
@@ -223,10 +223,11 @@ async def donate_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "tariffs")
 async def tariffs_callback(callback: CallbackQuery) -> None:
     await callback.answer()
+    user = await get_user(callback.from_user.id)
     await render_screen(
         callback.message,
-        caption=ui.screen_tariffs(),
-        markup=ui.kb_tariffs(),
+        caption=ui.screen_tariffs(user),
+        markup=ui.kb_tariffs(user),
         screen="tariffs",
         edit=True,
     )
@@ -246,10 +247,11 @@ async def docs_callback(callback: CallbackQuery) -> None:
 
 @router.message(Command("tariffs", "price", "pricing"))
 async def tariffs_cmd(message: Message) -> None:
+    user = await get_user(message.from_user.id)
     await render_screen(
         message,
-        caption=ui.screen_tariffs(),
-        markup=ui.kb_tariffs(),
+        caption=ui.screen_tariffs(user),
+        markup=ui.kb_tariffs(user),
         screen="tariffs",
         edit=False,
     )
@@ -274,25 +276,61 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
         return
 
     plan_id = callback.data.split(":", 1)[1].strip()
-    from payments import create_pending_order, get_plan
+    from devices import (
+        can_add_slots,
+        cost_to_add_slots,
+        parse_device_addon_plan,
+        user_device_limit,
+    )
+    from payments import TariffPlan, create_pending_order, get_plan, renewal_amount_for_user
 
-    plan = get_plan(plan_id)
-    if not plan:
-        await render_screen(
-            callback.message,
-            caption=ui.screen_tariffs(),
-            markup=ui.kb_tariffs(),
-            screen="help",
-            edit=True,
-        )
+    user = await get_user(callback.from_user.id)
+    if not user:
         return
+
+    addon = parse_device_addon_plan(plan_id)
+    plan: TariffPlan | None = None
+    amount = 0
+    devices_note = ""
+
+    if addon is not None:
+        if not can_add_slots(user, addon):
+            await render_screen(
+                callback.message,
+                caption=ui.screen_devices(user),
+                markup=ui.kb_devices(user),
+                screen="tariffs",
+                edit=True,
+            )
+            return
+        amount = cost_to_add_slots(user_device_limit(user), addon)
+        title = f"+{addon} устройств" if addon > 1 else "+1 устройство"
+        plan = TariffPlan(id=plan_id, title=title, months=0, price_rub=amount)
+        new_limit = user_device_limit(user) + addon
+        devices_note = f"Новый лимит: <b>{new_limit}</b> устройств"
+    else:
+        plan = get_plan(plan_id)
+        if not plan:
+            await render_screen(
+                callback.message,
+                caption=ui.screen_tariffs(user),
+                markup=ui.kb_tariffs(user),
+                screen="tariffs",
+                edit=True,
+            )
+            return
+        amount = renewal_amount_for_user(user)
+        if amount != plan.price_rub:
+            devices_note = (
+                f"Включая доп. устройства (лимит <b>{user_device_limit(user)}</b>)"
+            )
 
     if not config.payments_active or not config.use_platega:
         await render_screen(
             callback.message,
-            caption=ui.screen_pay_error() if config.PAYMENTS_ENFORCE else ui.screen_tariffs(),
-            markup=ui.kb_tariffs(),
-            screen="help",
+            caption=ui.screen_pay_error() if config.PAYMENTS_ENFORCE else ui.screen_tariffs(user),
+            markup=ui.kb_tariffs(user),
+            screen="tariffs",
             edit=True,
         )
         return
@@ -302,7 +340,7 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
     order_id = new_order_id(callback.from_user.id, plan.id)
     try:
         result = await create_transaction(
-            amount=plan.price_rub,
+            amount=amount,
             order_id=order_id,
             description=f"{config.BOT_NAME} · {plan.title}",
             telegram_id=callback.from_user.id,
@@ -313,8 +351,8 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
         await render_screen(
             callback.message,
             caption=ui.screen_pay_error(),
-            markup=ui.kb_tariffs(),
-            screen="help",
+            markup=ui.kb_tariffs(user),
+            screen="tariffs",
             edit=True,
         )
         return
@@ -323,17 +361,56 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
         order_id=order_id,
         telegram_id=callback.from_user.id,
         plan_id=plan.id,
-        amount=plan.price_rub,
+        amount=amount,
         bill_id=result["transaction_id"],
     )
 
     await render_screen(
         callback.message,
-        caption=ui.screen_order(plan),
+        caption=ui.screen_order(plan, amount=amount, devices_note=devices_note),
         markup=ui.kb_pay(result["pay_url"], result["transaction_id"]),
-        screen="help",
+        screen="tariffs",
         edit=True,
     )
+
+
+@router.callback_query(F.data == "devices")
+async def devices_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+    user = await get_user(callback.from_user.id)
+    if not user:
+        return
+    await render_screen(
+        callback.message,
+        caption=ui.screen_devices(user),
+        markup=ui.kb_devices(user),
+        screen="tariffs",
+        edit=True,
+    )
+
+
+@router.callback_query(F.data == "reset_hwid")
+async def reset_hwid_callback(callback: CallbackQuery) -> None:
+    from database import reset_user_hwid
+
+    user = await get_user(callback.from_user.id)
+    if not user:
+        await callback.answer()
+        return
+    if config.payments_active and not is_subscription_active(user) and not _is_admin(user, user.telegram_id):
+        await callback.answer("Сначала оформите подписку", show_alert=True)
+        return
+    await reset_user_hwid(callback.from_user.id)
+    user = await get_user(callback.from_user.id)
+    await callback.answer("Устройства сброшены", show_alert=True)
+    if user and callback.message:
+        await render_screen(
+            callback.message,
+            caption=ui.screen_hwid_reset_ok(user),
+            markup=ui.kb_access(user=user),
+            screen="access",
+            edit=True,
+        )
 
 
 @router.callback_query(F.data.startswith("check:"))
@@ -346,7 +423,12 @@ async def check_payment_callback(callback: CallbackQuery) -> None:
         await notify_payment_success(callback.from_user.id, plan.title, user)
         return
 
-    if user and plan and is_subscription_active(user):
+    # Докупка устройств: подписка уже могла быть активна
+    if activated:
+        await callback.answer("Оплата подтверждена", show_alert=True)
+        return
+
+    if user and plan and plan.months > 0 and is_subscription_active(user):
         await callback.answer("Подписка уже активна", show_alert=True)
         return
 

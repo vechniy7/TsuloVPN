@@ -21,6 +21,13 @@ from database import (
     regenerate_user_token,
     reset_user_hwid,
     save_user,
+    set_user_device_limit,
+)
+from devices import (
+    MAX_DEVICE_SLOTS,
+    bound_hwid_list,
+    monthly_price_for_user,
+    user_device_limit,
 )
 from payments import PLANS, extend_subscription, get_plan, is_subscription_active
 from pool_engine_v3 import get_pool_state, refresh_pool
@@ -53,6 +60,10 @@ class DisableBody(BaseModel):
 
 class NoteBody(BaseModel):
     note: str = ""
+
+
+class DeviceLimitBody(BaseModel):
+    device_limit: int = Field(ge=1, le=MAX_DEVICE_SLOTS)
 
 
 def _utcnow() -> datetime:
@@ -108,10 +119,13 @@ def _user_payload(user) -> dict[str, Any]:
         "sub_fetch_count": int(user.sub_fetch_count or 0),
         "note": user.note or "",
         "bound_hwid": user.bound_hwid or "",
+        "bound_hwids": bound_hwid_list(user),
         "hwid_bound_at": user.hwid_bound_at,
+        "device_limit": user_device_limit(user),
+        "devices_used": len(bound_hwid_list(user)),
+        "monthly_price_rub": monthly_price_for_user(user),
         "data_limit": "∞",
         "used_traffic": "—",
-        "device_limit": config.DEVICE_LIMIT,
         "online": bool(
             user.last_seen_at
             and (_utcnow() - (_parse_iso(user.last_seen_at) or _utcnow())).total_seconds() < 86400
@@ -425,6 +439,18 @@ async def panel_user_regen(telegram_id: int, _: str = Depends(require_admin)):
 @router.post("/panel/api/users/{telegram_id}/reset-hwid")
 async def panel_user_reset_hwid(telegram_id: int, _: str = Depends(require_admin)):
     user = await reset_user_hwid(telegram_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _user_payload(user)
+
+
+@router.post("/panel/api/users/{telegram_id}/device-limit")
+async def panel_user_device_limit(
+    telegram_id: int,
+    body: DeviceLimitBody,
+    _: str = Depends(require_admin),
+):
+    user = await set_user_device_limit(telegram_id, body.device_limit)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return _user_payload(user)
