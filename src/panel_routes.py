@@ -37,7 +37,8 @@ class LoginBody(BaseModel):
 
 
 class ExtendBody(BaseModel):
-    days: int = Field(default=30, ge=1, le=3650)
+    days: int = Field(default=0, ge=0, le=3650)
+    minutes: int = Field(default=0, ge=0, le=5256000)
     plan_id: str | None = None
 
 
@@ -120,7 +121,28 @@ def _user_payload(user) -> dict[str, Any]:
             if expires and expires > _utcnow()
             else (None if not config.payments_active and not user.expires_at else 0)
         ),
+        "time_left": _time_left_label(expires),
     }
+
+
+def _time_left_label(expires: datetime | None) -> str | None:
+    if not expires:
+        return None if config.payments_active else "∞"
+    now = _utcnow()
+    if expires <= now:
+        return "0"
+    secs = int((expires - now).total_seconds())
+    days, rem = divmod(secs, 86400)
+    hours, rem = divmod(rem, 3600)
+    mins = rem // 60
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}д")
+    if hours:
+        parts.append(f"{hours}ч")
+    if mins or not parts:
+        parts.append(f"{mins}м")
+    return " ".join(parts)
 
 
 def _require_panel_configured() -> None:
@@ -333,8 +355,14 @@ async def panel_user_extend(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    days = int(body.days or 0)
+    minutes = int(body.minutes or 0)
+    if days <= 0 and minutes <= 0:
+        raise HTTPException(status_code=400, detail="Specify days and/or minutes")
+
     plan_id = body.plan_id or user.plan or next(iter(PLANS), "1m")
-    if body.days == 30 and get_plan(plan_id):
+    # Месячный план через стандартный extend только при ровно +30д без минут.
+    if days == 30 and minutes == 0 and get_plan(plan_id):
         user = await extend_subscription(user, plan_id)
     else:
         now = _utcnow()
@@ -342,7 +370,7 @@ async def panel_user_extend(
         current = _parse_iso(user.expires_at)
         if current and current > now:
             base = current
-        user.expires_at = (base + timedelta(days=body.days)).isoformat()
+        user.expires_at = (base + timedelta(days=days, minutes=minutes)).isoformat()
         if plan_id:
             user.plan = plan_id
         user.disabled = False

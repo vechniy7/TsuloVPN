@@ -183,7 +183,7 @@
       <div class="row"><b>Status</b><span class="pill ${u.status}">${u.status}</span></div>
       <div class="row"><b>Plan</b><span>${escapeHtml(u.plan_title || u.plan || "—")}</span></div>
       <div class="row"><b>Expire</b><span>${u.expires_at ? fmtTs(u.expires_at) : "∞"}</span></div>
-      <div class="row"><b>Days left</b><span>${u.days_left ?? "—"}</span></div>
+      <div class="row"><b>Days left</b><span>${u.time_left || (u.days_left ?? "—")}</span></div>
       <div class="row"><b>Data</b><span>${u.data_limit} · used ${u.used_traffic}</span></div>
       <div class="row"><b>Fetches</b><span>${u.sub_fetch_count} · last ${fmtTs(u.last_seen_at)}</span></div>
       <div class="row"><b>Registered</b><span>${fmtTs(u.registration_date)}</span></div>
@@ -202,8 +202,11 @@
       await navigator.clipboard.writeText(url);
       return;
     }
-    if (name === "extend30") await api(`/panel/api/users/${id}/extend`, { method: "POST", body: JSON.stringify({ days: 30 }) });
+    if (name === "extend5m") await api(`/panel/api/users/${id}/extend`, { method: "POST", body: JSON.stringify({ minutes: 5 }) });
     if (name === "extend7") await api(`/panel/api/users/${id}/extend`, { method: "POST", body: JSON.stringify({ days: 7 }) });
+    if (name === "extend30") await api(`/panel/api/users/${id}/extend`, { method: "POST", body: JSON.stringify({ days: 30 }) });
+    if (name === "extend180") await api(`/panel/api/users/${id}/extend`, { method: "POST", body: JSON.stringify({ days: 182 }) });
+    if (name === "extend365") await api(`/panel/api/users/${id}/extend`, { method: "POST", body: JSON.stringify({ days: 365 }) });
     if (name === "expire") await api(`/panel/api/users/${id}/expire`, { method: "POST", body: JSON.stringify({}) });
     if (name === "disable") await api(`/panel/api/users/${id}/disable`, { method: "POST", body: JSON.stringify({ disabled: true }) });
     if (name === "enable") await api(`/panel/api/users/${id}/disable`, { method: "POST", body: JSON.stringify({ disabled: false }) });
