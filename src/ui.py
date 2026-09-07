@@ -151,16 +151,31 @@ def kb_access(
 
 
 def kb_devices(user: User) -> InlineKeyboardMarkup:
-    from devices import addon_options, user_device_limit
+    from devices import addon_options, pack_plan_id, user_device_limit
+    from payments import is_subscription_active
 
     b = InlineKeyboardBuilder()
-    for opt in addon_options(user):
-        add = opt["add"]
-        label = f"➕ +{add} устр. · {opt['price_rub']} ₽"
-        b.button(text=label, callback_data=f"order:{opt['plan_id']}")
+    active = is_subscription_active(user) if config.payments_active else True
+    if active:
+        for opt in addon_options(user):
+            add = opt["add"]
+            label = f"➕ До {opt['new_limit']} устр. · {opt['price_rub']} ₽"
+            b.button(text=label, callback_data=f"order:{opt['plan_id']}")
+    else:
+        # Без подписки — сразу пакет месяц+устройства, без двойной оплаты.
+        for limit in (1, 2, 3, 4, 5):
+            from devices import pack_price
+
+            price = pack_price(limit)
+            word = "устройство" if limit == 1 else ("устройства" if limit < 5 else "устройств")
+            b.button(
+                text=f"📱 {limit} {word} · {price} ₽ / мес",
+                callback_data=f"order:{pack_plan_id(limit)}",
+            )
     if user_device_limit(user) > 1:
         b.button(text="⬇️  Вернуть 1 устройство · 69 ₽/мес", callback_data="devices_downgrade")
     b.button(text="🔓  Сбросить привязки (HWID)", callback_data="reset_hwid")
+    b.button(text="💜  Все пакеты", callback_data="tariffs")
     b.button(text="🔑  К ключу", callback_data="get_key")
     b.button(text="◀️  В меню", callback_data="back_to_menu")
     b.adjust(1)
@@ -195,17 +210,37 @@ def kb_docs() -> InlineKeyboardMarkup:
 
 
 def kb_tariffs(user: User | None = None) -> InlineKeyboardMarkup:
-    from devices import monthly_price_for_user
+    from devices import pack_options, user_device_limit
+    from payments import is_subscription_active, renewal_amount_for_user
 
     b = InlineKeyboardBuilder()
     if config.payments_active:
-        for plan in _plans():
-            price = monthly_price_for_user(user) if user else plan.price_rub
+        current_limit = user_device_limit(user) if user else 1
+        active = bool(user and is_subscription_active(user))
+
+        if active:
+            renew = renewal_amount_for_user(user)
             b.button(
-                text=f"💜  Оплатить {price} ₽ / мес",
-                callback_data=f"order:{plan.id}",
+                text=f"🔁 Продлить {current_limit} устр. · {renew} ₽",
+                callback_data="order:1m",
             )
-        b.button(text="➕  Доп. устройства", callback_data="devices")
+
+        for opt in pack_options():
+            limit = opt["devices"]
+            # Активным не дублируем кнопку «как сейчас» отдельным пакетом —
+            # продление уже выше. Пакеты с другим лимитом = смена + месяц.
+            if active and limit == current_limit:
+                continue
+            if limit == 1:
+                label = f"📱 1 устройство · {opt['price_rub']} ₽ / мес"
+            elif limit < 5:
+                label = f"📱 {limit} устройства · {opt['price_rub']} ₽ / мес"
+            else:
+                label = f"📱 {limit} устройств · {opt['price_rub']} ₽ / мес"
+            b.button(text=label, callback_data=f"order:{opt['plan_id']}")
+
+        if active and current_limit < 5:
+            b.button(text="➕  Только доп. слоты", callback_data="devices")
     else:
         b.button(text="🔑  Мой ключ", callback_data="get_key")
     b.button(text="📄  Подробнее", url=config.tariffs_page_url)
@@ -305,7 +340,7 @@ def screen_home(user: User, *, is_admin: bool = False, users_total: int | None =
     if active:
         cta = "«Мой ключ» → откройте Happ / INCY одной кнопкой."
     else:
-        cta = "Оформите подписку в «Тарифы», затем получите ключ."
+        cta = "В «Тарифы» выберите пакет (месяц + устройства) одной оплатой, затем ключ."
     return (
         f"💜 <b>{name}</b>\n"
         f"━━━━━━━━━━━━━━━━\n"
@@ -320,12 +355,14 @@ def screen_home(user: User, *, is_admin: bool = False, users_total: int | None =
 
 
 def screen_access_inactive() -> str:
-    plan = _main_plan()
-    price = f"{plan.price_rub} ₽" if plan else "по тарифу"
+    from devices import BASE_MONTHLY_PRICE, MAX_DEVICE_SLOTS, pack_price
+
     return (
         f"💜 <b>Подписка неактивна</b>\n"
         f"━━━━━━━━━━━━━━━━\n\n"
-        f"Доступ закрыт. Оформите тариф — <b>{price}/мес</b>.\n\n"
+        f"Оформите пакет в «Тарифы»: от <b>{BASE_MONTHLY_PRICE} ₽</b> "
+        f"(1 устр.) до <b>{pack_price(MAX_DEVICE_SLOTS)} ₽</b> "
+        f"({MAX_DEVICE_SLOTS} устр.) — одной оплатой.\n\n"
         f"После оплаты нажмите «Мой ключ»."
     )
 
@@ -384,28 +421,41 @@ def screen_devices(user: User) -> str:
         addon_options,
         bound_hwid_list,
         monthly_price_for_user,
+        pack_price,
         slot_price,
         user_device_limit,
     )
+    from payments import is_subscription_active
 
     limit = user_device_limit(user)
     used = len(bound_hwid_list(user))
     month = monthly_price_for_user(user)
+    active = is_subscription_active(user) if config.payments_active else True
+
     extras = ""
     if limit > 1:
         parts = [f"слот {n}: {slot_price(n)} ₽" for n in range(2, limit + 1)]
         extras = "Доп. слоты в цене: " + ", ".join(parts) + ".\n"
 
-    opts = addon_options(user)
-    if opts:
-        buy_lines = "\n".join(
-            f"· купить +{o['add']} → лимит {o['new_limit']} · <b>{o['price_rub']} ₽</b> "
-            f"разово <i>(+30 дней доступа)</i>"
-            for o in opts
+    if not active:
+        buy_block = (
+            "\nПодписка неактивна — оформите <b>пакет «месяц + устройства»</b> "
+            "одной оплатой (кнопки ниже или «Все пакеты»).\n"
+            f"Пример: 3 устройства = <b>{pack_price(3)} ₽</b> за 30 дней.\n"
         )
-        buy_block = f"\n<b>Докупить</b> (разово, лимит сохранится):\n{buy_lines}\n"
     else:
-        buy_block = f"\nДостигнут максимум — <b>{MAX_DEVICE_SLOTS}</b> устройств.\n"
+        opts = addon_options(user)
+        if opts:
+            buy_lines = "\n".join(
+                f"· до {o['new_limit']} устр. · <b>{o['price_rub']} ₽</b> разово "
+                f"(далее {o['monthly_after']} ₽/мес)"
+                for o in opts
+            )
+            buy_block = (
+                f"\n<b>Докупить слоты</b> (срок подписки не меняется):\n{buy_lines}\n"
+            )
+        else:
+            buy_block = f"\nДостигнут максимум — <b>{MAX_DEVICE_SLOTS}</b> устройств.\n"
 
     downgrade = ""
     if limit > 1:
@@ -419,14 +469,13 @@ def screen_devices(user: User) -> str:
         f"💜 <b>Устройства</b>\n"
         f"━━━━━━━━━━━━━━━━\n\n"
         f"Сейчас привязано: <b>{used} / {limit}</b>\n"
-        f"База в тарифе — 1 устройство ({BASE_MONTHLY_PRICE} ₽/мес).\n"
+        f"База — 1 устройство ({BASE_MONTHLY_PRICE} ₽/мес).\n"
         f"Первый доп. слот — {FIRST_EXTRA_SLOT_PRICE} ₽, каждый следующий +5 ₽.\n"
         f"{extras}"
         f"Ваше продление сейчас: <b>{month} ₽/мес</b>.\n"
         f"{buy_block}"
         f"{downgrade}\n"
-        f"<b>Сброс привязок</b> — освобождает слоты (лимит и цена не меняются). "
-        f"Нужно, если сменили телефон."
+        f"<b>Сброс привязок</b> — освобождает слоты (лимит и цена не меняются)."
     )
 
 
@@ -493,31 +542,57 @@ def screen_docs() -> str:
 
 
 def screen_tariffs(user: User | None = None) -> str:
-    from devices import FIRST_EXTRA_SLOT_PRICE, MAX_DEVICE_SLOTS, monthly_price_for_user, user_device_limit
+    from devices import (
+        BASE_MONTHLY_PRICE,
+        FIRST_EXTRA_SLOT_PRICE,
+        MAX_DEVICE_SLOTS,
+        monthly_price_for_user,
+        pack_options,
+        user_device_limit,
+    )
+    from payments import is_subscription_active
 
     plan = _main_plan()
     name = _esc(config.BOT_NAME)
     if not plan:
         return f"💜 <b>Тарифы · {name}</b>\n\nВременно недоступно."
-    month = monthly_price_for_user(user) if user else plan.price_rub
-    limit = user_device_limit(user) if user else 1
-    if config.payments_active:
-        body = (
-            f"<b>{_esc(plan.title)}</b> — <b>{month} ₽</b> с вашим лимитом устройств\n"
-            f"База {plan.price_rub} ₽ (1 устр.) + доп. слоты (сейчас лимит <b>{limit}</b>)\n"
-            f"Докупить слоты — «Доп. устройства»; вернуть 1 устр. — там же.\n"
-            f"Доп. слот от <b>{FIRST_EXTRA_SLOT_PRICE} ₽</b>, макс. {MAX_DEVICE_SLOTS}.\n\n"
-            f"«Оплатить» — безопасная оплата Platega."
-        )
-    else:
-        body = (
-            f"<b>{_esc(plan.title)}</b> — <b>{plan.price_rub} ₽</b>/мес\n"
+
+    if not config.payments_active:
+        return (
+            f"💜 <b>Тарифы · {name}</b>\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
+            f"База <b>{BASE_MONTHLY_PRICE} ₽</b>/мес (1 устройство).\n"
             f"Сейчас доступ открыт без оплаты."
         )
+
+    lines = "\n".join(
+        f"· <b>{o['devices']}</b> устр. — <b>{o['price_rub']} ₽</b>/мес"
+        for o in pack_options()
+    )
+    limit = user_device_limit(user) if user else 1
+    month = monthly_price_for_user(user) if user else BASE_MONTHLY_PRICE
+    active = bool(user and is_subscription_active(user))
+
+    if active:
+        tip = (
+            f"Сейчас у вас <b>{limit}</b> устр., продление <b>{month} ₽</b>.\n"
+            f"Кнопка «Продлить» — ещё 30 дней с тем же лимитом.\n"
+            f"Другой пакет — сразу новый лимит + 30 дней одной оплатой.\n"
+            f"Только слоты без продления — «Доп. слоты»."
+        )
+    else:
+        tip = (
+            "Выберите сразу нужное число устройств — "
+            "<b>одна оплата = месяц + лимит</b>, без отдельных покупок."
+        )
+
     return (
         f"💜 <b>Тарифы · {name}</b>\n"
         f"━━━━━━━━━━━━━━━━\n\n"
-        f"{body}"
+        f"База {BASE_MONTHLY_PRICE} ₽ (1 устр.). "
+        f"Доп. слот от {FIRST_EXTRA_SLOT_PRICE} ₽, макс. {MAX_DEVICE_SLOTS}.\n\n"
+        f"<b>Пакеты на 30 дней</b>\n{lines}\n\n"
+        f"{tip}"
     )
 
 
@@ -562,7 +637,8 @@ def screen_help() -> str:
         f"④ Включите автообновление\n"
         f"⑤ Выберите сервер и подключитесь\n\n"
         f"<b>Устройства</b>\n"
-        f"База — 1 устройство. Можно докупить до 5 — цена продления вырастет.\n"
+        f"В «Тарифах» выберите сразу 1–5 устройств одной оплатой.\n"
+        f"Активным можно докупить только слоты или сменить пакет.\n"
         f"Сброс привязок — смена телефона без смены цены.\n"
         f"«Вернуть 1 устройство» — снова 69 ₽/мес.\n\n"
         f"Вопросы — «Поддержка»."

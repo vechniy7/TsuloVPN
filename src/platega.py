@@ -37,7 +37,7 @@ def verify_callback_headers(merchant_id: str | None, secret: str | None) -> bool
 
 
 def new_order_id(telegram_id: int, plan_id: str) -> str:
-    safe = (plan_id or "plan").replace("+", "p").replace(":", "-")
+    safe = (plan_id or "plan").replace("+", "p").replace(":", "-").replace("@", "-")
     return f"{telegram_id}-{safe}-{uuid.uuid4().hex[:10]}"
 
 

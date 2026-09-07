@@ -71,7 +71,7 @@ def monthly_price_for_user(user) -> int:
 
 
 def parse_device_addon_plan(plan_id: str | None) -> int | None:
-    """plan_id вида dev+1 / dev+2 / dev+3 → число слотов."""
+    """plan_id вида dev+1 / dev+2 / dev+3 → число слотов к текущему лимиту."""
     if not plan_id or not plan_id.startswith("dev+"):
         return None
     try:
@@ -87,6 +87,64 @@ def device_addon_plan_id(add: int) -> str:
     return f"dev+{int(add)}"
 
 
+def pack_plan_id(device_limit: int, *, months: int = 1) -> str:
+    """Единый пакет: месяц доступа + целевой лимит устройств. Пример: 1m@d3."""
+    limit = clamp_device_limit(device_limit)
+    months = max(1, int(months))
+    return f"{months}m@d{limit}"
+
+
+def parse_pack_plan(plan_id: str | None) -> tuple[int, int] | None:
+    """plan_id вида 1m@d3 → (months, device_limit)."""
+    if not plan_id or "@d" not in plan_id:
+        return None
+    left, right = plan_id.split("@d", 1)
+    if not left.endswith("m"):
+        return None
+    try:
+        months = int(left[:-1])
+        devices = int(right.strip())
+    except ValueError:
+        return None
+    if months < 1 or months > 24:
+        return None
+    if devices < BASE_DEVICE_SLOTS or devices > MAX_DEVICE_SLOTS:
+        return None
+    return months, clamp_device_limit(devices)
+
+
+def cost_to_reach_limit(current_limit: int, target_limit: int) -> int:
+    """Разовая доплата только за новые слоты (без месяца доступа)."""
+    current = clamp_device_limit(current_limit)
+    target = clamp_device_limit(target_limit)
+    if target <= current:
+        return 0
+    return sum(slot_price(slot) for slot in range(current + 1, target + 1))
+
+
+def pack_price(device_limit: int, *, months: int = 1) -> int:
+    """Цена пакета: N месяцев × цена при выбранном лимите устройств."""
+    months = max(1, int(months))
+    return monthly_price_for_limit(device_limit) * months
+
+
+def pack_options(*, months: int = 1) -> list[dict]:
+    """Все пакеты 1..5 устройств на указанный срок (для экрана тарифов)."""
+    months = max(1, int(months))
+    options = []
+    for limit in range(BASE_DEVICE_SLOTS, MAX_DEVICE_SLOTS + 1):
+        options.append(
+            {
+                "months": months,
+                "devices": limit,
+                "plan_id": pack_plan_id(limit, months=months),
+                "price_rub": pack_price(limit, months=months),
+                "monthly_rub": monthly_price_for_limit(limit),
+            }
+        )
+    return options
+
+
 def can_add_slots(user, add: int) -> bool:
     add = int(add)
     if add < 1:
@@ -95,19 +153,21 @@ def can_add_slots(user, add: int) -> bool:
 
 
 def addon_options(user) -> list[dict]:
-    """Доступные пакеты +1/+2/+3 с ценой."""
+    """Докупка слотов до целевого лимита (без обязательного продления)."""
     current = user_device_limit(user)
     free = MAX_DEVICE_SLOTS - current
     options = []
     for add in (1, 2, 3):
         if add > free:
             continue
+        new_limit = current + add
         options.append(
             {
                 "add": add,
                 "plan_id": device_addon_plan_id(add),
                 "price_rub": cost_to_add_slots(current, add),
-                "new_limit": current + add,
+                "new_limit": new_limit,
+                "monthly_after": monthly_price_for_limit(new_limit),
             }
         )
     return options

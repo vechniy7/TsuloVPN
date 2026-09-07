@@ -292,25 +292,17 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
         return
 
     plan_id = callback.data.split(":", 1)[1].strip()
-    from devices import (
-        can_add_slots,
-        cost_to_add_slots,
-        parse_device_addon_plan,
-        user_device_limit,
-    )
-    from payments import TariffPlan, create_pending_order, get_plan, renewal_amount_for_user
+    from devices import parse_device_addon_plan
+    from payments import create_pending_order, resolve_checkout
 
     user = await get_user(callback.from_user.id)
     if not user:
         return
 
-    addon = parse_device_addon_plan(plan_id)
-    plan: TariffPlan | None = None
-    amount = 0
-    devices_note = ""
-
-    if addon is not None:
-        if not can_add_slots(user, addon):
+    resolved = resolve_checkout(plan_id, user)
+    if not resolved:
+        # Нельзя докупить слоты — вернём на устройства/тарифы.
+        if parse_device_addon_plan(plan_id) is not None:
             await render_screen(
                 callback.message,
                 caption=ui.screen_devices(user),
@@ -318,15 +310,7 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
                 screen="tariffs",
                 edit=True,
             )
-            return
-        amount = cost_to_add_slots(user_device_limit(user), addon)
-        title = f"+{addon} устройств" if addon > 1 else "+1 устройство"
-        plan = TariffPlan(id=plan_id, title=title, months=0, price_rub=amount)
-        new_limit = user_device_limit(user) + addon
-        devices_note = f"Новый лимит: <b>{new_limit}</b> устройств"
-    else:
-        plan = get_plan(plan_id)
-        if not plan:
+        else:
             await render_screen(
                 callback.message,
                 caption=ui.screen_tariffs(user),
@@ -334,12 +318,35 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
                 screen="tariffs",
                 edit=True,
             )
-            return
-        amount = renewal_amount_for_user(user)
-        if amount != plan.price_rub:
-            devices_note = (
-                f"Включая доп. устройства (лимит <b>{user_device_limit(user)}</b>)"
-            )
+        return
+
+    plan, amount, devices_note = resolved
+
+    # Докупка слотов без активной подписки — лучше купить пакет сразу.
+    if (
+        parse_device_addon_plan(plan_id) is not None
+        and config.payments_active
+        and not is_subscription_active(user)
+    ):
+        await render_screen(
+            callback.message,
+            caption=ui.screen_tariffs(user)
+            + "\n\nСначала оформите пакет «месяц + устройства» одной оплатой ниже.",
+            markup=ui.kb_tariffs(user),
+            screen="tariffs",
+            edit=True,
+        )
+        return
+
+    if amount <= 0:
+        await render_screen(
+            callback.message,
+            caption=ui.screen_devices(user),
+            markup=ui.kb_devices(user),
+            screen="tariffs",
+            edit=True,
+        )
+        return
 
     if not config.payments_active or not config.use_platega:
         await render_screen(

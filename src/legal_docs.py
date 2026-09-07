@@ -157,11 +157,22 @@ def _shell(title: str, body: str) -> str:
 
 def tariffs_html() -> str:
     name = config.BOT_NAME or "TsuloVPN"
-    title, price = _plan_price()
+    from devices import (
+        BASE_MONTHLY_PRICE,
+        FIRST_EXTRA_SLOT_PRICE,
+        MAX_DEVICE_SLOTS,
+        pack_options,
+    )
+
+    packs = pack_options()
+    rows = "\n".join(
+        f"<tr><td>{o['devices']} устр.</td><td><b>{o['price_rub']} ₽</b> / мес</td></tr>"
+        for o in packs
+    )
     free_note = (
-        "Ниже — стоимость подписки. Актуальный статус оплаты смотрите в Telegram-боте."
+        "Ниже — стоимость. Актуальный статус оплаты смотрите в Telegram-боте."
         if not config.payments_active
-        else "Оплата в Telegram-боте активирует подписку на выбранный срок."
+        else "В боте выберите пакет «месяц + устройства» — одна оплата активирует доступ и лимит."
     )
     return _shell(
         "Тарифы",
@@ -169,25 +180,27 @@ def tariffs_html() -> str:
 <section class="hero">
   <p class="meta">Актуально на {DOC_DATE}</p>
   <h1>Тарифы и цены</h1>
-  <p class="meta">Прозрачная стоимость цифрового доступа {name}</p>
+  <p class="meta">Месяц доступа + нужное число устройств — одной оплатой</p>
 </section>
 <section class="card">
-  <span class="badge">один тариф</span>
-  <div class="price">
-    <div>
-      <h2 style="margin-bottom:4px">{title}</h2>
-      <p class="meta" style="margin:0">доступ к серверам · обновления · поддержка</p>
-    </div>
-    <div class="amount">{price} ₽</div>
-  </div>
+  <span class="badge">пакеты</span>
+  <p style="margin:0 0 12px">База <b>{BASE_MONTHLY_PRICE} ₽</b> (1 устройство).
+  Доп. слот от <b>{FIRST_EXTRA_SLOT_PRICE} ₽</b>, максимум {MAX_DEVICE_SLOTS}.</p>
+  <table style="width:100%;border-collapse:collapse">
+    <thead><tr><th align="left">Устройства</th><th align="left">Цена</th></tr></thead>
+    <tbody>
+{rows}
+    </tbody>
+  </table>
   <p style="margin-top:16px">{free_note}</p>
 </section>
 <section class="card">
   <h2>Что входит</h2>
   <ul>
-    <li>персональный ключ (ссылка подписки) в Telegram-боте;</li>
-    <li>автоматическое обновление профиля;</li>
-    <li>техническая поддержка пользователей.</li>
+    <li>персональный ключ в Telegram-боте;</li>
+    <li>автообновление профиля;</li>
+    <li>до {MAX_DEVICE_SLOTS} устройств по выбранному пакету;</li>
+    <li>техническая поддержка.</li>
   </ul>
 </section>
 <section class="card">

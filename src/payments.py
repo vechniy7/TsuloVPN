@@ -4,9 +4,13 @@ from datetime import datetime, timedelta, timezone
 from config import config
 from database import PaymentOrder, User, get_payment_order, get_user, mark_payment_order_paid, save_payment_order, save_user
 from devices import (
+    MAX_DEVICE_SLOTS,
     clamp_device_limit,
+    cost_to_add_slots,
     monthly_price_for_user,
+    pack_price,
     parse_device_addon_plan,
+    parse_pack_plan,
     user_device_limit,
 )
 
@@ -90,6 +94,53 @@ async def apply_device_addon(user: User, add: int) -> User:
     return await save_user(user)
 
 
+async def set_device_limit(user: User, limit: int) -> User:
+    user.device_limit = clamp_device_limit(limit)
+    return await save_user(user)
+
+
+def resolve_checkout(plan_id: str, user: User | None) -> tuple[TariffPlan, int, str] | None:
+    """Вернуть (план для UI, сумму, пояснение) или None если plan_id неизвестен."""
+    pack = parse_pack_plan(plan_id)
+    if pack is not None:
+        months, devices = pack
+        amount = pack_price(devices, months=months)
+        title = (
+            f"{months} мес · {devices} устр."
+            if months > 1
+            else f"1 месяц · {devices} устр."
+        )
+        note = (
+            f"Доступ на <b>{months * 30}</b> дней, лимит устройств: <b>{devices}</b>"
+        )
+        return TariffPlan(id=plan_id, title=title, months=months, price_rub=amount), amount, note
+
+    addon = parse_device_addon_plan(plan_id)
+    if addon is not None:
+        current = user_device_limit(user)
+        if current + addon > MAX_DEVICE_SLOTS:
+            return None
+        amount = cost_to_add_slots(current, addon)
+        new_limit = current + addon
+        title = f"+{addon} устройств" if addon > 1 else "+1 устройство"
+        note = (
+            f"Лимит станет <b>{new_limit}</b>. "
+            f"Срок подписки не меняется — только доп. слоты."
+        )
+        return TariffPlan(id=plan_id, title=title, months=0, price_rub=amount), amount, note
+
+    plan = get_plan(plan_id)
+    if not plan:
+        return None
+    amount = renewal_amount_for_user(user)
+    note = ""
+    if user and amount != plan.price_rub:
+        note = (
+            f"Продление с вашим лимитом <b>{user_device_limit(user)}</b> устройств"
+        )
+    return plan, amount, note
+
+
 async def create_pending_order(
     *,
     order_id: str,
@@ -117,28 +168,47 @@ async def process_payment(
     plan_id: str,
 ) -> tuple[User | None, TariffPlan | None, bool]:
     order = await get_payment_order(order_id)
+    amount = order.amount if order else 0
+
     if order and order.status == "paid":
         user = await get_user(telegram_id)
-        plan = get_plan(plan_id) or (
-            TariffPlan(id=plan_id, title="Устройства", months=0, price_rub=order.amount)
-            if parse_device_addon_plan(plan_id)
-            else None
-        )
+        resolved = resolve_checkout(plan_id, user)
+        plan = resolved[0] if resolved else get_plan(plan_id)
+        if plan is None and (parse_pack_plan(plan_id) or parse_device_addon_plan(plan_id)):
+            plan = TariffPlan(id=plan_id, title="Оплата", months=0, price_rub=amount)
         return user, plan, False
 
     user = await get_user(telegram_id)
     if not user:
-        return None, get_plan(plan_id), False
+        resolved = resolve_checkout(plan_id, None)
+        return None, (resolved[0] if resolved else get_plan(plan_id)), False
+
+    pack = parse_pack_plan(plan_id)
+    if pack is not None:
+        months, devices = pack
+        user = await set_device_limit(user, devices)
+        # Продлеваем через базовый 1m (единственный реальный plan в PLANS).
+        for _ in range(months):
+            user = await extend_subscription(user, "1m")
+        user.plan = plan_id
+        user = await save_user(user)
+        await mark_payment_order_paid(order_id)
+        title = (
+            f"{months} мес · {devices} устр."
+            if months > 1
+            else f"1 месяц · {devices} устр."
+        )
+        fake = TariffPlan(id=plan_id, title=title, months=months, price_rub=amount)
+        return user, fake, True
 
     addon = parse_device_addon_plan(plan_id)
     if addon is not None:
-        # Докупка слотов всегда даёт +30 дней доступа (иначе платят только за лимит).
+        # Только слоты: срок не трогаем (месяц покупается пакетом 1m@dN / 1m).
         user = await apply_device_addon(user, addon)
-        user = await extend_subscription(user, "1m")
         await mark_payment_order_paid(order_id)
-        title = f"+{addon} устр. + 30 дней" if addon > 1 else "+1 устр. + 30 дней"
-        amount = order.amount if order else 0
-        fake = TariffPlan(id=plan_id, title=title, months=1, price_rub=amount)
+        new_limit = user_device_limit(user)
+        title = f"Лимит {new_limit} устр." if addon > 1 else f"Лимит {new_limit} устр."
+        fake = TariffPlan(id=plan_id, title=title, months=0, price_rub=amount)
         return user, fake, True
 
     plan = get_plan(plan_id)
