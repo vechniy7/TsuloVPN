@@ -82,10 +82,12 @@ export async function onRequest(context) {
     return next();
   }
 
-  // Telegram webhook обрабатывает functions/telegram/webhook.js (channel gate).
+  // Telegram webhook / broadcast — functions/telegram/*.js (не проксировать на Amvera).
   if (
     incoming.pathname === "/telegram/webhook" ||
-    incoming.pathname === "/telegram/webhook/"
+    incoming.pathname === "/telegram/webhook/" ||
+    incoming.pathname === "/telegram/broadcast" ||
+    incoming.pathname === "/telegram/broadcast/"
   ) {
     return next();
   }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>TsuloVPN · Панель</title>
-  <link rel="stylesheet" href="/panel/static/panel.css?v=4" />
+  <link rel="stylesheet" href="/panel/static/panel.css?v=5" />
 </head>
 <body>
   <div id="login-view" class="login hidden">
@@ -26,6 +26,7 @@
         <button data-view="dashboard" class="nav active">Обзор</button>
         <button data-view="users" class="nav">Пользователи</button>
         <button data-view="orders" class="nav">Платежи</button>
+        <button data-view="broadcast" class="nav">Рассылка</button>
         <button data-view="nodes" class="nav">Ноды / пул</button>
         <button data-view="settings" class="nav">Настройки</button>
       </nav>
@@ -107,6 +108,19 @@
         </div>
       </section>
 
+      <section id="view-broadcast" class="view hidden">
+        <div class="card">
+          <h3>Рассылка всем пользователям</h3>
+          <p class="muted" id="broadcast-hint">Текст уйдёт в Telegram через Cloudflare. HTML: &lt;b&gt;, &lt;i&gt;, &lt;a&gt;.</p>
+          <label for="broadcast-text">Сообщение</label>
+          <textarea id="broadcast-text" rows="8" maxlength="4000" placeholder="Текст рассылки…"></textarea>
+          <div class="broadcast-actions">
+            <button type="button" id="btn-broadcast" class="primary">Отправить всем</button>
+            <span id="broadcast-status" class="muted"></span>
+          </div>
+        </div>
+      </section>
+
       <section id="view-nodes" class="view hidden">
         <div class="toolbar">
           <button id="btn-pool-refresh" class="primary">Обновить пул</button>
@@ -162,6 +176,6 @@
     </form>
   </dialog>
 
-  <script src="/panel/static/panel.js?v=4"></script>
+  <script src="/panel/static/panel.js?v=5"></script>
 </body>
 </html>

@@ -29,6 +29,13 @@ from devices import (
     monthly_price_for_user,
     user_device_limit,
 )
+from broadcast import (
+    build_text_broadcast_job,
+    dispatch_broadcast_to_edge,
+    is_panel_broadcast_running,
+    mark_panel_broadcast_running,
+    schedule_clear_running,
+)
 from payments import PLANS, extend_subscription, get_plan, is_subscription_active
 from pool_engine_v3 import get_pool_state, refresh_pool
 
@@ -64,6 +71,10 @@ class NoteBody(BaseModel):
 
 class DeviceLimitBody(BaseModel):
     device_limit: int = Field(ge=1, le=MAX_DEVICE_SLOTS)
+
+
+class BroadcastBody(BaseModel):
+    text: str = Field(default="", max_length=4000)
 
 
 def _utcnow() -> datetime:
@@ -528,3 +539,38 @@ async def panel_pool_refresh(_: str = Depends(require_admin)):
 @router.get("/panel/api/stats/users-count")
 async def panel_users_count(_: str = Depends(require_admin)):
     return {"count": await get_user_count()}
+
+
+@router.post("/panel/api/broadcast")
+async def panel_broadcast(body: BroadcastBody, _: str = Depends(require_admin)):
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Введите текст рассылки")
+    if is_panel_broadcast_running():
+        raise HTTPException(status_code=409, detail="Рассылка уже идёт, подождите")
+    if not config.ADMINS:
+        raise HTTPException(status_code=500, detail="ADMINS не заданы")
+
+    admin_id = int(config.ADMINS[0])
+    try:
+        job = await build_text_broadcast_job(admin_id, text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    mark_panel_broadcast_running(True)
+    try:
+        edge = await dispatch_broadcast_to_edge(job)
+    except Exception as exc:
+        mark_panel_broadcast_running(False)
+        logger.exception("panel broadcast dispatch failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    total = int(job.get("total") or 0)
+    schedule_clear_running(None, total)
+    return {
+        "ok": True,
+        "accepted": True,
+        "total": total,
+        "edge": edge,
+        "hint": "Отправка идёт на Cloudflare. Итог придёт админу в Telegram.",
+    }

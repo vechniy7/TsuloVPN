@@ -6,6 +6,7 @@
     dashboard: "Обзор",
     users: "Пользователи",
     orders: "Платежи",
+    broadcast: "Рассылка",
     nodes: "Ноды / пул",
     settings: "Настройки",
   };
@@ -178,6 +179,16 @@
     `;
   }
 
+  async function loadBroadcastMeta() {
+    try {
+      const st = await api("/panel/api/stats/users-count");
+      $("#broadcast-hint").textContent =
+        `Получателей ≈ ${st.count}. Текст уйдёт в Telegram через Cloudflare. HTML: <b>, <i>, <a>.`;
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   function escapeHtml(s) {
     return String(s ?? "")
       .replaceAll("&", "&amp;")
@@ -264,6 +275,7 @@
       if (state.view === "dashboard" || state.view === "settings") await loadDashboard();
       if (state.view === "users") await loadUsers();
       if (state.view === "orders") await loadOrders();
+      if (state.view === "broadcast") await loadBroadcastMeta();
       if (state.view === "nodes") await loadNodes();
     } catch (err) {
       console.error(err);
@@ -354,6 +366,34 @@
       await loadNodes();
     } catch (err) {
       alert(err.message);
+    }
+  });
+
+  $("#btn-broadcast").addEventListener("click", async () => {
+    const text = ($("#broadcast-text").value || "").trim();
+    const status = $("#broadcast-status");
+    const btn = $("#btn-broadcast");
+    if (!text) {
+      alert("Введите текст");
+      return;
+    }
+    if (!confirm(`Отправить рассылку всем пользователям?\n\n${text.slice(0, 200)}${text.length > 200 ? "…" : ""}`)) {
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = "Отправка…";
+    try {
+      const res = await api("/panel/api/broadcast", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      });
+      status.textContent = `Принято · ${res.total} получателей. Итог придёт в Telegram админу.`;
+      $("#broadcast-text").value = "";
+    } catch (err) {
+      status.textContent = "";
+      alert(err.message || String(err));
+    } finally {
+      btn.disabled = false;
     }
   });
 

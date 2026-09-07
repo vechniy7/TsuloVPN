@@ -10,6 +10,8 @@
  *   AMVERA_ORIGIN=https://tsulovpn-culoebali.amvera.io
  *   CHANNEL_GATE_ENABLED=true
  */
+import { runBroadcast, tgApi } from "../_lib/tg_broadcast.js";
+
 const DEFAULT_ORIGIN = "https://tsulovpn-culoebali.amvera.io";
 const CHECK_CB = "check_channel_sub";
 
@@ -65,27 +67,6 @@ function extractUser(update) {
     };
   }
   return null;
-}
-
-async function tgApi(token, method, body) {
-  // aiogram exclude_unset роняет type у InputMedia — подстрахуем на edge.
-  if (method === "editMessageMedia" && body && body.media && typeof body.media === "object") {
-    if (!body.media.type) body.media.type = "photo";
-  }
-  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!data || data.ok === false) {
-    console.log(
-      "tgApi fail",
-      method,
-      data && data.description ? data.description : res.status,
-    );
-  }
-  return data;
 }
 
 async function isMember(token, channel, userId) {
@@ -153,7 +134,7 @@ async function replyBlocked(token, ctx, env) {
   });
 }
 
-async function forwardToAmvera(request, env, bodyBuf) {
+async function forwardToAmvera(request, env, bodyBuf, ctx) {
   const amvera = `${originBase(env)}/telegram/webhook`;
   const upstream = await fetch(amvera, {
     method: "POST",
@@ -169,8 +150,8 @@ async function forwardToAmvera(request, env, bodyBuf) {
   }
 
   const token = (env.BOT_TOKEN || "").trim();
-  // Amvera может вернуть пачку методов — Cloudflare исполняет их сам
-  // (иначе из webhook-ответа уходит только один, и callback «висит»).
+  let methodCount = 0;
+
   if (token && payload && Array.isArray(payload.methods) && payload.methods.length) {
     for (const item of payload.methods) {
       if (!item || typeof item !== "object") continue;
@@ -180,14 +161,41 @@ async function forwardToAmvera(request, env, bodyBuf) {
       delete body.method;
       try {
         await tgApi(token, method, body);
+        methodCount += 1;
       } catch (err) {
         console.log("tg method failed", method, String(err));
       }
     }
+  }
+
+  if (token && payload && payload.broadcast && typeof payload.broadcast === "object") {
+    const job = payload.broadcast;
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        runBroadcast(token, job).catch((err) =>
+          console.log("broadcast failed", String(err)),
+        ),
+      );
+    } else {
+      try {
+        await runBroadcast(token, job);
+      } catch (err) {
+        console.log("broadcast failed", String(err));
+      }
+    }
+    return Response.json({
+      ok: true,
+      via: "cf-multi+broadcast",
+      count: methodCount,
+      broadcast_total: Array.isArray(job.recipients) ? job.recipients.length : 0,
+    });
+  }
+
+  if (methodCount > 0) {
     return Response.json({
       ok: true,
       via: "cf-multi",
-      count: payload.methods.length,
+      count: methodCount,
     });
   }
 
@@ -221,26 +229,25 @@ export async function onRequest(context) {
   const bodyBuf = await request.arrayBuffer();
   const token = (env.BOT_TOKEN || "").trim();
 
-  // Всегда пробуем Amvera; multi-method исполняем в forwardToAmvera при наличии BOT_TOKEN.
   if (!token || !gateEnabled(env)) {
-    return forwardToAmvera(request, env, bodyBuf);
+    return forwardToAmvera(request, env, bodyBuf, context);
   }
 
   let update;
   try {
     update = JSON.parse(new TextDecoder().decode(bodyBuf));
   } catch (_) {
-    return forwardToAmvera(request, env, bodyBuf);
+    return forwardToAmvera(request, env, bodyBuf, context);
   }
 
   const ctx = extractUser(update);
   if (!ctx) {
-    return forwardToAmvera(request, env, bodyBuf);
+    return forwardToAmvera(request, env, bodyBuf, context);
   }
 
   const admins = adminSet(env);
   if (admins.has(Number(ctx.user.id))) {
-    return forwardToAmvera(request, env, bodyBuf);
+    return forwardToAmvera(request, env, bodyBuf, context);
   }
 
   const member = await isMember(token, channelId(env), ctx.user.id);
@@ -252,7 +259,7 @@ export async function onRequest(context) {
         text: "Подписка подтверждена ✓",
         show_alert: true,
       });
-      return forwardToAmvera(request, env, bodyBuf);
+      return forwardToAmvera(request, env, bodyBuf, context);
     }
     await replyBlocked(token, ctx, env);
     return Response.json({ ok: true, gated: true });
@@ -263,5 +270,5 @@ export async function onRequest(context) {
     return Response.json({ ok: true, gated: true });
   }
 
-  return forwardToAmvera(request, env, bodyBuf);
+  return forwardToAmvera(request, env, bodyBuf, context);
 }

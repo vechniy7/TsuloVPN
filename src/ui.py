@@ -399,7 +399,8 @@ def screen_devices(user: User) -> str:
     opts = addon_options(user)
     if opts:
         buy_lines = "\n".join(
-            f"· купить +{o['add']} → лимит {o['new_limit']} · <b>{o['price_rub']} ₽</b> разово"
+            f"· купить +{o['add']} → лимит {o['new_limit']} · <b>{o['price_rub']} ₽</b> "
+            f"разово <i>(+30 дней доступа)</i>"
             for o in opts
         )
         buy_block = f"\n<b>Докупить</b> (разово, лимит сохранится):\n{buy_lines}\n"

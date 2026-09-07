@@ -132,11 +132,13 @@ async def process_payment(
 
     addon = parse_device_addon_plan(plan_id)
     if addon is not None:
+        # Докупка слотов всегда даёт +30 дней доступа (иначе платят только за лимит).
         user = await apply_device_addon(user, addon)
+        user = await extend_subscription(user, "1m")
         await mark_payment_order_paid(order_id)
-        title = f"+{addon} устройств" if addon > 1 else "+1 устройство"
+        title = f"+{addon} устр. + 30 дней" if addon > 1 else "+1 устр. + 30 дней"
         amount = order.amount if order else 0
-        fake = TariffPlan(id=plan_id, title=title, months=0, price_rub=amount)
+        fake = TariffPlan(id=plan_id, title=title, months=1, price_rub=amount)
         return user, fake, True
 
     plan = get_plan(plan_id)

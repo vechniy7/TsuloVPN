@@ -8,13 +8,15 @@ from aiogram.types import CallbackQuery, Message
 
 from bot_notify import notify_payment_success
 from broadcast import (
+    build_broadcast_job,
     cancel_draft,
     has_draft,
     is_running,
     is_waiting_draft,
+    mark_running,
     pop_draft,
-    run_broadcast,
     save_draft,
+    schedule_clear_running,
     start_draft,
 )
 from channel_gate import (
@@ -72,8 +74,19 @@ async def show_menu(
     message: Message | None = None,
     *,
     edit: bool = False,
+    full_name: str | None = None,
+    username: str | None = None,
 ) -> None:
     user = await get_user(chat_id)
+    if not user:
+        from channel_gate import ensure_user_registered
+
+        await ensure_user_registered(
+            user_id=chat_id,
+            full_name=full_name or "User",
+            username=username,
+        )
+        user = await get_user(chat_id)
     if not user:
         return
     users_total = await _cached_user_count()
@@ -634,14 +647,29 @@ async def admin_users_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == CHECK_CALLBACK)
 async def check_channel_sub_callback(callback: CallbackQuery, bot: Bot) -> None:
-    if callback.from_user.id in config.ADMINS:
-        await callback.answer("Подписка подтверждена", show_alert=True)
-        await show_menu(bot, callback.from_user.id, callback.message, edit=True)
-        return
+    from channel_gate import ensure_user_registered, invalidate_member_cache
 
-    if await is_channel_member(bot, callback.from_user.id, force=True):
+    # CF gate часто глотает /start до Amvera — пользователя ещё нет в Redis.
+    await ensure_user_registered(
+        user_id=callback.from_user.id,
+        full_name=callback.from_user.full_name,
+        username=callback.from_user.username,
+    )
+    invalidate_member_cache(callback.from_user.id)
+
+    if callback.from_user.id in config.ADMINS or await is_channel_member(
+        bot, callback.from_user.id, force=True
+    ):
         await callback.answer("Подписка подтверждена! Добро пожаловать.", show_alert=True)
-        await show_menu(bot, callback.from_user.id, callback.message, edit=True)
+        # Новое сообщение меню (edit gate-сообщения часто молча не срабатывает).
+        await show_menu(
+            bot,
+            callback.from_user.id,
+            None,
+            edit=False,
+            full_name=callback.from_user.full_name,
+            username=callback.from_user.username,
+        )
         return
 
     await callback.answer(
@@ -685,6 +713,8 @@ async def admin_broadcast_cancel_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "admin_broadcast_send")
 async def admin_broadcast_send_callback(callback: CallbackQuery, bot: Bot) -> None:
+    from telegram_webhook import set_broadcast_job
+
     if callback.from_user.id not in config.ADMINS:
         await callback.answer("Доступ запрещён", show_alert=True)
         return
@@ -697,59 +727,28 @@ async def admin_broadcast_send_callback(callback: CallbackQuery, bot: Bot) -> No
         await callback.answer("Черновик не найден. Начните заново.", show_alert=True)
         return
 
-    total = await get_user_count()
+    try:
+        job = await build_broadcast_job(callback.from_user.id, draft)
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+        return
+
+    mark_running(callback.from_user.id, True)
+    set_broadcast_job(job)
+    schedule_clear_running(callback.from_user.id, int(job.get("total") or 0))
     await callback.answer("Рассылка запущена")
-    admin_chat_id = callback.from_user.id
-    status = await bot.send_message(
-        admin_chat_id,
-        ui.screen_admin_broadcast_progress(sent=0, blocked=0, failed=0, total=total),
+    await bot.send_message(
+        callback.from_user.id,
+        ui.screen_admin_broadcast_progress(
+            sent=0,
+            blocked=0,
+            failed=0,
+            total=int(job.get("total") or 0),
+        )
+        + "\n\nОтправка идёт через Cloudflare. Итог придёт отдельным сообщением.",
         parse_mode="HTML",
+        reply_markup=ui.kb_admin_back(),
     )
-
-    async def _on_progress(sent: int, blocked: int, failed: int, total: int) -> None:
-        try:
-            await status.edit_text(
-                ui.screen_admin_broadcast_progress(
-                    sent=sent,
-                    blocked=blocked,
-                    failed=failed,
-                    total=total,
-                ),
-                parse_mode="HTML",
-            )
-        except Exception:
-            pass
-
-    async def _job() -> None:
-        try:
-            result = await run_broadcast(
-                bot,
-                callback.from_user.id,
-                draft,
-                on_progress=_on_progress,
-            )
-            await status.edit_text(
-                ui.screen_admin_broadcast_done(
-                    sent=result.sent,
-                    blocked=result.blocked,
-                    failed=result.failed,
-                    total=result.total,
-                ),
-                reply_markup=ui.kb_admin_back(),
-                parse_mode="HTML",
-            )
-        except Exception as exc:
-            logger.exception("Broadcast failed for admin %s", callback.from_user.id)
-            try:
-                await status.edit_text(
-                    f"<b>Ошибка рассылки</b>\n\n<code>{ui._esc(str(exc))}</code>",
-                    reply_markup=ui.kb_admin_back(),
-                    parse_mode="HTML",
-                )
-            except Exception:
-                pass
-
-    asyncio.create_task(_job())
 
 
 @router.message(F.func(_broadcast_compose_filter))
@@ -767,8 +766,32 @@ async def admin_broadcast_compose_message(message: Message, bot: Bot) -> None:
         await message.answer("Отправьте сообщение для рассылки или /cancel для отмены.")
         return
 
+    photo_id = message.photo[-1].file_id if message.photo else None
+    text = message.html_text or message.text
+    caption = message.html_caption or message.caption
+    if photo_id:
+        save_draft(
+            admin_id,
+            message.chat.id,
+            message.message_id,
+            caption=caption or text,
+            photo_file_id=photo_id,
+            parse_mode="HTML",
+        )
+    else:
+        body = (text or caption or "").strip()
+        if not body:
+            await message.answer("Нужен текст или фото с подписью.")
+            return
+        save_draft(
+            admin_id,
+            message.chat.id,
+            message.message_id,
+            text=body,
+            parse_mode="HTML",
+        )
+
     total = await get_user_count()
-    save_draft(admin_id, message.chat.id, message.message_id)
     await message.reply(
         ui.screen_admin_broadcast_confirm(users=total),
         reply_markup=ui.kb_admin_broadcast_confirm(),

@@ -32,6 +32,7 @@ _dp: Dispatcher | None = None
 _bot: Bot | None = None
 
 _capture: ContextVar[list[TelegramMethod] | None] = ContextVar("tg_capture", default=None)
+_broadcast_job: ContextVar[dict | None] = ContextVar("tg_broadcast_job", default=None)
 _UNSET = object()
 
 # Во время обработки webhook НИКОГДА не ходим в api.telegram.org
@@ -89,6 +90,11 @@ def pick_reply_method(calls: list[TelegramMethod]) -> TelegramMethod | None:
 
 
 _WEBHOOK_HANDLE_TIMEOUT_SEC = 8.0
+
+
+def set_broadcast_job(job: dict | None) -> None:
+    """Передать рассылку на исполнение Cloudflare (Amvera не ходит в Bot API)."""
+    _broadcast_job.set(job)
 
 
 def bind_telegram(dp: Dispatcher, bot: Bot) -> None:
@@ -281,6 +287,7 @@ async def telegram_webhook(request: Request) -> Response:
 
     calls: list[TelegramMethod] = []
     token = _capture.set(calls)
+    job_token = _broadcast_job.set(None)
     try:
         try:
             await asyncio.wait_for(
@@ -297,24 +304,34 @@ async def telegram_webhook(request: Request) -> Response:
             )
 
         replies = pick_reply_methods(calls)
-        if not replies:
+        broadcast = _broadcast_job.get()
+        if not replies and not broadcast:
             return JSONResponse({"ok": True, "note": "no reply method", "captured": len(calls)})
-        try:
-            methods_json = [method_to_webhook_json(m) for m in replies]
-        except Exception as exc:
-            logger.exception("Webhook serialize failed: %s", exc)
-            return JSONResponse({"ok": False, "error": f"serialize: {exc}"})
-        names = [m.__api_method__ for m in replies]
-        logger.info("Webhook reply methods=%s", ",".join(names))
-        # CF Pages исполняет весь список через Bot API (токен на edge).
-        # Один method оставляем на верхнем уровне — fallback, если edge старый.
-        body = {"ok": True, "methods": methods_json, **methods_json[0]}
+        methods_json: list[dict] = []
+        if replies:
+            try:
+                methods_json = [method_to_webhook_json(m) for m in replies]
+            except Exception as exc:
+                logger.exception("Webhook serialize failed: %s", exc)
+                return JSONResponse({"ok": False, "error": f"serialize: {exc}"})
+            names = [m.__api_method__ for m in replies]
+            logger.info("Webhook reply methods=%s", ",".join(names))
+        body: dict = {"ok": True, "methods": methods_json}
+        if methods_json:
+            body.update(methods_json[0])
+        if broadcast:
+            body["broadcast"] = broadcast
+            logger.info(
+                "Webhook broadcast job recipients=%s",
+                len(broadcast.get("recipients") or []),
+            )
         return JSONResponse(content=body)
     except Exception as exc:
         logger.exception("Webhook fatal: %s", exc)
         return JSONResponse(content={"ok": False, "error": str(exc)[:500]})
     finally:
         _capture.reset(token)
+        _broadcast_job.reset(job_token)
 
 
 async def maintain_webhook(bot: Bot) -> None:
