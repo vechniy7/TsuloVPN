@@ -429,53 +429,6 @@ async def devices_callback(callback: CallbackQuery) -> None:
     )
 
 
-@router.callback_query(F.data == "devices_downgrade")
-async def devices_downgrade_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
-    user = await get_user(callback.from_user.id)
-    if not user:
-        return
-    from devices import user_device_limit
-
-    if user_device_limit(user) <= 1:
-        await render_screen(
-            callback.message,
-            caption=ui.screen_devices(user),
-            markup=ui.kb_devices(user),
-            screen="tariffs",
-            edit=True,
-        )
-        return
-    await render_screen(
-        callback.message,
-        caption=ui.screen_devices_downgrade_confirm(user),
-        markup=ui.kb_devices_downgrade_confirm(),
-        screen="tariffs",
-        edit=True,
-    )
-
-
-@router.callback_query(F.data == "devices_downgrade_yes")
-async def devices_downgrade_yes_callback(callback: CallbackQuery) -> None:
-    from database import set_user_device_limit
-
-    user = await get_user(callback.from_user.id)
-    if not user:
-        await callback.answer()
-        return
-    await set_user_device_limit(callback.from_user.id, 1)
-    user = await get_user(callback.from_user.id)
-    await callback.answer("Лимит: 1 устройство", show_alert=True)
-    if user and callback.message:
-        await render_screen(
-            callback.message,
-            caption=ui.screen_devices_downgrade_done(user),
-            markup=ui.kb_devices(user),
-            screen="tariffs",
-            edit=True,
-        )
-
-
 @router.callback_query(F.data == "reset_hwid")
 async def reset_hwid_callback(callback: CallbackQuery) -> None:
     from database import reset_user_hwid

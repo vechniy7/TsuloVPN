@@ -151,14 +151,13 @@ def kb_access(
 
 
 def kb_devices(user: User) -> InlineKeyboardMarkup:
-    from devices import addon_options, pack_plan_id, user_device_limit
+    from devices import addon_options, pack_plan_id
     from payments import is_subscription_active
 
     b = InlineKeyboardBuilder()
     active = is_subscription_active(user) if config.payments_active else True
     if active:
         for opt in addon_options(user):
-            add = opt["add"]
             label = f"➕ До {opt['new_limit']} устр. · {opt['price_rub']} ₽"
             b.button(text=label, callback_data=f"order:{opt['plan_id']}")
     else:
@@ -172,20 +171,10 @@ def kb_devices(user: User) -> InlineKeyboardMarkup:
                 text=f"📱 {limit} {word} · {price} ₽ / мес",
                 callback_data=f"order:{pack_plan_id(limit)}",
             )
-    if user_device_limit(user) > 1:
-        b.button(text="⬇️  Вернуть 1 устройство · 69 ₽/мес", callback_data="devices_downgrade")
     b.button(text="🔓  Сбросить привязки (HWID)", callback_data="reset_hwid")
     b.button(text="💜  Все пакеты", callback_data="tariffs")
     b.button(text="🔑  К ключу", callback_data="get_key")
     b.button(text="◀️  В меню", callback_data="back_to_menu")
-    b.adjust(1)
-    return b.as_markup()
-
-
-def kb_devices_downgrade_confirm() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.button(text="✅  Да, оставить 1 устройство", callback_data="devices_downgrade_yes")
-    b.button(text="◀️  Отмена", callback_data="devices")
     b.adjust(1)
     return b.as_markup()
 
@@ -461,14 +450,6 @@ def screen_devices(user: User) -> str:
         else:
             buy_block = f"\nДостигнут максимум — <b>{MAX_DEVICE_SLOTS}</b> устройств.\n"
 
-    downgrade = ""
-    if limit > 1:
-        downgrade = (
-            f"\nМожно <b>вернуть 1 устройство</b> бесплатно — "
-            f"тогда продление снова <b>{BASE_MONTHLY_PRICE} ₽/мес</b>, "
-            f"лишние привязки снимутся.\n"
-        )
-
     return (
         f"💜 <b>Устройства</b>\n"
         f"━━━━━━━━━━━━━━━━\n\n"
@@ -477,39 +458,8 @@ def screen_devices(user: User) -> str:
         f"Первый доп. слот — {FIRST_EXTRA_SLOT_PRICE} ₽, каждый следующий +5 ₽.\n"
         f"{extras}"
         f"Ваше продление сейчас: <b>{month} ₽/мес</b>.\n"
-        f"{buy_block}"
-        f"{downgrade}\n"
+        f"{buy_block}\n"
         f"<b>Сброс привязок</b> — освобождает слоты (лимит и цена не меняются)."
-    )
-
-
-def screen_devices_downgrade_confirm(user: User) -> str:
-    from devices import BASE_MONTHLY_PRICE, monthly_price_for_user, user_device_limit
-
-    return (
-        f"💜 <b>Вернуть 1 устройство?</b>\n"
-        f"━━━━━━━━━━━━━━━━\n\n"
-        f"Сейчас лимит <b>{user_device_limit(user)}</b>, "
-        f"продление <b>{monthly_price_for_user(user)} ₽/мес</b>.\n\n"
-        f"После подтверждения:\n"
-        f"· лимит станет <b>1</b>\n"
-        f"· продление — <b>{BASE_MONTHLY_PRICE} ₽/мес</b>\n"
-        f"· лишние HWID снимутся\n"
-        f"· деньги за прошлые доп. слоты не возвращаются\n\n"
-        f"Подтвердите ниже."
-    )
-
-
-def screen_devices_downgrade_done(user: User) -> str:
-    from devices import BASE_MONTHLY_PRICE, monthly_price_for_user, user_device_limit
-
-    return (
-        f"💜 <b>Лимит обновлён</b>\n"
-        f"━━━━━━━━━━━━━━━━\n\n"
-        f"Устройства: лимит <b>{user_device_limit(user)}</b>\n"
-        f"Продление: <b>{monthly_price_for_user(user)} ₽/мес</b> "
-        f"(база {BASE_MONTHLY_PRICE} ₽).\n\n"
-        f"Привяжите ключ заново на одном телефоне."
     )
 
 
@@ -657,8 +607,7 @@ def screen_help() -> str:
         f"<b>Устройства</b>\n"
         f"Без подписки — пакет «месяц + 1–5 устройств» в «Тарифах».\n"
         f"С активной подпиской — только продление и докупка слотов (до 5).\n"
-        f"Сброс привязок — смена телефона без смены цены.\n"
-        f"«Вернуть 1 устройство» — снова 69 ₽/мес.\n\n"
+        f"Сброс привязок — смена телефона без смены цены.\n\n"
         f"Вопросы — «Поддержка»."
     )
 
