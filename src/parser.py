@@ -276,7 +276,6 @@ _SKIP_NAME_MARKERS = (
     "tg bot",
     "бот + сайт",
     "бот  сайт",
-    "hysteria",
     "x-hwid",
     "hwid",
     "превысили лимит",
@@ -287,12 +286,17 @@ _SKIP_NAME_MARKERS = (
 # Обычные ⚡/📱 остаются в тексте, а иконка становится планетой — поэтому тут флаги.
 _DECOR_RE = re.compile(
     r"[\U000026A1\U0000FE0F\U00002728\U0001F4A1\U0001F525\U00002B50"
-    r"\U0001F9F6\U0001F4A7\U0001F525]+"
+    r"\U0001F9F6\U0001F4A7\U0001F310\U0001F4E1]+"
 )
 
 _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
-    ("самый быстрый авто", "🇪🇺 Автовыбор"),
-    ("автовыбор", "🇪🇺 Автовыбор"),
+    ("авто vpn", "🇪🇺 Авто VPN+Обход"),
+    ("vpn+обход", "🇪🇺 Авто VPN+Обход"),
+    ("vpn + обход", "🇪🇺 Авто VPN+Обход"),
+    ("самый быстрый авто", "🇪🇺 Авто-выбор"),
+    ("авто-выбор", "🇪🇺 Авто-выбор"),
+    ("авто выбор", "🇪🇺 Авто-выбор"),
+    ("автовыбор", "🇪🇺 Авто-выбор"),
     ("lte авто", "🇫🇮 LTE Авто"),
     ("lte reserve", "🇫🇮 LTE Резерв"),
     ("lte резерв", "🇫🇮 LTE Резерв"),
@@ -389,8 +393,45 @@ _LTE_NAME_RE = re.compile(
 )
 
 
+def _name_compact(name: str) -> str:
+    compact = " ".join((name or "").lower().split())
+    compact = _FLAG_RE.sub(" ", compact)
+    compact = _DECOR_RE.sub(" ", compact)
+    compact = re.sub(r"[»|✦·\-–+#]+", " ", compact)
+    return re.sub(r"\s+", " ", compact).strip()
+
+
+def is_source_auto_profile_name(name: str) -> bool:
+    """Авто-профили из исходного ключа (не синтетика Tsulo)."""
+    compact = _name_compact(name)
+    flat = compact.replace(" ", "")
+    if "автовыборобход" in flat and "vpn" not in flat:
+        # Синтетический «Автовыбор Обход» от Tsulo — не из ключа.
+        return False
+    if "автоvpn" in flat or "vpn+обход" in flat or "vpnобход" in flat:
+        return True
+    if "автовыбор" in flat or "автовыбор" in compact.replace("-", ""):
+        return True
+    if "самыйбыстрый" in flat:
+        return True
+    return False
+
+
+def source_auto_sort_key(name: str) -> int:
+    """Порядок сверху: Авто-выбор, затем Авто VPN+Обход."""
+    compact = _name_compact(name)
+    flat = compact.replace(" ", "")
+    if "vpn" in flat:
+        return 1
+    if "автовыбор" in flat or "автовыбор" in compact.replace("-", ""):
+        return 0
+    return 2
+
+
 def is_bypass_profile_name(name: str) -> bool:
     """Конфиг обхода глушилок / белых списков / LTE по названию в подписке."""
+    if is_source_auto_profile_name(name):
+        return False
     if is_mobile_internet_name(name):
         return True
     compact = " ".join((name or "").lower().split())
@@ -814,7 +855,8 @@ def restyle_server_name(name: str) -> str | None:
             styled_flag = _FLAG_RE.findall(styled)
             country = _FLAG_RE.sub("", styled).strip()
             country = _DECOR_RE.sub("", country).strip()
-            use_flag = flag or (styled_flag[0] if styled_flag else "")
+            # Флаг из маппинга важнее исходного (🌐→🇪🇺, 🇸🇴→🇪🇺 для авто).
+            use_flag = (styled_flag[0] if styled_flag else "") or flag
             if use_flag and country:
                 return f"{use_flag} {country}"
             return styled
@@ -1028,6 +1070,8 @@ def get_fragment(uri: str) -> str:
 
 def is_bypass_label(uri: str) -> bool:
     fragment = get_fragment(uri)
+    if is_source_auto_profile_name(fragment):
+        return False
     return any(marker in fragment for marker in BYPASS_LABEL_MARKERS)
 
 

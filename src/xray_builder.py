@@ -19,10 +19,13 @@ from parser import (
     is_extra_bypass_label,
     is_mobile_bypass_remark,
     is_placeholder_config,
+    is_source_auto_profile_name,
     mobile_internet_label,
     profile_content_key,
     rank_configs_for_speed,
     renumber_mobile_profiles,
+    restyle_server_name,
+    source_auto_sort_key,
     uri_profile_name,
     EXTRA_BYPASS_BOLT,
     EXTRA_BYPASS_FIRE,
@@ -620,12 +623,12 @@ def build_happ_profiles(
 ) -> list[dict]:
     """
     Клиентская подписка TsuloVPN:
-    1) 🇪🇺 Автовыбор — observatory + leastPing (основные серверы)
+    1) Авто-профили из исходного ключа сверху (Авто-выбор, Авто VPN+Обход)
     2) основные серверы (флаг + страна)
-    3) 🇪🇺 Автовыбор Обход — лучший из всех «Мобильный Интернет»
-    4) 🇪🇺 Мобильный Интернет #N — обход из основного ключа
-    5) 🇪🇺 Мобильный Интернет #N 🔥 — VPN_BYPASS_SOURCE_URL
-    6) 🇪🇺 Мобильный Интернет #N ⚡ — VPN_BYPASS_SOURCE_URL_2
+    3) 🇪🇺 Мобильный Интернет #N — обход из ключа (включая Hysteria)
+    4) 🇪🇺 Мобильный Интернет #N 🔥/⚡ — доп. ключи обхода
+
+    Синтетические «Автовыбор» / «Автовыбор Обход» больше не добавляются.
     """
     cap = max(1, int(limit or config.SUBSCRIPTION_CONFIG_LIMIT))
     wifi_cap = config.subscription_wifi_limit()
@@ -648,95 +651,79 @@ def build_happ_profiles(
         or extra_bypass2_profiles
     )
     pool = [uri for uri in uris if uri_to_outbound(uri, "probe") and not is_placeholder_config(uri)]
-    auto_pool = _rank_auto_pool(pool[:wifi_cap])
-    if not auto_pool and not has_bypass_pool and existing:
-        cleaned = [
-            p
-            for p in existing
-            if isinstance(p, dict) and not _is_auto_profile_name(str(p.get("remarks") or ""))
-        ]
+    if not pool and not has_bypass_pool and not existing:
+        return []
+    if not pool and not has_bypass_pool and existing:
+        cleaned = []
+        for p in existing:
+            if not isinstance(p, dict):
+                continue
+            rem = str(p.get("remarks") or "")
+            if rem.lower().startswith("🇪🇺 автовыбор обход") or rem.lower() == "🇪🇺 автовыбор":
+                continue
+            cleaned.append(p)
         return renumber_mobile_profiles(cleaned[:cap])
 
     entries: list[dict] = []
-    auto = build_auto_select_config(
-        auto_pool,
-        remarks="🇪🇺 Автовыбор",
-        node_prefix="auto-",
-        description="автовыбор · лучший узел",
-        probe_url=config.WIFI_PROBE_URL,
-        probe_interval_sec=config.AUTO_PROBE_INTERVAL_SEC,
-    )
-    if auto:
-        entries.append(auto)
+    seen: set[str] = set()
 
-    seen: set[str] = {"🇪🇺 автовыбор"}
+    source_autos: list[dict] = []
+    source_main: list[dict] = []
 
     if existing:
         for profile in existing:
             if not isinstance(profile, dict):
                 continue
             rem = str(profile.get("remarks") or profile.get("remark") or "").strip()
-            if not rem or _is_auto_profile_name(rem):
+            if not rem:
                 continue
-            if has_bypass_pool and is_mobile_bypass_remark(rem):
+            # Отбрасываем только нашу старую синтетику, если вдруг пришла в existing.
+            low = rem.lower()
+            if low in {"🇪🇺 автовыбор", "автовыбор"} or "автовыбор обход" in low:
+                if "vpn" not in low:
+                    continue
+            styled = restyle_server_name(rem) or rem
+            cloned = copy.deepcopy(profile)
+            cloned["remarks"] = styled
+            if has_bypass_pool and is_mobile_bypass_remark(styled) and not is_source_auto_profile_name(styled):
                 continue
-            key = rem.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            entries.append(profile)
-            if len(entries) >= wifi_cap + 1:
-                break
+            if is_source_auto_profile_name(styled):
+                source_autos.append(cloned)
+            else:
+                source_main.append(cloned)
+
+    source_autos.sort(key=lambda p: source_auto_sort_key(str(p.get("remarks") or "")))
+
+    for profile in source_autos + source_main:
+        rem = str(profile.get("remarks") or "").strip()
+        key = rem.lower()
+        if not rem or key in seen:
+            continue
+        seen.add(key)
+        entries.append(profile)
+        if len(entries) >= wifi_cap + 2:
+            break
 
     if not existing:
         for idx, uri in enumerate(pool, start=1):
-            if len(entries) >= wifi_cap + 1:
+            if len(entries) >= wifi_cap + 2:
                 break
             cfg = build_single_server_config(uri, idx)
             if not cfg:
                 continue
             rem = str(cfg.get("remarks") or "").strip()
-            if not rem or _is_auto_profile_name(rem) or is_bypass_profile_name(rem):
-                continue
-            key = rem.lower()
+            styled = restyle_server_name(rem) or rem
+            cfg["remarks"] = styled
+            if not styled or is_bypass_profile_name(styled):
+                if not is_source_auto_profile_name(styled):
+                    continue
+            key = styled.lower()
             if key in seen:
                 continue
             seen.add(key)
             entries.append(cfg)
 
-    all_bypass_profiles = (
-        list(main_bypass_profiles)
-        + list(extra_bypass_profiles)
-        + list(extra_bypass2_profiles)
-    )
-    auto_bypass_pool = bypass_auto_uris or collect_bypass_auto_uris(
-        bypass_uris,
-        extra_bypass_uris,
-        extra_bypass2_uris,
-        profile_groups=[
-            extra_bypass_profiles,
-            extra_bypass2_profiles,
-        ],
-    )
-    if (auto_bypass_pool or all_bypass_profiles) and len(entries) < max_total:
-        bypass_auto = build_bypass_auto_select_config(
-            all_bypass_profiles,
-            auto_bypass_pool,
-        )
-        if not bypass_auto and auto_bypass_pool:
-            bypass_auto = build_auto_select_config(
-                _rank_auto_pool(auto_bypass_pool),
-                remarks=BYPASS_AUTO_REMARK,
-                node_prefix="bypass-auto-",
-                description="обход · лучший узел",
-                probe_url=BYPASS_AUTO_PROBE,
-                probe_interval_sec=config.LTE_PROBE_INTERVAL_SEC,
-                max_rtt_ms=config.LTE_MAX_RTT_MS,
-                lte_dns=True,
-            )
-        if bypass_auto:
-            entries.append(bypass_auto)
-            seen.add(BYPASS_AUTO_REMARK.lower())
+    # Синтетический «Автовыбор Обход» больше не создаём.
 
     bypass_idents: set[str] = set()
     extra_idents: set[str] = set()
