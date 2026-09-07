@@ -292,11 +292,28 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
         return
 
     plan_id = callback.data.split(":", 1)[1].strip()
-    from devices import parse_device_addon_plan
-    from payments import create_pending_order, resolve_checkout
+    from devices import parse_device_addon_plan, parse_pack_plan
+    from payments import create_pending_order, is_subscription_active, resolve_checkout
 
     user = await get_user(callback.from_user.id)
     if not user:
+        return
+
+    # Активным пакеты 1m@dN недоступны — только продление (1m) и докупка слотов (dev+N).
+    if (
+        config.payments_active
+        and is_subscription_active(user)
+        and parse_pack_plan(plan_id) is not None
+    ):
+        await render_screen(
+            callback.message,
+            caption=ui.screen_tariffs(user)
+            + "\n\nПока подписка активна: продлите текущий лимит "
+            "или докупите устройства отдельно.",
+            markup=ui.kb_tariffs(user),
+            screen="tariffs",
+            edit=True,
+        )
         return
 
     resolved = resolve_checkout(plan_id, user)

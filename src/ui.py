@@ -210,7 +210,7 @@ def kb_docs() -> InlineKeyboardMarkup:
 
 
 def kb_tariffs(user: User | None = None) -> InlineKeyboardMarkup:
-    from devices import pack_options, user_device_limit
+    from devices import MAX_DEVICE_SLOTS, addon_options, pack_options, user_device_limit
     from payments import is_subscription_active, renewal_amount_for_user
 
     b = InlineKeyboardBuilder()
@@ -219,28 +219,32 @@ def kb_tariffs(user: User | None = None) -> InlineKeyboardMarkup:
         active = bool(user and is_subscription_active(user))
 
         if active:
+            # Активным: только продление текущего лимита + докупка слотов.
             renew = renewal_amount_for_user(user)
             b.button(
                 text=f"🔁 Продлить {current_limit} устр. · {renew} ₽",
                 callback_data="order:1m",
             )
-
-        for opt in pack_options():
-            limit = opt["devices"]
-            # Активным не дублируем кнопку «как сейчас» отдельным пакетом —
-            # продление уже выше. Пакеты с другим лимитом = смена + месяц.
-            if active and limit == current_limit:
-                continue
-            if limit == 1:
-                label = f"📱 1 устройство · {opt['price_rub']} ₽ / мес"
-            elif limit < 5:
-                label = f"📱 {limit} устройства · {opt['price_rub']} ₽ / мес"
-            else:
-                label = f"📱 {limit} устройств · {opt['price_rub']} ₽ / мес"
-            b.button(text=label, callback_data=f"order:{opt['plan_id']}")
-
-        if active and current_limit < 5:
-            b.button(text="➕  Только доп. слоты", callback_data="devices")
+            for opt in addon_options(user):
+                b.button(
+                    text=f"➕ До {opt['new_limit']} устр. · {opt['price_rub']} ₽",
+                    callback_data=f"order:{opt['plan_id']}",
+                )
+            if current_limit >= MAX_DEVICE_SLOTS:
+                # Кнопок докупки нет — лимит уже максимум.
+                pass
+            b.button(text="📱  Устройства / сброс HWID", callback_data="devices")
+        else:
+            # Неактивным: все пакеты «месяц + N устройств».
+            for opt in pack_options():
+                limit = opt["devices"]
+                if limit == 1:
+                    label = f"📱 1 устройство · {opt['price_rub']} ₽ / мес"
+                elif limit < 5:
+                    label = f"📱 {limit} устройства · {opt['price_rub']} ₽ / мес"
+                else:
+                    label = f"📱 {limit} устройств · {opt['price_rub']} ₽ / мес"
+                b.button(text=label, callback_data=f"order:{opt['plan_id']}")
     else:
         b.button(text="🔑  Мой ключ", callback_data="get_key")
     b.button(text="📄  Подробнее", url=config.tariffs_page_url)
@@ -546,6 +550,7 @@ def screen_tariffs(user: User | None = None) -> str:
         BASE_MONTHLY_PRICE,
         FIRST_EXTRA_SLOT_PRICE,
         MAX_DEVICE_SLOTS,
+        addon_options,
         monthly_price_for_user,
         pack_options,
         user_device_limit,
@@ -565,34 +570,47 @@ def screen_tariffs(user: User | None = None) -> str:
             f"Сейчас доступ открыт без оплаты."
         )
 
-    lines = "\n".join(
-        f"· <b>{o['devices']}</b> устр. — <b>{o['price_rub']} ₽</b>/мес"
-        for o in pack_options()
-    )
     limit = user_device_limit(user) if user else 1
     month = monthly_price_for_user(user) if user else BASE_MONTHLY_PRICE
     active = bool(user and is_subscription_active(user))
 
     if active:
-        tip = (
-            f"Сейчас у вас <b>{limit}</b> устр., продление <b>{month} ₽</b>.\n"
-            f"Кнопка «Продлить» — ещё 30 дней с тем же лимитом.\n"
-            f"Другой пакет — сразу новый лимит + 30 дней одной оплатой.\n"
-            f"Только слоты без продления — «Доп. слоты»."
+        opts = addon_options(user) if user else []
+        if opts:
+            add_lines = "\n".join(
+                f"· до {o['new_limit']} устр. — <b>{o['price_rub']} ₽</b> "
+                f"(далее {o['monthly_after']} ₽/мес)"
+                for o in opts
+            )
+            add_block = f"\n<b>Докупить устройства</b> (срок не меняется):\n{add_lines}\n"
+        else:
+            add_block = (
+                f"\nЛимит уже максимальный — <b>{MAX_DEVICE_SLOTS}</b> устройств, "
+                f"докупить нельзя.\n"
+            )
+        body = (
+            f"Подписка активна.\n"
+            f"Сейчас: <b>{limit}</b> устр., продление <b>{month} ₽</b>/мес.\n\n"
+            f"<b>Продлить</b> — ещё 30 дней с тем же лимитом.\n"
+            f"{add_block}"
         )
     else:
-        tip = (
-            "Выберите сразу нужное число устройств — "
-            "<b>одна оплата = месяц + лимит</b>, без отдельных покупок."
+        lines = "\n".join(
+            f"· <b>{o['devices']}</b> устр. — <b>{o['price_rub']} ₽</b>/мес"
+            for o in pack_options()
+        )
+        body = (
+            f"База {BASE_MONTHLY_PRICE} ₽ (1 устр.). "
+            f"Доп. слот от {FIRST_EXTRA_SLOT_PRICE} ₽, макс. {MAX_DEVICE_SLOTS}.\n\n"
+            f"<b>Пакеты на 30 дней</b>\n{lines}\n\n"
+            f"Выберите сразу нужное число устройств — "
+            f"<b>одна оплата = месяц + лимит</b>."
         )
 
     return (
         f"💜 <b>Тарифы · {name}</b>\n"
         f"━━━━━━━━━━━━━━━━\n\n"
-        f"База {BASE_MONTHLY_PRICE} ₽ (1 устр.). "
-        f"Доп. слот от {FIRST_EXTRA_SLOT_PRICE} ₽, макс. {MAX_DEVICE_SLOTS}.\n\n"
-        f"<b>Пакеты на 30 дней</b>\n{lines}\n\n"
-        f"{tip}"
+        f"{body}"
     )
 
 
@@ -637,8 +655,8 @@ def screen_help() -> str:
         f"④ Включите автообновление\n"
         f"⑤ Выберите сервер и подключитесь\n\n"
         f"<b>Устройства</b>\n"
-        f"В «Тарифах» выберите сразу 1–5 устройств одной оплатой.\n"
-        f"Активным можно докупить только слоты или сменить пакет.\n"
+        f"Без подписки — пакет «месяц + 1–5 устройств» в «Тарифах».\n"
+        f"С активной подпиской — только продление и докупка слотов (до 5).\n"
         f"Сброс привязок — смена телефона без смены цены.\n"
         f"«Вернуть 1 устройство» — снова 69 ₽/мес.\n\n"
         f"Вопросы — «Поддержка»."
