@@ -306,6 +306,33 @@ _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
     ("lte 1", "🇫🇮 LTE 1"),
     ("lte 2", "🇫🇮 LTE 2"),
     ("lte 3", "🇫🇮 LTE 3"),
+    ("netherlands", "🇳🇱 Нидерланды"),
+    ("holland", "🇳🇱 Нидерланды"),
+    ("germany", "🇩🇪 Германия"),
+    ("finland", "🇫🇮 Финляндия"),
+    ("helsinki", "🇫🇮 Финляндия"),
+    ("sweden", "🇸🇪 Швеция"),
+    ("estonia", "🇪🇪 Эстония"),
+    ("poland", "🇵🇱 Польша"),
+    ("lithuania", "🇱🇹 Литва"),
+    ("latvia", "🇱🇻 Латвия"),
+    ("france", "🇫🇷 Франция"),
+    ("italy", "🇮🇹 Италия"),
+    ("hungary", "🇭🇺 Венгрия"),
+    ("turkey", "🇹🇷 Турция"),
+    ("kazakhstan", "🇰🇿 Казахстан"),
+    ("russia", "🇷🇺 Россия"),
+    ("usa", "🇺🇸 США"),
+    ("united states", "🇺🇸 США"),
+    ("cyprus", "🇨🇾 Кипр"),
+    ("norway", "🇳🇴 Норвегия"),
+    ("switzerland", "🇨🇭 Швейцария"),
+    ("uae", "🇦🇪 ОАЭ"),
+    ("saudi", "🇸🇦 Саудовская Аравия"),
+    ("united arab", "🇦🇪 ОАЭ"),
+    ("uk ", "🇬🇧 Британия"),
+    ("britain", "🇬🇧 Британия"),
+    ("england", "🇬🇧 Англия"),
     ("нидерланды", "🇳🇱 Нидерланды"),
     ("великобритания", "🇬🇧 Британия"),
     ("германия", "🇩🇪 Германия"),
@@ -442,7 +469,125 @@ def is_bypass_profile_name(name: str) -> bool:
         return True
     if noflag in ("lte", "bl", "cidr"):
         return True
+    # «Russia - обход 1» и подобные (не «Авто VPN+Обход» — уже отсечено выше)
+    if re.search(r"(?:^|[\s|_.,\-–])обход(?:[\s|_.,\-–#]|$)", noflag) or noflag.endswith(" обход"):
+        return True
+    if "обход" in noflag and not noflag.startswith("авто"):
+        return True
     return False
+
+
+def allocate_unique_remark(styled: str, used: set[str]) -> str:
+    """Польша → Польша; если занято → Польша #2, #3…"""
+    raw = " ".join((styled or "").split()).strip()
+    if not raw:
+        return raw
+    base = re.sub(r"\s*#\d+\s*$", "", raw).strip() or raw
+    base_key = base.lower()
+    if base_key not in used:
+        used.add(base_key)
+        return base
+    n = 2
+    while True:
+        candidate = f"{base} #{n}"
+        key = candidate.lower()
+        if key not in used:
+            used.add(key)
+            return candidate
+        n += 1
+
+
+def split_profiles_main_and_bypass(profiles: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Разделить профили доп. ключа: обычные страны / обход."""
+    main: list[dict] = []
+    bypass: list[dict] = []
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        remark = str(profile.get("remarks") or profile.get("remark") or "")
+        if is_source_auto_profile_name(remark):
+            main.append(copy.deepcopy(profile))
+            continue
+        if is_bypass_profile_name(remark) or profile_is_bypass(profile):
+            bypass.append(copy.deepcopy(profile))
+        else:
+            main.append(copy.deepcopy(profile))
+    return main, bypass
+
+
+def prepare_extra_source_profiles(
+    text: str,
+    uris: list[str] | None = None,
+    *,
+    marker: str = "",
+) -> tuple[list[dict], list[dict], list[str], list[str]]:
+    """
+    Весь доп. ключ (VPN_BYPASS_SOURCE_URL / _2):
+    → (country_profiles, bypass_profiles, country_uris, bypass_uris).
+    Обход помечается marker (🔥/⚡); страны оставляют имена.
+    """
+    raw = [p for p in extract_raw_json_profiles(text or "") if _profile_has_proxy(p)]
+    if raw:
+        main_p, by_p = split_profiles_main_and_bypass(raw)
+        if marker and by_p:
+            by_p = tag_extra_bypass_profiles(by_p, marker=marker)
+        return main_p, by_p, [], []
+
+    real = [
+        uri
+        for uri in (uris or [])
+        if not is_placeholder_config(uri)
+    ]
+    main_u, by_u = split_uris_by_bypass(real)
+    return [], [], main_u, by_u
+
+
+def brand_extra_main_profiles(
+    profiles: list[dict],
+    *,
+    used_names: set[str],
+) -> list[dict]:
+    """Страны из доп. ключа: restyle + Польша #2 при коллизии."""
+    result: list[dict] = []
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        rem = str(profile.get("remarks") or profile.get("remark") or "").strip()
+        if not rem or should_skip_profile(rem):
+            continue
+        styled = restyle_server_name(rem) or rem
+        if should_skip_profile(styled):
+            continue
+        if is_bypass_profile_name(styled) and not is_source_auto_profile_name(styled):
+            continue
+        unique = allocate_unique_remark(styled, used_names)
+        cloned = copy.deepcopy(profile)
+        cloned["remarks"] = unique
+        result.append(cloned)
+    return result
+
+
+def brand_extra_main_uris(
+    uris: list[str],
+    *,
+    used_names: set[str],
+) -> list[str]:
+    """URI-страны из доп. ключа с уникальными именами."""
+    result: list[str] = []
+    fallback_idx = 0
+    for uri in uris:
+        if is_placeholder_config(uri) or is_bypass_uri(uri):
+            continue
+        original = uri_profile_name(uri)
+        styled = restyle_server_name(original) if original else None
+        if not styled:
+            fallback_idx += 1
+            styled = build_server_label("vpn", uri, fallback_idx)
+        if should_skip_profile(styled) or should_skip_profile(original or ""):
+            continue
+        unique = allocate_unique_remark(styled, used_names)
+        result.append(brand_config(uri, unique))
+    return result
 
 
 def is_mobile_internet_name(name: str) -> bool:

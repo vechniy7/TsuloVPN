@@ -15,6 +15,8 @@ from parser import (
     brand_bypass_uris,
     brand_main_uris,
     brand_config,
+    brand_extra_main_profiles,
+    brand_extra_main_uris,
     build_server_label,
     dedupe_bypass_uris,
     dedupe_uris,
@@ -28,6 +30,7 @@ from parser import (
     is_whitelist_host_ip,
     lte_speed_score,
     parse_subscription_lines,
+    prepare_extra_source_profiles,
     rank_configs_for_speed,
     rank_lte_configs,
     rank_universal_configs,
@@ -169,29 +172,15 @@ async def _get_upstream_session() -> aiohttp.ClientSession:
 
 
 def _fetch_headers_for_url(url: str, *, role: str = "") -> dict[str, str]:
-    """Заголовки под тип панели. HWID-панели — Happ + единый профиль устройства."""
-    # bypass/bypass2 всегда с HWID: иначе AmaVPN и др. отдают заглушку без x-hwid.
-    need_hwid = (
-        role in ("bypass", "bypass2", "main")
-        or _is_happ_hwid_url(url)
-        or _is_private_source_url(url)
-    )
-    if need_hwid and not _is_classic_sub_url(url):
-        return dict(config.fetch_hwid_headers(role=role))
-
+    """Заголовки под тип панели. Любой ключ — Happ+HWID, кроме classic (ecobuy/shuka)."""
+    _ = role
     if _is_classic_sub_url(url):
         return {
             "User-Agent": "v2rayN/6.45",
             "Accept": "*/*",
             "Accept-Encoding": "gzip",
         }
-
-    configured = (config.SUB_FETCH_UA or "").strip()
-    return {
-        "User-Agent": configured or "v2rayN/6.45",
-        "Accept": "*/*",
-        "Accept-Encoding": "gzip",
-    }
+    return dict(config.fetch_hwid_headers(role=role))
 
 
 async def close_session() -> None:
@@ -616,19 +605,31 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
             wifi_raw, bypass_from_main = split_uris_by_bypass(main_uris_raw)
             bypass_from_main = dedupe_bypass_uris(bypass_from_main)
-            extra_bypass_profiles = tag_extra_bypass_profiles(
-                select_extra_bypass_profiles(bypass_text),
+            wifi_uris = dedupe_uris(wifi_raw)
+
+            (
+                extra_main_profiles,
+                extra_bypass_profiles,
+                extra_main_uris,
+                extra_bypass,
+            ) = prepare_extra_source_profiles(
+                bypass_text,
+                bypass_uris_raw,
                 marker=EXTRA_BYPASS_FIRE,
             )
-            extra_bypass = select_extra_bypass_uris(bypass_uris_raw)
             extra_bypass = dedupe_bypass_uris(extra_bypass)
-            extra_bypass2_profiles = tag_extra_bypass_profiles(
-                select_extra_bypass_profiles(bypass2_text),
+
+            (
+                extra_main2_profiles,
+                extra_bypass2_profiles,
+                extra_main2_uris,
+                extra_bypass2,
+            ) = prepare_extra_source_profiles(
+                bypass2_text,
+                bypass2_uris_raw,
                 marker=EXTRA_BYPASS_BOLT,
             )
-            extra_bypass2 = select_extra_bypass_uris(bypass2_uris_raw)
             extra_bypass2 = dedupe_bypass_uris(extra_bypass2)
-            wifi_uris = dedupe_uris(wifi_raw)
 
             main_bypass_profiles = select_extra_bypass_profiles(main_text or "")
             branded_wifi = brand_main_uris(wifi_uris)
@@ -640,6 +641,12 @@ async def refresh_pool(force: bool = False) -> PoolState:
             main_bypass_count = len(main_bypass_profiles) or len(bypass_from_main)
             extra_bypass_count = len(extra_bypass_profiles) or len(extra_bypass)
             extra_bypass2_count = len(extra_bypass2_profiles) or len(extra_bypass2)
+            extra_main_count = (
+                len(extra_main_profiles)
+                + len(extra_main_uris)
+                + len(extra_main2_profiles)
+                + len(extra_main2_uris)
+            )
             branded_extra_bypass = (
                 []
                 if extra_bypass_profiles
@@ -684,15 +691,20 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 config.source_label(): len(main_uris_raw),
             }
             if bypass_label:
-                source_counts[bypass_label] = extra_bypass_count
+                source_counts[bypass_label] = extra_bypass_count + len(extra_main_profiles) + len(
+                    extra_main_uris
+                )
             if bypass2_label:
-                source_counts[bypass2_label] = extra_bypass2_count
+                source_counts[bypass2_label] = extra_bypass2_count + len(
+                    extra_main2_profiles
+                ) + len(extra_main2_uris)
 
             _pool.source_real_count = (
                 len(wifi_uris)
                 + main_bypass_count
                 + extra_bypass_count
                 + extra_bypass2_count
+                + extra_main_count
             )
             _pool.last_fetch_status = last_status
 
@@ -742,8 +754,12 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     bypass_uris=branded_main_bypass,
                     main_bypass_profiles=main_bypass_profiles,
                     bypass_auto_uris=bypass_auto_uris,
+                    extra_main_profiles=extra_main_profiles,
+                    extra_main_uris=extra_main_uris,
                     extra_bypass_uris=branded_extra_bypass,
                     extra_bypass_profiles=extra_bypass_profiles,
+                    extra_main2_profiles=extra_main2_profiles,
+                    extra_main2_uris=extra_main2_uris,
                     extra_bypass2_uris=branded_extra_bypass2,
                     extra_bypass2_profiles=extra_bypass2_profiles,
                     existing=source_json_profiles or None,
@@ -759,8 +775,12 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     bypass_uris=branded_main_bypass,
                     main_bypass_profiles=main_bypass_profiles,
                     bypass_auto_uris=bypass_auto_uris,
+                    extra_main_profiles=extra_main_profiles,
+                    extra_main_uris=extra_main_uris,
                     extra_bypass_uris=branded_extra_bypass,
                     extra_bypass_profiles=extra_bypass_profiles,
+                    extra_main2_profiles=extra_main2_profiles,
+                    extra_main2_uris=extra_main2_uris,
                     extra_bypass2_uris=branded_extra_bypass2,
                     extra_bypass2_profiles=extra_bypass2_profiles,
                     existing=source_json_profiles or None,

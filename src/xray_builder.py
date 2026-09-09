@@ -20,6 +20,8 @@ from parser import (
     is_mobile_bypass_remark,
     is_placeholder_config,
     is_source_auto_profile_name,
+    brand_extra_main_profiles,
+    brand_extra_main_uris,
     mobile_internet_label,
     profile_content_key,
     rank_configs_for_speed,
@@ -614,8 +616,12 @@ def build_happ_profiles(
     bypass_uris: list[str] | None = None,
     main_bypass_profiles: list[dict] | None = None,
     bypass_auto_uris: list[str] | None = None,
+    extra_main_profiles: list[dict] | None = None,
+    extra_main_uris: list[str] | None = None,
     extra_bypass_uris: list[str] | None = None,
     extra_bypass_profiles: list[dict] | None = None,
+    extra_main2_profiles: list[dict] | None = None,
+    extra_main2_uris: list[str] | None = None,
     extra_bypass2_uris: list[str] | None = None,
     extra_bypass2_profiles: list[dict] | None = None,
     existing: list[dict] | None = None,
@@ -623,12 +629,11 @@ def build_happ_profiles(
 ) -> list[dict]:
     """
     Клиентская подписка TsuloVPN:
-    1) Авто-профили из исходного ключа сверху (Авто-выбор, Авто VPN+Обход)
-    2) основные серверы (флаг + страна)
-    3) 🇪🇺 Мобильный Интернет #N — обход из ключа (включая Hysteria)
-    4) 🇪🇺 Мобильный Интернет #N 🔥/⚡ — доп. ключи обхода
-
-    Синтетические «Автовыбор» / «Автовыбор Обход» больше не добавляются.
+    1) Авто-профили из основного ключа сверху
+    2) страны основного ключа
+    3) страны из VPN_BYPASS_SOURCE_URL / _2 (Польша #2 при коллизии)
+    4) Мобильный Интернет #N — обход основного ключа
+    5) Мобильный Интернет #N 🔥/⚡ — обход из доп. ключей
     """
     cap = max(1, int(limit or config.SUBSCRIPTION_CONFIG_LIMIT))
     wifi_cap = config.subscription_wifi_limit()
@@ -637,8 +642,12 @@ def build_happ_profiles(
     bypass_uris = bypass_uris or []
     main_bypass_profiles = main_bypass_profiles or []
     bypass_auto_uris = bypass_auto_uris or []
+    extra_main_profiles = extra_main_profiles or []
+    extra_main_uris = extra_main_uris or []
     extra_bypass_uris = extra_bypass_uris or []
     extra_bypass_profiles = extra_bypass_profiles or []
+    extra_main2_profiles = extra_main2_profiles or []
+    extra_main2_uris = extra_main2_uris or []
     extra_bypass2_uris = extra_bypass2_uris or []
     extra_bypass2_profiles = extra_bypass2_profiles or []
     has_bypass_pool = bool(
@@ -650,10 +659,16 @@ def build_happ_profiles(
         or extra_bypass2_uris
         or extra_bypass2_profiles
     )
+    has_extra_main = bool(
+        extra_main_profiles
+        or extra_main_uris
+        or extra_main2_profiles
+        or extra_main2_uris
+    )
     pool = [uri for uri in uris if uri_to_outbound(uri, "probe") and not is_placeholder_config(uri)]
-    if not pool and not has_bypass_pool and not existing:
+    if not pool and not has_bypass_pool and not has_extra_main and not existing:
         return []
-    if not pool and not has_bypass_pool and existing:
+    if not pool and not has_bypass_pool and not has_extra_main and existing:
         cleaned = []
         for p in existing:
             if not isinstance(p, dict):
@@ -677,7 +692,6 @@ def build_happ_profiles(
             rem = str(profile.get("remarks") or profile.get("remark") or "").strip()
             if not rem:
                 continue
-            # Отбрасываем только нашу старую синтетику, если вдруг пришла в existing.
             low = rem.lower()
             if low in {"🇪🇺 автовыбор", "автовыбор"} or "автовыбор обход" in low:
                 if "vpn" not in low:
@@ -723,7 +737,37 @@ def build_happ_profiles(
             seen.add(key)
             entries.append(cfg)
 
-    # Синтетический «Автовыбор Обход» больше не создаём.
+    used_names = set(seen)
+    for profile in brand_extra_main_profiles(extra_main_profiles, used_names=used_names):
+        rem = str(profile.get("remarks") or "").strip()
+        if not rem or rem.lower() in seen:
+            continue
+        seen.add(rem.lower())
+        entries.append(profile)
+    for uri in brand_extra_main_uris(extra_main_uris, used_names=used_names):
+        cfg = build_single_server_config(uri, len(entries) + 1)
+        if not cfg:
+            continue
+        rem = str(cfg.get("remarks") or "").strip()
+        if not rem or rem.lower() in seen:
+            continue
+        seen.add(rem.lower())
+        entries.append(cfg)
+    for profile in brand_extra_main_profiles(extra_main2_profiles, used_names=used_names):
+        rem = str(profile.get("remarks") or "").strip()
+        if not rem or rem.lower() in seen:
+            continue
+        seen.add(rem.lower())
+        entries.append(profile)
+    for uri in brand_extra_main_uris(extra_main2_uris, used_names=used_names):
+        cfg = build_single_server_config(uri, len(entries) + 1)
+        if not cfg:
+            continue
+        rem = str(cfg.get("remarks") or "").strip()
+        if not rem or rem.lower() in seen:
+            continue
+        seen.add(rem.lower())
+        entries.append(cfg)
 
     bypass_idents: set[str] = set()
     extra_idents: set[str] = set()
@@ -750,6 +794,8 @@ def build_happ_profiles(
         else:
             bypass_idents.add(ident)
         rem = uri_profile_name(uri) or mobile_internet_label(1, marker=marker)
+        if marker and marker not in rem:
+            rem = f"{rem} {marker}".strip()
         cfg = build_single_server_config(uri, len(entries))
         if not cfg:
             return
@@ -758,7 +804,7 @@ def build_happ_profiles(
         entries.append(cfg)
         bypass_added += 1
 
-    def _append_bypass_profile(profile: dict, *, marker: str) -> None:
+    def _append_bypass_profile(profile: dict, *, marker: str = "") -> None:
         nonlocal bypass_added
         if bypass_added >= bypass_cap:
             return
@@ -779,6 +825,9 @@ def build_happ_profiles(
             bypass_idents.add(key)
         cloned = copy.deepcopy(profile)
         rem = str(cloned.get("remarks") or cloned.get("remark") or "").strip()
+        if marker and marker not in rem:
+            rem = f"{rem} {marker}".strip()
+            cloned["remarks"] = rem
         if rem:
             seen.add(rem.lower())
         entries.append(cloned)
@@ -803,6 +852,7 @@ def build_happ_profiles(
         _append_bypass_uri(uri, marker=EXTRA_BYPASS_BOLT)
 
     return renumber_mobile_profiles(entries[:max_total])
+
 
 
 def subscription_json_bytes(
