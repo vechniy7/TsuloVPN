@@ -19,6 +19,7 @@ HAPP_HWID_HOST_MARKERS = (
     "pnl.",
     "accessboy.com",
     "projectcube.tech",
+    "amavpn",
 )
 
 PRIVATE_SOURCE_HOST_MARKERS = HAPP_HWID_HOST_MARKERS + (

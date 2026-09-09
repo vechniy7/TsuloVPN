@@ -170,17 +170,21 @@ async def _get_upstream_session() -> aiohttp.ClientSession:
 
 def _fetch_headers_for_url(url: str, *, role: str = "") -> dict[str, str]:
     """Заголовки под тип панели. HWID-панели — Happ + единый профиль устройства."""
-    if _is_happ_hwid_url(url) or _is_private_source_url(url):
-        headers = dict(config.fetch_hwid_headers(role=role))
-        if _is_classic_sub_url(url):
-            # ecobuy/shuka ломаются на Happ UA
-            headers["User-Agent"] = "v2rayN/6.45"
-            headers.pop("x-hwid", None)
-            headers.pop("x-device-os", None)
-            headers.pop("x-ver-os", None)
-            headers.pop("x-device-model", None)
-            headers.pop("x-device-locale", None)
-        return headers
+    # bypass/bypass2 всегда с HWID: иначе AmaVPN и др. отдают заглушку без x-hwid.
+    need_hwid = (
+        role in ("bypass", "bypass2", "main")
+        or _is_happ_hwid_url(url)
+        or _is_private_source_url(url)
+    )
+    if need_hwid and not _is_classic_sub_url(url):
+        return dict(config.fetch_hwid_headers(role=role))
+
+    if _is_classic_sub_url(url):
+        return {
+            "User-Agent": "v2rayN/6.45",
+            "Accept": "*/*",
+            "Accept-Encoding": "gzip",
+        }
 
     configured = (config.SUB_FETCH_UA or "").strip()
     return {
