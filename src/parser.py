@@ -280,6 +280,16 @@ _SKIP_NAME_MARKERS = (
     "hwid",
     "превысили лимит",
     "необходимо передавать",
+    # Remnawave / апстрим: заглушки про срок и оплату (не серверы)
+    "срок подписки",
+    "подписка истек",
+    "подписка истекла",
+    "обратитесь в поддержку",
+    "для продления",
+    "subscription expired",
+    "renew your",
+    "оплатите подписку",
+    "продлите подписку",
 )
 
 # Happ ставит иконкой только флаг страны (regional indicators) в начале remark.
@@ -972,6 +982,44 @@ def should_skip_profile(name: str) -> bool:
     return any(marker in compact for marker in _SKIP_NAME_MARKERS)
 
 
+def _decode_server_description(meta: dict | None) -> str:
+    if not isinstance(meta, dict):
+        return ""
+    raw = str(meta.get("serverDescription") or "").strip()
+    if not raw:
+        return ""
+    try:
+        import base64
+
+        pad = "=" * (-len(raw) % 4)
+        return base64.b64decode(raw + pad).decode("utf-8", errors="ignore")
+    except Exception:
+        return raw
+
+
+def is_upstream_notice_profile(profile: dict) -> bool:
+    """Заглушки апстрим-панели (срок/оплата/HWID) вместо рабочих серверов."""
+    if not isinstance(profile, dict):
+        return True
+    remark = str(profile.get("remarks") or profile.get("remark") or "")
+    if should_skip_profile(remark):
+        return True
+    desc = _decode_server_description(profile.get("meta") if isinstance(profile.get("meta"), dict) else None)
+    if desc and should_skip_profile(desc):
+        return True
+    outbounds = profile.get("outbounds") or []
+    if not isinstance(outbounds, list):
+        return True
+    has_proxy = any(
+        isinstance(outbound, dict)
+        and str(outbound.get("protocol") or "").lower() not in _NON_PROXY_PROTOCOLS
+        for outbound in outbounds
+    )
+    if not has_proxy:
+        return True
+    return False
+
+
 def restyle_server_name(name: str) -> str | None:
     """Только флаг + название страны; обходные имена (#00, #1…) сохраняем как есть."""
     raw = " ".join((name or "").split()).strip()
@@ -1147,6 +1195,8 @@ def extract_happ_json_profiles(data: str) -> list[dict]:
     for profile in profiles:
         remark = str(profile.get("remarks") or profile.get("remark") or "")
         if is_bypass_profile_name(remark) or profile_is_bypass(profile):
+            continue
+        if is_upstream_notice_profile(profile):
             continue
         styled = restyle_server_name(remark)
         if not styled or styled.lower() in seen_names:
@@ -1746,6 +1796,14 @@ _PLACEHOLDER_MARKERS = (
     "hwid",
     "необходимо передавать",
     "00000000-0000-0000-0000-000000000000",
+    "срок подписки",
+    "подписка истек",
+    "подписка истекла",
+    "обратитесь в поддержку",
+    "для продления",
+    "subscription expired",
+    "оплатите подписку",
+    "продлите подписку",
 )
 
 

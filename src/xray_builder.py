@@ -20,6 +20,8 @@ from parser import (
     is_mobile_bypass_remark,
     is_placeholder_config,
     is_source_auto_profile_name,
+    is_upstream_notice_profile,
+    should_skip_profile,
     brand_extra_main_profiles,
     brand_extra_main_uris,
     mobile_internet_label,
@@ -689,14 +691,18 @@ def build_happ_profiles(
         for profile in existing:
             if not isinstance(profile, dict):
                 continue
+            if is_upstream_notice_profile(profile):
+                continue
             rem = str(profile.get("remarks") or profile.get("remark") or "").strip()
-            if not rem:
+            if not rem or should_skip_profile(rem):
                 continue
             low = rem.lower()
             if low in {"🇪🇺 автовыбор", "автовыбор"} or "автовыбор обход" in low:
                 if "vpn" not in low:
                     continue
-            styled = restyle_server_name(rem) or rem
+            styled = restyle_server_name(rem)
+            if not styled or should_skip_profile(styled):
+                continue
             cloned = copy.deepcopy(profile)
             cloned["remarks"] = styled
             if has_bypass_pool and is_mobile_bypass_remark(styled) and not is_source_auto_profile_name(styled):
