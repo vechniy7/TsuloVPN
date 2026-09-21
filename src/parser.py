@@ -540,8 +540,6 @@ def prepare_extra_source_profiles(
     raw = [p for p in extract_raw_json_profiles(text or "") if _profile_has_proxy(p)]
     if raw:
         _, by_p = split_profiles_main_and_bypass(raw)
-        if not by_p:
-            by_p = [p for p in raw if profile_has_whitelist_routing(p)]
         by_p = _dedupe_profiles_by_content(by_p)
         if marker and by_p:
             by_p = tag_extra_bypass_profiles(by_p, marker=marker)
@@ -764,40 +762,32 @@ def _dedupe_profiles_by_content(profiles: list[dict]) -> list[dict]:
 
 def select_main_bypass_profiles(text: str) -> list[dict]:
     """
-    Обход из основного VPN_SOURCE_URL.
-    Только явно обходные / whitelist-routing — без fallback «весь ключ».
-    Иначе обычные страны превращаются в ложный bypass и пропадает
-    путь brand_bypass_uris → «Мобильный Интернет #N».
+    Обход из основного VPN_SOURCE_URL — только по явному имени/метке.
+
+    Не используем profile_has_whitelist_routing: у Remnawave/Aksay почти
+    у всех нод в routing есть yandex/gosuslugi → весь ключ становился
+    «обходом» и дублировался рядом со странами.
     """
     raw = extract_raw_json_profiles(text)
     if not raw:
         return []
     with_proxy = [profile for profile in raw if _profile_has_proxy(profile)]
     named = [profile for profile in with_proxy if profile_is_bypass(profile)]
-    if named:
-        return _dedupe_profiles_by_content(named)
-    whitelist = [
-        profile for profile in with_proxy if profile_has_whitelist_routing(profile)
-    ]
-    return _dedupe_profiles_by_content(whitelist)
+    return _dedupe_profiles_by_content(named)
 
 
 def select_extra_bypass_profiles(text: str) -> list[dict]:
     """
     Обходные Happ-профили из VPN_BYPASS_SOURCE_URL.
-    Только явный обход / whitelist-routing — без fallback «весь ключ».
+    Только явный обход по имени/описанию — без fallback «весь ключ» и без
+    whitelist-routing (он ложно срабатывает на типовых Remnawave-профилях).
     """
     raw = extract_raw_json_profiles(text)
     if not raw:
         return []
     with_proxy = [profile for profile in raw if _profile_has_proxy(profile)]
     named = [profile for profile in with_proxy if profile_is_bypass(profile)]
-    if named:
-        return _dedupe_profiles_by_content(named)
-    whitelist = [
-        profile for profile in with_proxy if profile_has_whitelist_routing(profile)
-    ]
-    return _dedupe_profiles_by_content(whitelist)
+    return _dedupe_profiles_by_content(named)
 
 
 def tag_extra_bypass_profiles(

@@ -829,11 +829,18 @@ def build_happ_profiles(
             return
         else:
             bypass_idents.add(key)
+        # Не дублировать серверы, уже добавленные как страны из основного ключа.
+        if any(profile_content_key(p) == key for p in entries if isinstance(p, dict)):
+            return
         cloned = copy.deepcopy(profile)
         rem = str(cloned.get("remarks") or cloned.get("remark") or "").strip()
         if marker and marker not in rem:
             rem = f"{rem} {marker}".strip()
             cloned["remarks"] = rem
+        else:
+            cloned["remarks"] = rem
+        if rem and rem.lower() in seen:
+            return
         if rem:
             seen.add(rem.lower())
         entries.append(cloned)
