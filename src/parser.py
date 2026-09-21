@@ -532,24 +532,30 @@ def prepare_extra_source_profiles(
     marker: str = "",
 ) -> tuple[list[dict], list[dict], list[str], list[str]]:
     """
-    Весь доп. ключ (VPN_BYPASS_SOURCE_URL / _2):
-    → (country_profiles, bypass_profiles, country_uris, bypass_uris).
-    Обход помечается marker (🔥/⚡); страны оставляют имена.
+    VPN_BYPASS_SOURCE_URL / _2 → только обход мобильного интернета.
+
+    Страны и прочие обычные конфиги из этого ключа отбрасываются.
+    Возвращает: ([], bypass_profiles, [], bypass_uris).
     """
     raw = [p for p in extract_raw_json_profiles(text or "") if _profile_has_proxy(p)]
     if raw:
-        main_p, by_p = split_profiles_main_and_bypass(raw)
+        _, by_p = split_profiles_main_and_bypass(raw)
+        if not by_p:
+            by_p = [p for p in raw if profile_has_whitelist_routing(p)]
+        by_p = _dedupe_profiles_by_content(by_p)
         if marker and by_p:
             by_p = tag_extra_bypass_profiles(by_p, marker=marker)
-        return main_p, by_p, [], []
+        return [], by_p, [], []
 
     real = [
         uri
         for uri in (uris or [])
         if not is_placeholder_config(uri)
     ]
-    main_u, by_u = split_uris_by_bypass(real)
-    return [], [], main_u, by_u
+    by_u = filter_bypass_uris(real)
+    if not by_u:
+        by_u = [uri for uri in real if is_bypass_whitelist_config(uri)]
+    return [], [], [], dedupe_bypass_uris(by_u)
 
 
 def brand_extra_main_profiles(
@@ -742,10 +748,26 @@ def profile_has_whitelist_routing(profile: dict) -> bool:
     return False
 
 
-def select_extra_bypass_profiles(text: str) -> list[dict]:
+def _dedupe_profiles_by_content(profiles: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    result: list[dict] = []
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        key = profile_content_key(profile)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(copy.deepcopy(profile))
+    return result
+
+
+def select_main_bypass_profiles(text: str) -> list[dict]:
     """
-    Обходные Happ-профили из VPN_BYPASS_SOURCE_URL (JSON-панели вроде accessboy).
-    Дедуп по содержимому outbounds, не по vless UUID.
+    Обход из основного VPN_SOURCE_URL.
+    Только явно обходные / whitelist-routing — без fallback «весь ключ».
+    Иначе обычные страны превращаются в ложный bypass и пропадает
+    путь brand_bypass_uris → «Мобильный Интернет #N».
     """
     raw = extract_raw_json_profiles(text)
     if not raw:
@@ -753,21 +775,29 @@ def select_extra_bypass_profiles(text: str) -> list[dict]:
     with_proxy = [profile for profile in raw if _profile_has_proxy(profile)]
     named = [profile for profile in with_proxy if profile_is_bypass(profile)]
     if named:
-        candidates = named
-    else:
-        whitelist = [
-            profile for profile in with_proxy if profile_has_whitelist_routing(profile)
-        ]
-        candidates = whitelist if whitelist else with_proxy
-    seen: set[str] = set()
-    result: list[dict] = []
-    for profile in candidates:
-        key = profile_content_key(profile)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(copy.deepcopy(profile))
-    return result
+        return _dedupe_profiles_by_content(named)
+    whitelist = [
+        profile for profile in with_proxy if profile_has_whitelist_routing(profile)
+    ]
+    return _dedupe_profiles_by_content(whitelist)
+
+
+def select_extra_bypass_profiles(text: str) -> list[dict]:
+    """
+    Обходные Happ-профили из VPN_BYPASS_SOURCE_URL.
+    Только явный обход / whitelist-routing — без fallback «весь ключ».
+    """
+    raw = extract_raw_json_profiles(text)
+    if not raw:
+        return []
+    with_proxy = [profile for profile in raw if _profile_has_proxy(profile)]
+    named = [profile for profile in with_proxy if profile_is_bypass(profile)]
+    if named:
+        return _dedupe_profiles_by_content(named)
+    whitelist = [
+        profile for profile in with_proxy if profile_has_whitelist_routing(profile)
+    ]
+    return _dedupe_profiles_by_content(whitelist)
 
 
 def tag_extra_bypass_profiles(
@@ -789,9 +819,9 @@ def tag_extra_bypass_profiles(
 def select_extra_bypass_uris(uris: list[str]) -> list[str]:
     """
     Конфиги из VPN_BYPASS_SOURCE_URL:
-    1) по названию (LTE, белые списки, …)
+    1) по названию (LTE, белые списки, обход, …)
     2) по SNI/протоколу (whitelist bypass)
-    3) иначе все конфиги ключа (отдельная подписка обхода)
+    Без fallback «все URI ключа».
     """
     real = [uri for uri in uris if not is_placeholder_config(uri)]
     if not real:
@@ -802,10 +832,7 @@ def select_extra_bypass_uris(uris: list[str]) -> list[str]:
         return dedupe_bypass_uris(named)
 
     sni_based = [uri for uri in real if is_bypass_whitelist_config(uri)]
-    if sni_based:
-        return dedupe_bypass_uris(sni_based)
-
-    return dedupe_bypass_uris(real)
+    return dedupe_bypass_uris(sni_based)
 
 
 def bypass_uri_identity(uri: str) -> str:

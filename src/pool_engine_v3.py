@@ -37,6 +37,7 @@ from parser import (
     restyle_server_name,
     select_extra_bypass_profiles,
     select_extra_bypass_uris,
+    select_main_bypass_profiles,
     set_whitelist_cidrs,
     should_skip_profile,
     split_uris_by_bypass,
@@ -631,7 +632,9 @@ async def refresh_pool(force: bool = False) -> PoolState:
             )
             extra_bypass2 = dedupe_bypass_uris(extra_bypass2)
 
-            main_bypass_profiles = select_extra_bypass_profiles(main_text or "")
+            # Строгий отбор: только явный обход в основном ключе.
+            # select_extra_bypass_profiles нельзя — у него fallback «весь ключ».
+            main_bypass_profiles = select_main_bypass_profiles(main_text or "")
             branded_wifi = brand_main_uris(wifi_uris)
             branded_main_bypass = (
                 []
@@ -691,13 +694,9 @@ async def refresh_pool(force: bool = False) -> PoolState:
                 config.source_label(): len(main_uris_raw),
             }
             if bypass_label:
-                source_counts[bypass_label] = extra_bypass_count + len(extra_main_profiles) + len(
-                    extra_main_uris
-                )
+                source_counts[bypass_label] = extra_bypass_count
             if bypass2_label:
-                source_counts[bypass2_label] = extra_bypass2_count + len(
-                    extra_main2_profiles
-                ) + len(extra_main2_uris)
+                source_counts[bypass2_label] = extra_bypass2_count
 
             _pool.source_real_count = (
                 len(wifi_uris)
