@@ -11,3 +11,4 @@ build:
 run:
   command: python src/app.py
   containerPort: 80
+  persistenceMount: /data

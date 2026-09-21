@@ -84,10 +84,6 @@ async def main() -> None:
         logger.error("BOT_TOKEN is not set in .env")
         return
 
-    if not config.use_upstash:
-        logger.error("Configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN")
-        return
-
     log_public_url_ssl(config.SUBSCRIPTION_PUBLIC_URL)
 
     await init_db()
@@ -109,7 +105,7 @@ async def main() -> None:
         else "polling"
     )
     logger.info(
-        "%s started (Upstash, %s configs, Telegram %s%s%s%s)",
+        "%s started (SQLite, %s configs, Telegram %s%s%s%s)",
         config.BOT_NAME,
         config.SUBSCRIPTION_CONFIG_LIMIT,
         mode,

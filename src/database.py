@@ -1,73 +1,35 @@
-"""Хранение пользователей и платежей в Upstash Redis."""
+"""Хранение пользователей и платежей в SQLite (диск Amvera /data)."""
 
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import logging
+import os
+import sqlite3
+import threading
 import uuid
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timezone
+from pathlib import Path
 
 from config import config
 
 logger = logging.getLogger(__name__)
 
-PREFIX = "tsulovpn"
-USERS_SET = f"{PREFIX}:users"
-ORDERS_PREFIX = f"{PREFIX}:order"
-
-_redis = None
 _users_cache: list[User] | None = None
 _users_cache_at: float = 0.0
 _USERS_CACHE_TTL = 45.0
-_MGET_CHUNK = 80
+
+_db_lock = threading.RLock()
+_conn: sqlite3.Connection | None = None
 
 
 def _invalidate_users_cache() -> None:
     global _users_cache, _users_cache_at
     _users_cache = None
     _users_cache_at = 0.0
-
-
-def _as_str(value) -> str:
-    if isinstance(value, bytes):
-        return value.decode()
-    return str(value)
-
-
-def _mget_users(redis, telegram_ids: list[int]) -> list[User]:
-    users: list[User] = []
-    if not telegram_ids:
-        return users
-    for i in range(0, len(telegram_ids), _MGET_CHUNK):
-        chunk_ids = telegram_ids[i : i + _MGET_CHUNK]
-        keys = [_user_key(tid) for tid in chunk_ids]
-        values = redis.mget(*keys)
-        if not values:
-            continue
-        for raw in values:
-            user = _parse_user(raw)
-            if user:
-                users.append(user)
-    return users
-
-
-def _mget_orders(redis, order_ids: list[str]) -> list[PaymentOrder]:
-    orders: list[PaymentOrder] = []
-    if not order_ids:
-        return orders
-    for i in range(0, len(order_ids), _MGET_CHUNK):
-        chunk = order_ids[i : i + _MGET_CHUNK]
-        keys = [_order_key(oid) for oid in chunk]
-        values = redis.mget(*keys)
-        if not values:
-            continue
-        for raw in values:
-            order = _parse_order(raw)
-            if order:
-                orders.append(order)
-    return orders
 
 
 @dataclass
@@ -86,9 +48,7 @@ class User:
     note: str | None = None
     bound_hwid: str | None = None
     hwid_bound_at: str | None = None
-    # Персистентный лимит устройств (1..5). None → config.DEVICE_LIMIT.
     device_limit: int | None = None
-    # Список привязанных HWID (до device_limit). bound_hwid — legacy/первый.
     bound_hwids: list | None = None
 
 
@@ -103,49 +63,47 @@ class PaymentOrder:
     created_at: str
 
 
-def _user_key(telegram_id: int) -> str:
-    return f"{PREFIX}:user:{telegram_id}"
-
-
-def _token_key(token: str) -> str:
-    return f"{PREFIX}:token:{token}"
-
-
-def _order_key(order_id: str) -> str:
-    return f"{ORDERS_PREFIX}:{order_id}"
-
-
-def _bill_order_key(bill_id: str) -> str:
-    return f"{ORDERS_PREFIX}:bill:{bill_id}"
-
-
-ORDERS_SET = f"{PREFIX}:orders"
-
 def _new_token() -> str:
     return uuid.uuid4().hex
 
 
-def _get_redis():
-    global _redis
-    if _redis is None:
-        if not config.use_upstash:
-            raise RuntimeError("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required")
-        from upstash_redis import Redis
+def resolve_db_path() -> Path:
+    """Amvera persistent disk = /data; локально — ./data рядом с кодом."""
+    raw = (os.getenv("TSULO_DB_PATH") or config.TSULO_DB_PATH or "").strip()
+    if raw:
+        return Path(raw)
+    amvera = Path("/data")
+    if amvera.is_dir() and os.access(amvera, os.W_OK):
+        return amvera / "tsulovpn.db"
+    local = Path(__file__).resolve().parent / "data"
+    local.mkdir(parents=True, exist_ok=True)
+    return local / "tsulovpn.db"
 
-        _redis = Redis(url=config.UPSTASH_REDIS_REST_URL, token=config.UPSTASH_REDIS_REST_TOKEN)
-    return _redis
+
+def _connect() -> sqlite3.Connection:
+    global _conn
+    if _conn is not None:
+        return _conn
+    path = resolve_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), check_same_thread=False, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    _conn = conn
+    logger.info("SQLite database: %s", path)
+    return conn
 
 
 async def _run(func):
     return await asyncio.to_thread(func)
 
 
-def _parse_user(raw: str | bytes | None) -> User | None:
-    if not raw:
+def _parse_user_dict(data: dict) -> User | None:
+    if not data:
         return None
-    if isinstance(raw, bytes):
-        raw = raw.decode()
-    data = json.loads(raw)
+    data = dict(data)
     data.setdefault("expires_at", None)
     data.setdefault("plan", None)
     data.setdefault("last_seen_at", None)
@@ -157,17 +115,23 @@ def _parse_user(raw: str | bytes | None) -> User | None:
     data.setdefault("device_limit", None)
     data.setdefault("bound_hwids", None)
     try:
+        data["telegram_id"] = int(data["telegram_id"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    try:
         data["sub_fetch_count"] = int(data.get("sub_fetch_count") or 0)
     except (TypeError, ValueError):
         data["sub_fetch_count"] = 0
+    data["is_admin"] = bool(data.get("is_admin"))
     data["disabled"] = bool(data.get("disabled"))
-    # Нормализация device_limit / bound_hwids
     raw_limit = data.get("device_limit")
-    if raw_limit is not None:
+    if raw_limit is not None and raw_limit != "":
         try:
             data["device_limit"] = int(raw_limit)
         except (TypeError, ValueError):
             data["device_limit"] = None
+    else:
+        data["device_limit"] = None
     hwids = data.get("bound_hwids")
     if isinstance(hwids, str):
         try:
@@ -186,49 +150,290 @@ def _parse_user(raw: str | bytes | None) -> User | None:
     return User(**{k: v for k, v in data.items() if k in allowed})
 
 
-async def init_db() -> None:
-    if not config.use_upstash:
-        logger.error("Upstash Redis is not configured — users will not persist!")
+def _row_to_user(row: sqlite3.Row | None) -> User | None:
+    if row is None:
+        return None
+    data = dict(row)
+    return _parse_user_dict(data)
+
+
+def _row_to_order(row: sqlite3.Row | None) -> PaymentOrder | None:
+    if row is None:
+        return None
+    data = dict(row)
+    try:
+        data["telegram_id"] = int(data["telegram_id"])
+        data["amount"] = int(data["amount"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    return PaymentOrder(
+        order_id=str(data["order_id"]),
+        telegram_id=data["telegram_id"],
+        plan_id=str(data["plan_id"]),
+        amount=data["amount"],
+        bill_id=(str(data["bill_id"]) if data.get("bill_id") else None),
+        status=str(data["status"]),
+        created_at=str(data["created_at"]),
+    )
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            telegram_id INTEGER PRIMARY KEY,
+            full_name TEXT,
+            username TEXT,
+            subscription_token TEXT NOT NULL UNIQUE,
+            registration_date TEXT NOT NULL,
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            expires_at TEXT,
+            plan TEXT,
+            last_seen_at TEXT,
+            sub_fetch_count INTEGER NOT NULL DEFAULT 0,
+            disabled INTEGER NOT NULL DEFAULT 0,
+            note TEXT,
+            bound_hwid TEXT,
+            hwid_bound_at TEXT,
+            device_limit INTEGER,
+            bound_hwids TEXT
+        );
+        CREATE TABLE IF NOT EXISTS orders (
+            order_id TEXT PRIMARY KEY,
+            telegram_id INTEGER NOT NULL,
+            plan_id TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            bill_id TEXT,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_orders_bill ON orders(bill_id);
+        CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
+        CREATE TABLE IF NOT EXISTS meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        """
+    )
+    conn.commit()
+
+
+def _user_to_params(user: User) -> tuple:
+    hwids_json = json.dumps(user.bound_hwids, ensure_ascii=False) if user.bound_hwids else None
+    return (
+        int(user.telegram_id),
+        user.full_name,
+        user.username,
+        user.subscription_token,
+        user.registration_date,
+        1 if user.is_admin else 0,
+        user.expires_at,
+        user.plan,
+        user.last_seen_at,
+        int(user.sub_fetch_count or 0),
+        1 if user.disabled else 0,
+        user.note,
+        user.bound_hwid,
+        user.hwid_bound_at,
+        user.device_limit,
+        hwids_json,
+    )
+
+
+def _upsert_user(conn: sqlite3.Connection, user: User) -> None:
+    conn.execute(
+        """
+        INSERT INTO users (
+            telegram_id, full_name, username, subscription_token, registration_date,
+            is_admin, expires_at, plan, last_seen_at, sub_fetch_count, disabled, note,
+            bound_hwid, hwid_bound_at, device_limit, bound_hwids
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(telegram_id) DO UPDATE SET
+            full_name=excluded.full_name,
+            username=excluded.username,
+            subscription_token=excluded.subscription_token,
+            registration_date=excluded.registration_date,
+            is_admin=excluded.is_admin,
+            expires_at=excluded.expires_at,
+            plan=excluded.plan,
+            last_seen_at=excluded.last_seen_at,
+            sub_fetch_count=excluded.sub_fetch_count,
+            disabled=excluded.disabled,
+            note=excluded.note,
+            bound_hwid=excluded.bound_hwid,
+            hwid_bound_at=excluded.hwid_bound_at,
+            device_limit=excluded.device_limit,
+            bound_hwids=excluded.bound_hwids
+        """,
+        _user_to_params(user),
+    )
+
+
+def _upsert_order(conn: sqlite3.Connection, order: PaymentOrder) -> None:
+    conn.execute(
+        """
+        INSERT INTO orders (order_id, telegram_id, plan_id, amount, bill_id, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(order_id) DO UPDATE SET
+            telegram_id=excluded.telegram_id,
+            plan_id=excluded.plan_id,
+            amount=excluded.amount,
+            bill_id=excluded.bill_id,
+            status=excluded.status,
+            created_at=excluded.created_at
+        """,
+        (
+            order.order_id,
+            int(order.telegram_id),
+            order.plan_id,
+            int(order.amount),
+            order.bill_id,
+            order.status,
+            order.created_at,
+        ),
+    )
+
+
+def _meta_get(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return str(row["value"]) if row else None
+
+
+def _meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, value),
+    )
+
+
+def _seed_paths() -> list[Path]:
+    here = Path(__file__).resolve().parent
+    return [
+        Path("/data/from_rdb.json.gz"),
+        Path("/data/from_rdb.json"),
+        here / "data_migrate" / "from_rdb.json.gz",
+        here / "data_migrate" / "from_rdb.json",
+    ]
+
+
+def _load_seed_payload() -> dict | None:
+    for path in _seed_paths():
+        if not path.is_file():
+            continue
+        try:
+            raw = path.read_bytes()
+            if path.suffix == ".gz" or path.name.endswith(".json.gz"):
+                raw = gzip.decompress(raw)
+            payload = json.loads(raw.decode("utf-8"))
+            if isinstance(payload, dict) and (
+                payload.get("users") or payload.get("orders")
+            ):
+                logger.info("Loaded migration seed from %s", path)
+                return payload
+        except Exception as exc:
+            logger.warning("Failed to read seed %s: %s", path, exc)
+    return None
+
+
+def _import_seed_if_needed(conn: sqlite3.Connection) -> None:
+    if _meta_get(conn, "rdb_imported") == "1":
+        return
+    count = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+    if int(count) > 0:
+        _meta_set(conn, "rdb_imported", "1")
+        conn.commit()
+        return
+    payload = _load_seed_payload()
+    if not payload:
+        logger.warning("SQLite empty and no RDB seed found — starting fresh")
         return
 
-    def _ping():
-        try:
-            _get_redis().ping()
-        except Exception as exc:
-            url = config.UPSTASH_REDIS_REST_URL
-            hint = "https://YOUR-DB.upstash.io"
-            raise RuntimeError(
-                f"Upstash Redis ping failed ({exc}). "
-                f"Check UPSTASH_REDIS_REST_URL (must start with https://, e.g. {hint}) "
-                "and UPSTASH_REDIS_REST_TOKEN on Render."
-            ) from exc
+    users_raw = payload.get("users") or []
+    orders_raw = payload.get("orders") or []
+    imported_users = 0
+    imported_orders = 0
+    with conn:
+        for item in users_raw:
+            if not isinstance(item, dict):
+                continue
+            user = _parse_user_dict(item)
+            if not user:
+                continue
+            _upsert_user(conn, user)
+            imported_users += 1
+        for item in orders_raw:
+            if not isinstance(item, dict):
+                continue
+            try:
+                order = PaymentOrder(
+                    order_id=str(item["order_id"]),
+                    telegram_id=int(item["telegram_id"]),
+                    plan_id=str(item["plan_id"]),
+                    amount=int(item["amount"]),
+                    bill_id=(str(item["bill_id"]) if item.get("bill_id") else None),
+                    status=str(item.get("status") or "pending"),
+                    created_at=str(item.get("created_at") or datetime.now(timezone.utc).isoformat()),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            _upsert_order(conn, order)
+            imported_orders += 1
+        _meta_set(conn, "rdb_imported", "1")
+        _meta_set(
+            conn,
+            "rdb_imported_at",
+            datetime.now(timezone.utc).isoformat(),
+        )
+    logger.info(
+        "Imported from Upstash RDB seed: %s users, %s orders",
+        imported_users,
+        imported_orders,
+    )
 
-    await _run(_ping)
-    logger.info("Upstash Redis connected")
+
+async def init_db() -> None:
+    def _init():
+        with _db_lock:
+            conn = _connect()
+            _ensure_schema(conn)
+            _import_seed_if_needed(conn)
+            users = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+            orders = conn.execute("SELECT COUNT(*) AS c FROM orders").fetchone()["c"]
+            logger.info("SQLite ready (%s users, %s orders)", users, orders)
+
+    await _run(_init)
 
 
 async def get_user(telegram_id: int) -> User | None:
     def _get():
-        return _parse_user(_get_redis().get(_user_key(telegram_id)))
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM users WHERE telegram_id=?", (int(telegram_id),)
+            ).fetchone()
+            return _row_to_user(row)
 
     return await _run(_get)
 
 
 async def get_user_by_token(token: str) -> User | None:
     def _get():
-        redis = _get_redis()
-        telegram_id = redis.get(_token_key(token))
-        if not telegram_id:
-            return None
-        return _parse_user(redis.get(_user_key(int(telegram_id))))
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM users WHERE subscription_token=?", (token,)
+            ).fetchone()
+            return _row_to_user(row)
 
     return await _run(_get)
 
 
 async def save_user(user: User) -> User:
     def _save():
-        redis = _get_redis()
-        redis.set(_user_key(user.telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+        with _db_lock:
+            conn = _connect()
+            _upsert_user(conn, user)
+            conn.commit()
 
     await _run(_save)
     _invalidate_users_cache()
@@ -255,41 +460,44 @@ async def create_user(
     )
 
     def _save():
-        redis = _get_redis()
-        payload = json.dumps(asdict(user), ensure_ascii=False)
-        redis.set(_user_key(telegram_id), payload)
-        redis.set(_token_key(user.subscription_token), str(telegram_id))
-        redis.sadd(USERS_SET, str(telegram_id))
+        with _db_lock:
+            conn = _connect()
+            # race: another request may have created the user
+            row = conn.execute(
+                "SELECT * FROM users WHERE telegram_id=?", (int(telegram_id),)
+            ).fetchone()
+            if row:
+                return _row_to_user(row)
+            _upsert_user(conn, user)
+            conn.commit()
+            return user
 
-    await _run(_save)
+    created = await _run(_save)
     _invalidate_users_cache()
     logger.info("New user: %s (token %s…)", telegram_id, user.subscription_token[:8])
-    return user
+    return created or user
 
 
 async def update_admins_status() -> None:
-    if not config.use_upstash:
-        return
-
     def _update():
-        redis = _get_redis()
-        admin_ids = set(config.ADMINS)
-        ids: list[int] = []
-        for tid_raw in redis.smembers(USERS_SET) or []:
-            try:
-                ids.append(int(_as_str(tid_raw)))
-            except (TypeError, ValueError):
-                continue
-        updated = 0
-        for user in _mget_users(redis, ids):
-            should_be_admin = user.telegram_id in admin_ids
-            if user.is_admin == should_be_admin:
-                continue
-            user.is_admin = should_be_admin
-            redis.set(_user_key(user.telegram_id), json.dumps(asdict(user), ensure_ascii=False))
-            updated += 1
-        if updated:
-            logger.info("Admin flags updated for %s users", updated)
+        with _db_lock:
+            conn = _connect()
+            admin_ids = set(config.ADMINS)
+            rows = conn.execute("SELECT * FROM users").fetchall()
+            updated = 0
+            for row in rows:
+                user = _row_to_user(row)
+                if not user:
+                    continue
+                should_be = user.telegram_id in admin_ids
+                if user.is_admin == should_be:
+                    continue
+                user.is_admin = should_be
+                _upsert_user(conn, user)
+                updated += 1
+            if updated:
+                conn.commit()
+                logger.info("Admin flags updated for %s users", updated)
 
     await _run(_update)
     _invalidate_users_cache()
@@ -303,83 +511,75 @@ async def get_all_users(*, use_cache: bool = True) -> list[User]:
         return list(_users_cache)
 
     def _all():
-        redis = _get_redis()
-        ids: list[int] = []
-        for tid_raw in redis.smembers(USERS_SET) or []:
-            try:
-                ids.append(int(_as_str(tid_raw)))
-            except (TypeError, ValueError):
-                continue
-        users = _mget_users(redis, ids)
-        users.sort(key=lambda item: item.registration_date, reverse=True)
-        return users
+        with _db_lock:
+            conn = _connect()
+            rows = conn.execute(
+                "SELECT * FROM users ORDER BY registration_date DESC"
+            ).fetchall()
+            users = []
+            for row in rows:
+                user = _row_to_user(row)
+                if user:
+                    users.append(user)
+            return users
 
     users = await _run(_all)
     _users_cache = list(users)
     _users_cache_at = _time.monotonic()
     return list(users)
 
-async def get_all_user_ids() -> list[int]:
-    """ID всех пользователей — один запрос к Redis (для рассылки)."""
 
+async def get_all_user_ids() -> list[int]:
     def _ids():
-        redis = _get_redis()
-        result: list[int] = []
-        for tid_raw in redis.smembers(USERS_SET):
-            if isinstance(tid_raw, bytes):
-                tid_raw = tid_raw.decode()
-            try:
-                result.append(int(tid_raw))
-            except (TypeError, ValueError):
-                continue
-        return result
+        with _db_lock:
+            conn = _connect()
+            rows = conn.execute("SELECT telegram_id FROM users").fetchall()
+            return [int(r["telegram_id"]) for r in rows]
 
     return await _run(_ids)
 
 
 async def get_user_count() -> int:
     def _count():
-        return int(_get_redis().scard(USERS_SET) or 0)
+        with _db_lock:
+            conn = _connect()
+            return int(conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"])
 
     return await _run(_count)
 
 
-def _parse_order(raw: str | bytes | None) -> PaymentOrder | None:
-    if not raw:
-        return None
-    if isinstance(raw, bytes):
-        raw = raw.decode()
-    return PaymentOrder(**json.loads(raw))
-
-
 async def save_payment_order(order: PaymentOrder) -> PaymentOrder:
     def _save():
-        redis = _get_redis()
-        payload = json.dumps(asdict(order), ensure_ascii=False)
-        redis.set(_order_key(order.order_id), payload)
-        redis.sadd(ORDERS_SET, order.order_id)
-        if order.bill_id:
-            redis.set(_bill_order_key(order.bill_id), order.order_id)
+        with _db_lock:
+            conn = _connect()
+            _upsert_order(conn, order)
+            conn.commit()
 
     await _run(_save)
     return order
 
+
 async def get_payment_order(order_id: str) -> PaymentOrder | None:
     def _get():
-        return _parse_order(_get_redis().get(_order_key(order_id)))
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM orders WHERE order_id=?", (order_id,)
+            ).fetchone()
+            return _row_to_order(row)
 
     return await _run(_get)
 
 
 async def get_payment_order_by_bill(bill_id: str) -> PaymentOrder | None:
     def _get():
-        redis = _get_redis()
-        order_id = redis.get(_bill_order_key(bill_id))
-        if not order_id:
-            return None
-        if isinstance(order_id, bytes):
-            order_id = order_id.decode()
-        return _parse_order(redis.get(_order_key(order_id)))
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM orders WHERE bill_id=? ORDER BY created_at DESC LIMIT 1",
+                (bill_id,),
+            ).fetchone()
+            return _row_to_order(row)
 
     return await _run(_get)
 
@@ -396,49 +596,57 @@ async def mark_payment_order_paid(order_id: str) -> PaymentOrder | None:
 
 async def get_all_orders(*, limit: int = 200) -> list[PaymentOrder]:
     def _all():
-        redis = _get_redis()
-        ids: list[str] = []
-        for oid_raw in redis.smembers(ORDERS_SET) or []:
-            ids.append(_as_str(oid_raw))
-        orders = _mget_orders(redis, ids)
-        orders.sort(key=lambda item: item.created_at, reverse=True)
-        return orders[: max(1, limit)]
+        with _db_lock:
+            conn = _connect()
+            rows = conn.execute(
+                "SELECT * FROM orders ORDER BY created_at DESC LIMIT ?",
+                (max(1, int(limit)),),
+            ).fetchall()
+            orders = []
+            for row in rows:
+                order = _row_to_order(row)
+                if order:
+                    orders.append(order)
+            return orders
 
     return await _run(_all)
 
 
 async def touch_subscription_fetch(telegram_id: int) -> None:
-    """Учёт обновлений ключа в Happ (для админ-панели)."""
-
     def _touch():
-        redis = _get_redis()
-        user = _parse_user(redis.get(_user_key(telegram_id)))
-        if not user:
-            return
-        user.last_seen_at = datetime.now(timezone.utc).isoformat()
-        user.sub_fetch_count = int(user.sub_fetch_count or 0) + 1
-        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM users WHERE telegram_id=?", (int(telegram_id),)
+            ).fetchone()
+            user = _row_to_user(row)
+            if not user:
+                return
+            user.last_seen_at = datetime.now(timezone.utc).isoformat()
+            user.sub_fetch_count = int(user.sub_fetch_count or 0) + 1
+            _upsert_user(conn, user)
+            conn.commit()
 
     await _run(_touch)
 
 
 async def regenerate_user_token(telegram_id: int) -> User | None:
     def _regen():
-        redis = _get_redis()
-        user = _parse_user(redis.get(_user_key(telegram_id)))
-        if not user:
-            return None
-        old = user.subscription_token
-        new = _new_token()
-        user.subscription_token = new
-        # Новый ключ — устройства можно привязать заново.
-        user.bound_hwid = None
-        user.bound_hwids = None
-        user.hwid_bound_at = None
-        redis.delete(_token_key(old))
-        redis.set(_token_key(new), str(telegram_id))
-        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
-        return user
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM users WHERE telegram_id=?", (int(telegram_id),)
+            ).fetchone()
+            user = _row_to_user(row)
+            if not user:
+                return None
+            user.subscription_token = _new_token()
+            user.bound_hwid = None
+            user.bound_hwids = None
+            user.hwid_bound_at = None
+            _upsert_user(conn, user)
+            conn.commit()
+            return user
 
     user = await _run(_regen)
     _invalidate_users_cache()
@@ -455,11 +663,6 @@ def normalize_client_hwid(raw: str | None) -> str:
 
 
 async def check_and_bind_hwid(telegram_id: int, client_hwid: str) -> tuple[User | None, str | None]:
-    """
-    Лимит устройств на ключ (1..5, per-user device_limit).
-    Возвращает (user, reason). reason='hwid_limit' если слотов нет.
-    Пустой HWID — не блокируем (старые клиенты), но и не привязываем.
-    """
     from devices import bound_hwid_list, user_device_limit
 
     hwid = normalize_client_hwid(client_hwid)
@@ -467,26 +670,31 @@ async def check_and_bind_hwid(telegram_id: int, client_hwid: str) -> tuple[User 
         return await get_user(telegram_id), None
 
     def _check():
-        redis = _get_redis()
-        user = _parse_user(redis.get(_user_key(telegram_id)))
-        if not user:
-            return None, "not_found", False
-        if not hwid:
-            return user, None, False
-        limit = user_device_limit(user)
-        if limit <= 0:
-            return user, None, False
-        hwids = bound_hwid_list(user)
-        if hwid in hwids:
-            return user, None, False
-        if len(hwids) >= limit:
-            return user, "hwid_limit", False
-        hwids.append(hwid)
-        user.bound_hwids = hwids
-        user.bound_hwid = hwids[0]
-        user.hwid_bound_at = datetime.now(timezone.utc).isoformat()
-        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
-        return user, None, True
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM users WHERE telegram_id=?", (int(telegram_id),)
+            ).fetchone()
+            user = _row_to_user(row)
+            if not user:
+                return None, "not_found", False
+            if not hwid:
+                return user, None, False
+            limit = user_device_limit(user)
+            if limit <= 0:
+                return user, None, False
+            hwids = bound_hwid_list(user)
+            if hwid in hwids:
+                return user, None, False
+            if len(hwids) >= limit:
+                return user, "hwid_limit", False
+            hwids.append(hwid)
+            user.bound_hwids = hwids
+            user.bound_hwid = hwids[0]
+            user.hwid_bound_at = datetime.now(timezone.utc).isoformat()
+            _upsert_user(conn, user)
+            conn.commit()
+            return user, None, True
 
     user, reason, changed = await _run(_check)
     if changed:
@@ -496,15 +704,20 @@ async def check_and_bind_hwid(telegram_id: int, client_hwid: str) -> tuple[User 
 
 async def reset_user_hwid(telegram_id: int) -> User | None:
     def _reset():
-        redis = _get_redis()
-        user = _parse_user(redis.get(_user_key(telegram_id)))
-        if not user:
-            return None
-        user.bound_hwid = None
-        user.bound_hwids = None
-        user.hwid_bound_at = None
-        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
-        return user
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM users WHERE telegram_id=?", (int(telegram_id),)
+            ).fetchone()
+            user = _row_to_user(row)
+            if not user:
+                return None
+            user.bound_hwid = None
+            user.bound_hwids = None
+            user.hwid_bound_at = None
+            _upsert_user(conn, user)
+            conn.commit()
+            return user
 
     user = await _run(_reset)
     _invalidate_users_cache()
@@ -515,18 +728,23 @@ async def set_user_device_limit(telegram_id: int, limit: int) -> User | None:
     from devices import bound_hwid_list, clamp_device_limit
 
     def _set():
-        redis = _get_redis()
-        user = _parse_user(redis.get(_user_key(telegram_id)))
-        if not user:
-            return None
-        user.device_limit = clamp_device_limit(limit)
-        hwids = bound_hwid_list(user)
-        if len(hwids) > user.device_limit:
-            hwids = hwids[: user.device_limit]
-            user.bound_hwids = hwids or None
-            user.bound_hwid = hwids[0] if hwids else None
-        redis.set(_user_key(telegram_id), json.dumps(asdict(user), ensure_ascii=False))
-        return user
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM users WHERE telegram_id=?", (int(telegram_id),)
+            ).fetchone()
+            user = _row_to_user(row)
+            if not user:
+                return None
+            user.device_limit = clamp_device_limit(limit)
+            hwids = bound_hwid_list(user)
+            if len(hwids) > user.device_limit:
+                hwids = hwids[: user.device_limit]
+                user.bound_hwids = hwids or None
+                user.bound_hwid = hwids[0] if hwids else None
+            _upsert_user(conn, user)
+            conn.commit()
+            return user
 
     user = await _run(_set)
     _invalidate_users_cache()

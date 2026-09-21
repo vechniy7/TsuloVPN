@@ -265,6 +265,10 @@ class Config(BaseModel):
     # Пусто = пользователь выбирает способ на пейформе. 2=СБП, 11=карты RUB.
     PLATEGA_PAYMENT_METHOD: str = os.getenv("PLATEGA_PAYMENT_METHOD", "").strip()
 
+    # SQLite на диске Amvera (/data). Пусто = /data/tsulovpn.db или ./data/ локально.
+    TSULO_DB_PATH: str = os.getenv("TSULO_DB_PATH", "").strip()
+
+    # Legacy Upstash (больше не используется; оставлены пустыми для совместимости env).
     UPSTASH_REDIS_REST_URL: str = os.getenv("UPSTASH_REDIS_REST_URL", "")
     UPSTASH_REDIS_REST_TOKEN: str = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 
@@ -287,7 +291,8 @@ class Config(BaseModel):
 
     @property
     def use_upstash(self) -> bool:
-        return bool(self.UPSTASH_REDIS_REST_URL and self.UPSTASH_REDIS_REST_TOKEN)
+        # Хранение перенесено на SQLite (/data). Upstash больше не нужен.
+        return False
 
     @property
     def required_channel_id(self) -> str:

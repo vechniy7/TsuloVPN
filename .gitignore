@@ -4,6 +4,9 @@ env.env
 !env*.txt
 __pycache__/
 *.db
+*.rdb
+src/data_migrate/from_rdb.json
+src/data/
 .venv/
 venv/
 *.tgz

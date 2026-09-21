@@ -310,7 +310,7 @@ async def subscription(token: str, request: Request):
             title = f"⛔ Доступ закрыт · @{channel}"
         elif reason == "not_found":
             title = f"🔑 Ключ недействителен · @{channel}"
-        # Не трогаем Upstash на заглушке: Happ опрашивает часто → шторм Redis.
+        # Не трогаем БД на заглушке: Happ опрашивает часто → лишняя нагрузка.
         logger.info(
             "JSON subscription blocked token=%s… reason=%s user=%s",
             (token or "")[:8],
