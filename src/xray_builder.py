@@ -816,6 +816,11 @@ def build_happ_profiles(
             return
         if not isinstance(profile, dict):
             return
+        if is_upstream_notice_profile(profile):
+            return
+        rem0 = str(profile.get("remarks") or profile.get("remark") or "").strip()
+        if should_skip_profile(rem0):
+            return
         key = profile_content_key(profile)
         if marker == EXTRA_BYPASS_BOLT:
             if key in extra2_idents:

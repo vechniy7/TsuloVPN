@@ -280,16 +280,34 @@ _SKIP_NAME_MARKERS = (
     "hwid",
     "превысили лимит",
     "необходимо передавать",
-    # Remnawave / апстрим: заглушки про срок и оплату (не серверы)
+    # Remnawave / апстрим: заглушки про срок, оплату, отзыв ключа
     "срок подписки",
     "подписка истек",
     "подписка истекла",
+    "подписка неактивн",
     "обратитесь в поддержку",
     "для продления",
     "subscription expired",
     "renew your",
-    "оплатите подписку",
-    "продлите подписку",
+    "оплатите",
+    "оплатить подписк",
+    "продлите подписк",
+    "доступ ограничен",
+    "доступ закрыт",
+    "доступ приостанов",
+    "ключ отозван",
+    "ключ удалён",
+    "ключ удален",
+    "ключ недействит",
+    "недействителен",
+    "недействительна",
+    "payment required",
+    "access denied",
+    "access restricted",
+    "access blocked",
+    "revoked",
+    "disabled",
+    "unauthorized",
 )
 
 # Happ ставит иконкой только флаг страны (regional indicators) в начале remark.
@@ -534,13 +552,22 @@ def prepare_extra_source_profiles(
     """
     VPN_BYPASS_SOURCE_URL / _2 → только обход мобильного интернета.
 
-    Страны и прочие обычные конфиги из этого ключа отбрасываются.
+    Страны, заглушки оплаты/отзывава и прочий мусор отбрасываются.
     Возвращает: ([], bypass_profiles, [], bypass_uris).
     """
-    raw = [p for p in extract_raw_json_profiles(text or "") if _profile_has_proxy(p)]
+    raw = [
+        p
+        for p in extract_raw_json_profiles(text or "")
+        if _profile_has_proxy(p) and not is_upstream_notice_profile(p)
+    ]
     if raw:
         _, by_p = split_profiles_main_and_bypass(raw)
-        by_p = _dedupe_profiles_by_content(by_p)
+        by_p = [
+            p
+            for p in _dedupe_profiles_by_content(by_p)
+            if not is_upstream_notice_profile(p)
+            and not should_skip_profile(str(p.get("remarks") or p.get("remark") or ""))
+        ]
         if marker and by_p:
             by_p = tag_extra_bypass_profiles(by_p, marker=marker)
         return [], by_p, [], []
@@ -549,11 +576,18 @@ def prepare_extra_source_profiles(
         uri
         for uri in (uris or [])
         if not is_placeholder_config(uri)
+        and not should_skip_profile(uri_profile_name(uri))
     ]
     by_u = filter_bypass_uris(real)
     if not by_u:
         by_u = [uri for uri in real if is_bypass_whitelist_config(uri)]
-    return [], [], [], dedupe_bypass_uris(by_u)
+    by_u = [
+        uri
+        for uri in dedupe_bypass_uris(by_u)
+        if not is_placeholder_config(uri)
+        and not should_skip_profile(uri_profile_name(uri))
+    ]
+    return [], [], [], by_u
 
 
 def brand_extra_main_profiles(
@@ -781,11 +815,16 @@ def select_extra_bypass_profiles(text: str) -> list[dict]:
     Обходные Happ-профили из VPN_BYPASS_SOURCE_URL.
     Только явный обход по имени/описанию — без fallback «весь ключ» и без
     whitelist-routing (он ложно срабатывает на типовых Remnawave-профилях).
+    Заглушки оплаты/отзывава отбрасываются.
     """
     raw = extract_raw_json_profiles(text)
     if not raw:
         return []
-    with_proxy = [profile for profile in raw if _profile_has_proxy(profile)]
+    with_proxy = [
+        profile
+        for profile in raw
+        if _profile_has_proxy(profile) and not is_upstream_notice_profile(profile)
+    ]
     named = [profile for profile in with_proxy if profile_is_bypass(profile)]
     return _dedupe_profiles_by_content(named)
 
@@ -1015,23 +1054,46 @@ def _decode_server_description(meta: dict | None) -> str:
 
 
 def is_upstream_notice_profile(profile: dict) -> bool:
-    """Заглушки апстрим-панели (срок/оплата/HWID) вместо рабочих серверов."""
+    """Заглушки апстрим-панели (срок/оплата/отзыв/HWID) вместо рабочих серверов."""
     if not isinstance(profile, dict):
         return True
     remark = str(profile.get("remarks") or profile.get("remark") or "")
     if should_skip_profile(remark):
         return True
-    desc = _decode_server_description(profile.get("meta") if isinstance(profile.get("meta"), dict) else None)
+    meta = profile.get("meta") if isinstance(profile.get("meta"), dict) else None
+    desc = _decode_server_description(meta)
     if desc and should_skip_profile(desc):
         return True
     outbounds = profile.get("outbounds") or []
     if not isinstance(outbounds, list):
         return True
-    has_proxy = any(
-        isinstance(outbound, dict)
-        and str(outbound.get("protocol") or "").lower() not in _NON_PROXY_PROTOCOLS
-        for outbound in outbounds
-    )
+    has_proxy = False
+    for outbound in outbounds:
+        if not isinstance(outbound, dict):
+            continue
+        proto = str(outbound.get("protocol") or "").lower()
+        if proto in _NON_PROXY_PROTOCOLS:
+            continue
+        has_proxy = True
+        settings = outbound.get("settings") or {}
+        # Мёртвые/заглушечные адреса панелей
+        for block_key in ("vnext", "servers"):
+            for node in settings.get(block_key) or []:
+                if not isinstance(node, dict):
+                    continue
+                addr = str(node.get("address") or "").strip().lower()
+                if addr in ("0.0.0.0", "127.0.0.1", "::", "localhost", ""):
+                    return True
+                users = node.get("users") or []
+                for user in users:
+                    if not isinstance(user, dict):
+                        continue
+                    uid = str(user.get("id") or user.get("password") or "").lower()
+                    if uid in (
+                        "00000000-0000-0000-0000-000000000000",
+                        "00000000000000000000000000000000",
+                    ):
+                        return True
     if not has_proxy:
         return True
     return False
@@ -1816,11 +1878,25 @@ _PLACEHOLDER_MARKERS = (
     "срок подписки",
     "подписка истек",
     "подписка истекла",
+    "подписка неактивн",
     "обратитесь в поддержку",
     "для продления",
     "subscription expired",
-    "оплатите подписку",
-    "продлите подписку",
+    "оплатите",
+    "оплатить подписк",
+    "продлите подписк",
+    "доступ ограничен",
+    "доступ закрыт",
+    "доступ приостанов",
+    "ключ отозван",
+    "ключ удалён",
+    "ключ удален",
+    "ключ недействит",
+    "недействителен",
+    "payment required",
+    "access denied",
+    "access restricted",
+    "revoked",
 )
 
 
