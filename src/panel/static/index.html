@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>TsuloVPN · Панель</title>
-  <link rel="stylesheet" href="/panel/static/panel.css?v=6" />
+  <title>TsuloVPN Nexus · Панель</title>
+  <link rel="stylesheet" href="/panel/static/panel.css?v=7" />
 </head>
 <body>
   <div id="login-view" class="login hidden">
     <form id="login-form" class="login-card">
       <div class="login-brand">Tsulo<span>VPN</span></div>
-      <p class="login-sub">Админ-панель</p>
+      <div class="login-nexus">Nexus</div>
+      <p class="login-sub">Админ-кабинет</p>
       <label>Токен доступа</label>
       <input id="login-token" type="password" autocomplete="current-password" placeholder="ADMIN_PANEL_TOKEN" required />
       <button type="submit">Войти</button>
@@ -22,6 +23,7 @@
   <div id="app" class="layout hidden">
     <aside class="sidebar">
       <div class="brand">Tsulo<span>VPN</span></div>
+      <div class="brand-sub">Nexus</div>
       <nav>
         <button data-view="dashboard" class="nav active">Обзор</button>
         <button data-view="users" class="nav">Пользователи</button>
@@ -183,6 +185,6 @@
     </form>
   </dialog>
 
-  <script src="/panel/static/panel.js?v=6"></script>
+  <script src="/panel/static/panel.js?v=7"></script>
 </body>
 </html>

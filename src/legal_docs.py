@@ -32,16 +32,18 @@ def _plan_price() -> tuple[str, int]:
 
 def _css() -> str:
     return """
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap');
 :root {
-  --bg: #f3f1ec;
-  --paper: #fffcf7;
-  --ink: #171717;
-  --muted: #5c5a55;
-  --line: #e4dfd4;
-  --accent: #0f6e56;
-  --accent-soft: #e7f4ef;
-  --shadow: 0 18px 50px rgba(23, 23, 23, 0.06);
+  --bg: #09060f;
+  --bg-2: #110818;
+  --paper: rgba(24, 14, 42, 0.92);
+  --ink: #f3eefc;
+  --muted: #a89bc4;
+  --line: rgba(167, 139, 250, 0.22);
+  --accent: #8b5cf6;
+  --accent-2: #c4b5fd;
+  --accent-soft: rgba(139, 92, 246, 0.2);
+  --shadow: 0 18px 50px rgba(4, 0, 12, 0.45);
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
@@ -49,10 +51,13 @@ body {
   margin: 0;
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(15,110,86,0.08), transparent 28%),
-    linear-gradient(180deg, #f7f5f0 0%, var(--bg) 100%);
+    radial-gradient(ellipse 80% 50% at 8% -8%, rgba(139,92,246,0.32), transparent 55%),
+    radial-gradient(ellipse 55% 40% at 100% 0%, rgba(76,29,149,0.4), transparent 50%),
+    radial-gradient(circle at 50% 110%, rgba(91,33,182,0.14), transparent 42%),
+    linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 100%);
   font-family: Manrope, system-ui, sans-serif;
   line-height: 1.6;
+  min-height: 100vh;
 }
 .wrap { max-width: 820px; margin: 0 auto; padding: 28px 18px 72px; }
 .top {
@@ -60,23 +65,39 @@ body {
   justify-content: space-between; margin-bottom: 28px;
 }
 .brand {
-  font-weight: 700; letter-spacing: -0.02em; font-size: 1.05rem;
-  text-decoration: none; color: var(--ink);
+  font-family: Syne, Manrope, system-ui, sans-serif;
+  font-weight: 800; letter-spacing: -0.03em; font-size: 1.15rem;
+  text-decoration: none; color: var(--ink); line-height: 1.15;
 }
+.brand em {
+  display: block; font-style: normal; font-size: 0.62rem;
+  letter-spacing: 0.24em; text-transform: uppercase; color: var(--accent-2);
+  font-weight: 700; margin-top: 2px;
+}
+.brand:hover { color: var(--accent-2); }
 .nav { display: flex; flex-wrap: wrap; gap: 8px; }
 .nav a {
-  text-decoration: none; color: var(--muted); font-size: 0.92rem;
-  padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.65);
+  text-decoration: none; color: var(--muted); font-size: 0.92rem; font-weight: 600;
+  padding: 8px 12px; border-radius: 999px; background: rgba(12,6,22,0.75);
   border: 1px solid var(--line);
 }
-.nav a:hover { color: var(--ink); border-color: #cfc8ba; }
+.nav a:hover { color: var(--accent-2); border-color: rgba(167,139,250,0.45);
+  background: rgba(139,92,246,0.12); }
 .hero {
   background: var(--paper); border: 1px solid var(--line); border-radius: 24px;
   padding: 28px 24px; box-shadow: var(--shadow); margin-bottom: 18px;
+  backdrop-filter: blur(10px); position: relative; overflow: hidden;
+}
+.hero::before {
+  content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .75;
 }
 .hero h1 {
-  margin: 0 0 8px; font-family: "Source Serif 4", Georgia, serif;
-  font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.15; letter-spacing: -0.02em;
+  margin: 0 0 8px; font-family: Syne, Manrope, system-ui, sans-serif;
+  font-size: clamp(1.7rem, 4vw, 2.4rem); line-height: 1.12; letter-spacing: -0.03em;
+  font-weight: 800;
+  background: linear-gradient(120deg, #f5f0ff, #c4b5fd 55%, #8b5cf6);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .meta { color: var(--muted); margin: 0; font-size: 0.95rem; }
 .card {
@@ -84,26 +105,33 @@ body {
   padding: 22px 20px; margin: 14px 0; box-shadow: var(--shadow);
 }
 .card h2 {
-  margin: 0 0 10px; font-size: 1.05rem; letter-spacing: -0.01em;
+  margin: 0 0 10px; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--accent-2);
 }
 .price {
   display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;
   justify-content: space-between; margin-top: 8px;
 }
 .price .amount {
-  font-size: 2.4rem; font-weight: 700; letter-spacing: -0.04em; line-height: 1;
+  font-family: Syne, Manrope, system-ui, sans-serif;
+  font-size: 2.4rem; font-weight: 800; letter-spacing: -0.04em; line-height: 1;
+  color: var(--accent-2);
 }
 .badge {
   display: inline-flex; align-items: center; gap: 6px;
-  background: var(--accent-soft); color: var(--accent);
-  border-radius: 999px; padding: 8px 12px; font-size: 0.86rem; font-weight: 600;
+  background: var(--accent-soft); color: var(--accent-2);
+  border-radius: 999px; padding: 8px 12px; font-size: 0.86rem; font-weight: 700;
+  border: 1px solid var(--line); letter-spacing: 0.04em; text-transform: uppercase;
 }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+th { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: .08em; }
+tr:hover td { background: rgba(139,92,246,0.06); }
 ul { margin: 8px 0 0; padding-left: 1.15em; }
 li { margin: 4px 0; }
 p { margin: 0 0 12px; }
 .section h2 {
   margin: 28px 0 10px; font-size: 1.15rem;
-  font-family: "Source Serif 4", Georgia, serif;
+  font-family: Syne, Manrope, system-ui, sans-serif; color: var(--accent-2);
 }
 .footer {
   margin-top: 28px; color: var(--muted); font-size: 0.88rem;
@@ -111,14 +139,17 @@ p { margin: 0 0 12px; }
 }
 .marker {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: #fff; border: 1px solid var(--line); border-radius: 8px;
-  padding: 4px 8px; color: var(--ink);
+  background: rgba(12,6,22,0.85); border: 1px solid var(--line); border-radius: 8px;
+  padding: 4px 8px; color: var(--accent-2);
 }
 .cta {
   display: inline-block; margin-top: 8px; text-decoration: none;
-  background: var(--accent); color: #fff; font-weight: 600;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9 55%, #5b21b6);
+  color: #fff; font-weight: 700;
   padding: 12px 16px; border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(109,40,217,0.4);
 }
+.cta:hover { filter: brightness(1.06); }
 @media (max-width: 640px) {
   .hero, .card { padding: 20px 16px; border-radius: 18px; }
 }
@@ -132,13 +163,13 @@ def _shell(title: str, body: str) -> str:
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>{title} · {name}</title>
+<title>{title} · {name} Nexus</title>
 <style>{_css()}</style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
-    <a class="brand" href="/">{name}</a>
+    <a class="brand" href="/">{name}<em>Nexus</em></a>
     <nav class="nav">
       <a href="/tariffs">Тарифы</a>
       <a href="/privacy">Конфиденциальность</a>
@@ -148,7 +179,7 @@ def _shell(title: str, body: str) -> str:
   </div>
   {body}
   <div class="footer">
-    <span>{name} · VPN-доступ</span>
+    <span>{name} Nexus · VPN-доступ</span>
   </div>
 </div>
 </body>
@@ -183,11 +214,11 @@ def tariffs_html() -> str:
   <p class="meta">Месяц доступа + нужное число устройств — одной оплатой</p>
 </section>
 <section class="card">
-  <span class="badge">пакеты</span>
-  <p style="margin:0 0 12px">База <b>{BASE_MONTHLY_PRICE} ₽</b> (1 устройство).
+  <span class="badge">Nexus · пакеты</span>
+  <p style="margin:12px 0">База <b>{BASE_MONTHLY_PRICE} ₽</b> (1 устройство).
   Доп. слот от <b>{FIRST_EXTRA_SLOT_PRICE} ₽</b>, максимум {MAX_DEVICE_SLOTS}.</p>
-  <table style="width:100%;border-collapse:collapse">
-    <thead><tr><th align="left">Устройства</th><th align="left">Цена</th></tr></thead>
+  <table>
+    <thead><tr><th>Устройства</th><th>Цена</th></tr></thead>
     <tbody>
 {rows}
     </tbody>

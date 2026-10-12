@@ -1,4 +1,4 @@
-"""Админ-панель TsuloVPN (/panel) — кабинет в стиле Marzban."""
+"""Админ-панель TsuloVPN Nexus (/panel) — тёмно-фиолетовый кабинет."""
 
 from __future__ import annotations
 

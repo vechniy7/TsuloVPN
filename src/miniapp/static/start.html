@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Начать · TsuloVPN Nexus</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Syne:wght@700;800&display=swap");
+    html, body {
+      margin: 0; min-height: 100%; color: #f3eefc;
+      font-family: Syne, system-ui, sans-serif;
+      display: grid; place-items: center; text-align: center;
+      background:
+        radial-gradient(ellipse 70% 45% at 50% 0%, rgba(139,92,246,0.35), transparent 55%),
+        linear-gradient(180deg, #110818, #09060f);
+    }
+    p { letter-spacing: -0.02em; margin: 0 0 8px; font-size: 1.2rem; font-weight: 800; }
+    span { display: block; font-size: 0.7rem; letter-spacing: 0.22em; text-transform: uppercase; color: #c4b5fd; }
+    a { color: #c4b5fd; }
+  </style>
+</head>
+<body>
+  <div>
+    <p>TsuloVPN</p>
+    <span>Nexus · открываем…</span>
+  </div>
+  <script>
+    (function () {
+      var bot = "TsuloVPN_bot";
+      var link = "https://t.me/" + bot + "?start=go";
+      var tg = window.Telegram && window.Telegram.WebApp;
+      try {
+        if (tg) {
+          tg.ready();
+          tg.expand();
+          tg.openTelegramLink(link);
+          setTimeout(function () { try { tg.close(); } catch (e) {} }, 80);
+          return;
+        }
+      } catch (e) {}
+      location.replace(link);
+    })();
+  </script>
+</body>
+</html>

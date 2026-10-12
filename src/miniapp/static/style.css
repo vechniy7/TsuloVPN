@@ -1,12 +1,17 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap");
+
 :root {
-  --bg: #f4f2ed;
-  --paper: #fffcf8;
-  --ink: #171717;
-  --muted: #6a675f;
-  --line: #e5e0d6;
-  --accent: #0f6e56;
-  --accent-soft: #e8f5f0;
-  --shadow: 0 14px 40px rgba(23, 23, 23, 0.06);
+  --bg: #09060f;
+  --bg-2: #110818;
+  --paper: rgba(24, 14, 42, 0.9);
+  --ink: #f3eefc;
+  --muted: #a89bc4;
+  --line: rgba(167, 139, 250, 0.22);
+  --accent: #8b5cf6;
+  --accent-2: #c4b5fd;
+  --accent-soft: rgba(139, 92, 246, 0.18);
+  --glow: rgba(139, 92, 246, 0.35);
+  --shadow: 0 18px 48px rgba(4, 0, 12, 0.45);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -21,8 +26,10 @@ html, body {
 body {
   overflow-x: hidden;
   background:
-    radial-gradient(circle at top right, rgba(15, 110, 86, 0.08), transparent 34%),
-    var(--bg);
+    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(139, 92, 246, 0.3), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(76, 29, 149, 0.38), transparent 50%),
+    radial-gradient(circle at 50% 100%, rgba(91, 33, 182, 0.14), transparent 40%),
+    linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 100%);
 }
 
 .app {
@@ -37,17 +44,23 @@ body {
 
 .eyebrow {
   font-size: 11px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-2);
   margin-bottom: 6px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .top h1 {
-  font-size: 30px;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
+  font-family: Syne, Manrope, system-ui, sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+  background: linear-gradient(120deg, #f5f0ff 20%, #c4b5fd 70%, #8b5cf6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .tag {
@@ -64,6 +77,19 @@ body {
   padding: 16px;
   margin-bottom: 12px;
   box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
+}
+
+.status::before,
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.55), transparent);
 }
 
 .status {
@@ -81,6 +107,7 @@ body {
 }
 
 .value {
+  font-family: Syne, Manrope, system-ui, sans-serif;
   font-size: 18px;
   font-weight: 700;
   margin-top: 2px;
@@ -91,11 +118,12 @@ body {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 6px rgba(15, 110, 86, 0.12);
+  background: var(--accent-2);
+  box-shadow: 0 0 0 6px var(--accent-soft), 0 0 18px var(--glow);
 }
 
 .panel h2 {
+  font-family: Syne, Manrope, system-ui, sans-serif;
   font-size: 16px;
   margin-bottom: 8px;
   letter-spacing: -0.02em;
@@ -121,19 +149,25 @@ body {
   font-weight: 700;
   cursor: pointer;
   color: #fff;
-  background: var(--accent);
+  font-family: inherit;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9 55%, #5b21b6);
+  box-shadow: 0 8px 24px rgba(109, 40, 217, 0.4);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
+.btn:hover { filter: brightness(1.06); }
+
 .btn.ghost {
   width: auto;
   min-width: 110px;
   padding: 12px 14px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-2);
+  box-shadow: none;
+  border: 1px solid var(--line);
 }
 
 .hint {
@@ -158,10 +192,7 @@ body {
   gap: 12px;
 }
 
-.paybox {
-  display: none;
-}
-
+.paybox,
 .pay-bank,
 .card-num,
 .pay-name {
@@ -185,12 +216,20 @@ body {
   padding: 12px 8px;
   font-size: 13px;
   font-weight: 600;
-  background: var(--paper);
+  background: rgba(12, 6, 22, 0.7);
+}
+
+.link:hover {
+  border-color: rgba(167, 139, 250, 0.45);
+  color: var(--accent-2);
+  background: rgba(139, 92, 246, 0.12);
 }
 
 .footer {
   text-align: center;
   color: var(--muted);
   font-size: 11px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
 }
