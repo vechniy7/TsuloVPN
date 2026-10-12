@@ -318,22 +318,15 @@ _DECOR_RE = re.compile(
 )
 
 _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
-    ("авто vpn", "🇪🇺 Авто VPN+Обход"),
-    ("vpn+обход", "🇪🇺 Авто VPN+Обход"),
-    ("vpn + обход", "🇪🇺 Авто VPN+Обход"),
+    ("авто vpn", "🇪🇺 Авто-выбор"),
+    ("vpn+обход", "🇪🇺 Авто-выбор"),
+    ("vpn + обход", "🇪🇺 Авто-выбор"),
     ("самый быстрый авто", "🇪🇺 Авто-выбор"),
     ("авто-выбор", "🇪🇺 Авто-выбор"),
     ("авто выбор", "🇪🇺 Авто-выбор"),
     ("автовыбор", "🇪🇺 Авто-выбор"),
-    ("lte авто", "🇫🇮 LTE Авто"),
-    ("lte reserve", "🇫🇮 LTE Резерв"),
-    ("lte резерв", "🇫🇮 LTE Резерв"),
-    ("lte #1", "🇫🇮 LTE 1"),
-    ("lte #2", "🇫🇮 LTE 2"),
-    ("lte #3", "🇫🇮 LTE 3"),
-    ("lte 1", "🇫🇮 LTE 1"),
-    ("lte 2", "🇫🇮 LTE 2"),
-    ("lte 3", "🇫🇮 LTE 3"),
+    (" auto", "🇪🇺 Авто-выбор"),
+    ("auto ", "🇪🇺 Авто-выбор"),
     ("netherlands", "🇳🇱 Нидерланды"),
     ("holland", "🇳🇱 Нидерланды"),
     ("germany", "🇩🇪 Германия"),
@@ -348,6 +341,10 @@ _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
     ("italy", "🇮🇹 Италия"),
     ("hungary", "🇭🇺 Венгрия"),
     ("turkey", "🇹🇷 Турция"),
+    ("istanbul", "🇹🇷 Турция"),
+    ("spain", "🇪🇸 Испания"),
+    ("barcelona", "🇪🇸 Испания"),
+    ("canada", "🇨🇦 Канада"),
     ("kazakhstan", "🇰🇿 Казахстан"),
     ("russia", "🇷🇺 Россия"),
     ("usa", "🇺🇸 США"),
@@ -361,6 +358,65 @@ _NAME_RESTYLE: tuple[tuple[str, str], ...] = (
     ("uk ", "🇬🇧 Британия"),
     ("britain", "🇬🇧 Британия"),
     ("england", "🇬🇧 Англия"),
+    ("bulgaria", "🇧🇬 Болгария"),
+    ("austria", "🇦🇹 Австрия"),
+    ("belgium", "🇧🇪 Бельгия"),
+    ("czech", "🇨🇿 Чехия"),
+    ("romania", "🇷🇴 Румыния"),
+    ("moldova", "🇲🇩 Молдова"),
+    ("ukraine", "🇺🇦 Украина"),
+    ("japan", "🇯🇵 Япония"),
+    ("korea", "🇰🇷 Корея"),
+    ("singapore", "🇸🇬 Сингапур"),
+    ("hong kong", "🇭🇰 Гонконг"),
+    ("australia", "🇦🇺 Австралия"),
+    ("brazil", "🇧🇷 Бразилия"),
+    ("india", "🇮🇳 Индия"),
+    ("israel", "🇮🇱 Израиль"),
+    ("portugal", "🇵🇹 Португалия"),
+    ("greece", "🇬🇷 Греция"),
+    ("denmark", "🇩🇰 Дания"),
+    ("ireland", "🇮🇪 Ирландия"),
+    ("serbia", "🇷🇸 Сербия"),
+    ("slovakia", "🇸🇰 Словакия"),
+    ("slovenia", "🇸🇮 Словения"),
+    ("croatia", "🇭🇷 Хорватия"),
+    # ISO / short codes from upstream panels (FIN, NLD, DEU…)
+    (" nld", "🇳🇱 Нидерланды"),
+    (" deu", "🇩🇪 Германия"),
+    (" ger", "🇩🇪 Германия"),
+    (" fin", "🇫🇮 Финляндия"),
+    (" swe", "🇸🇪 Швеция"),
+    (" est", "🇪🇪 Эстония"),
+    (" pol", "🇵🇱 Польша"),
+    (" pl ", "🇵🇱 Польша"),
+    (" ltu", "🇱🇹 Литва"),
+    (" lva", "🇱🇻 Латвия"),
+    (" fra", "🇫🇷 Франция"),
+    (" fr ", "🇫🇷 Франция"),
+    (" ita", "🇮🇹 Италия"),
+    (" it ", "🇮🇹 Италия"),
+    (" hun", "🇭🇺 Венгрия"),
+    (" tur", "🇹🇷 Турция"),
+    (" kaz", "🇰🇿 Казахстан"),
+    (" rus", "🇷🇺 Россия"),
+    (" ru ", "🇷🇺 Россия"),
+    (" usa", "🇺🇸 США"),
+    (" us ", "🇺🇸 США"),
+    (" cyp", "🇨🇾 Кипр"),
+    (" nor", "🇳🇴 Норвегия"),
+    (" che", "🇨🇭 Швейцария"),
+    (" sui", "🇨🇭 Швейцария"),
+    (" gbr", "🇬🇧 Британия"),
+    (" uk-", "🇬🇧 Британия"),
+    (" bgr", "🇧🇬 Болгария"),
+    (" bul", "🇧🇬 Болгария"),
+    (" are", "🇦🇪 ОАЭ"),
+    (" nld ", "🇳🇱 Нидерланды"),
+    ("deu-", "🇩🇪 Германия"),
+    ("fin ", "🇫🇮 Финляндия"),
+    ("swe ", "🇸🇪 Швеция"),
+    ("est ", "🇪🇪 Эстония"),
     ("нидерланды", "🇳🇱 Нидерланды"),
     ("великобритания", "🇬🇧 Британия"),
     ("германия", "🇩🇪 Германия"),
@@ -971,9 +1027,8 @@ def uri_identity(uri: str) -> str:
 
 
 def brand_main_uris(uris: list[str]) -> list[str]:
-    """Основные серверы — только флаг + название страны."""
-    seen: set[str] = set()
-    country_dupes: dict[str, int] = {}
+    """Основные серверы — только флаг + название страны (Турция #2 при дублях)."""
+    used: set[str] = set()
     result: list[str] = []
     fallback_idx = 0
     for uri in uris:
@@ -984,17 +1039,10 @@ def brand_main_uris(uris: list[str]) -> list[str]:
         if not styled:
             fallback_idx += 1
             styled = build_server_label("vpn", uri, fallback_idx)
-        key = styled.lower()
         if should_skip_profile(styled) or should_skip_profile(original):
             continue
-        if key in seen:
-            country_dupes[key] = country_dupes.get(key, 1) + 1
-            styled = f"{styled} {country_dupes[key]}"
-            key = styled.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(brand_config(uri, styled))
+        unique = allocate_unique_remark(styled, used)
+        result.append(brand_config(uri, unique))
     return result
 
 
@@ -1013,24 +1061,11 @@ def brand_bypass_uris(
 
 
 def renumber_mobile_profiles(profiles: list[dict]) -> list[dict]:
-    """Переименовать обходные серверы в «Мобильный Интернет #N» (+ 🔥/⚡)."""
-    mobile_idx = 0
-    result: list[dict] = []
-    for profile in profiles:
-        if not isinstance(profile, dict):
-            continue
-        remark = str(profile.get("remarks") or profile.get("remark") or "")
-        if is_mobile_bypass_remark(remark):
-            mobile_idx += 1
-            cloned = copy.deepcopy(profile)
-            cloned["remarks"] = mobile_internet_label(
-                mobile_idx,
-                marker=bypass_marker_from_remark(remark),
-            )
-            result.append(cloned)
-        else:
-            result.append(profile)
-    return result
+    """Обход из ключа не трогаем — оставляем исходные имена (LTE → ОБХОД и т.п.).
+
+    Раньше всё сводилось к «Мобильный Интернет #N»; теперь сохраняем remarks как есть.
+    """
+    return [p for p in profiles if isinstance(p, dict)]
 
 
 def should_skip_profile(name: str) -> bool:
@@ -1100,18 +1135,26 @@ def is_upstream_notice_profile(profile: dict) -> bool:
 
 
 def restyle_server_name(name: str) -> str | None:
-    """Только флаг + название страны; обходные имена (#00, #1…) сохраняем как есть."""
+    """Обычные серверы → только «🇫🇮 Финляндия». Обход LTE/мобильный — не трогаем."""
     raw = " ".join((name or "").split()).strip()
     if not raw or should_skip_profile(raw):
         return None
-    if is_bypass_profile_name(raw):
+    if is_bypass_profile_name(raw) or is_mobile_bypass_remark(raw):
         return raw
 
     compact = raw.lower()
     noflag = _FLAG_RE.sub(" ", compact)
     noflag = _DECOR_RE.sub(" ", noflag)
-    noflag = re.sub(r"[»|✦·\-–#]+", " ", noflag)
+    noflag = re.sub(r"\[.*?\]", " ", noflag)
+    noflag = re.sub(r"[»|✦·\-–#:/_]+", " ", noflag)
+    noflag = re.sub(
+        r"\b(premium|prem|wl|id|server|node|vless|reality|grpc|xhttp|ws)\b",
+        " ",
+        noflag,
+    )
     noflag = re.sub(r"\s+", " ", noflag).strip()
+    # Для матчей ISO-кодов добавляем пробелы по краям.
+    padded = f" {noflag} "
     flags = _FLAG_RE.findall(raw)
     flag = flags[0] if flags else ""
 
@@ -1123,11 +1166,10 @@ def restyle_server_name(name: str) -> str | None:
         return f"{flag or '🎮'} Игровой{num}".strip()
 
     for needle, styled in _NAME_RESTYLE:
-        if needle in noflag or needle in compact:
+        if needle in noflag or needle in compact or needle in padded:
             styled_flag = _FLAG_RE.findall(styled)
             country = _FLAG_RE.sub("", styled).strip()
             country = _DECOR_RE.sub("", country).strip()
-            # Флаг из маппинга важнее исходного (🌐→🇪🇺, 🇸🇴→🇪🇺 для авто).
             use_flag = (styled_flag[0] if styled_flag else "") or flag
             if use_flag and country:
                 return f"{use_flag} {country}"
@@ -1135,9 +1177,26 @@ def restyle_server_name(name: str) -> str | None:
 
     cleaned = _FLAG_RE.sub(" ", raw)
     cleaned = _DECOR_RE.sub(" ", cleaned)
-    cleaned = re.sub(r"[»|✦·\-–#]+", " ", cleaned)
+    cleaned = re.sub(r"\[.*?\]", " ", cleaned)
+    cleaned = re.sub(r"[»|✦·\-–#:/_]+", " ", cleaned)
+    cleaned = re.sub(
+        r"\b(premium|prem|wl|id|server|node|vless|reality|grpc|xhttp|ws)\b",
+        " ",
+        cleaned,
+        flags=re.I,
+    )
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ·-–|")
     cleaned = re.sub(r"\s*#?\d+\s*$", "", cleaned).strip()
+    # Если остался короткий ISO-код — ещё раз через маппинг.
+    low = cleaned.lower()
+    for needle, styled in _NAME_RESTYLE:
+        if needle.strip() == low or f" {needle.strip()} " in f" {low} ":
+            styled_flag = _FLAG_RE.findall(styled)
+            country = _FLAG_RE.sub("", styled).strip()
+            use_flag = (styled_flag[0] if styled_flag else "") or flag
+            if use_flag and country:
+                return f"{use_flag} {country}"
+            return styled
     if flag and cleaned:
         return f"{flag} {cleaned}"
     return cleaned or raw
@@ -1270,7 +1329,7 @@ def extract_happ_json_profiles(data: str) -> list[dict]:
         return []
 
     result: list[dict] = []
-    seen_names: set[str] = set()
+    used_names: set[str] = set()
     for profile in profiles:
         remark = str(profile.get("remarks") or profile.get("remark") or "")
         if is_bypass_profile_name(remark) or profile_is_bypass(profile):
@@ -1278,7 +1337,7 @@ def extract_happ_json_profiles(data: str) -> list[dict]:
         if is_upstream_notice_profile(profile):
             continue
         styled = restyle_server_name(remark)
-        if not styled or styled.lower() in seen_names:
+        if not styled:
             continue
         outbounds = profile.get("outbounds") or []
         if not isinstance(outbounds, list):
@@ -1290,9 +1349,9 @@ def extract_happ_json_profiles(data: str) -> list[dict]:
         )
         if not has_proxy:
             continue
+        unique = allocate_unique_remark(styled, used_names)
         cloned = copy.deepcopy(profile)
-        cloned["remarks"] = styled
-        seen_names.add(styled.lower())
+        cloned["remarks"] = unique
         result.append(cloned)
     return result
 
@@ -2045,24 +2104,24 @@ def brand_config(uri: str, label: str) -> str:
 
 
 def unique_source_labels(uris: list[str]) -> list[str]:
-    """Одно имя — один конфиг. Без ·2/·3 дублей."""
-    seen: set[str] = set()
+    """Обычные → страна (+ #2); обходные — исходное имя из ключа."""
+    used: set[str] = set()
     result: list[str] = []
-    mobile_idx = 0
     for idx, uri in enumerate(uris, start=1):
         original = urllib.parse.unquote(uri.split("#", 1)[1]).strip() if "#" in uri else ""
         if original and is_bypass_profile_name(original):
-            mobile_idx += 1
-            label = mobile_internet_label(mobile_idx)
+            # Мобильный обход — не переименовываем.
+            label = original
+            key = label.lower()
+            if key in used:
+                continue
+            used.add(key)
         else:
             label = restyle_server_name(original) if original else None
-        if not label:
-            label = build_server_label("vpn", uri, idx)
-        key = label.lower()
-        if key in seen:
-            continue
-        if should_skip_profile(label) or should_skip_profile(original):
-            continue
-        seen.add(key)
+            if not label:
+                label = build_server_label("vpn", uri, idx)
+            if should_skip_profile(label) or should_skip_profile(original):
+                continue
+            label = allocate_unique_remark(label, used)
         result.append(brand_config(uri, label))
     return result

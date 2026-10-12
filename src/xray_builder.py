@@ -10,6 +10,7 @@ import urllib.parse
 
 from config import config
 from parser import (
+    allocate_unique_remark,
     bypass_uri_identity,
     collect_bypass_auto_uris,
     extract_country_flag,
@@ -688,6 +689,7 @@ def build_happ_profiles(
     source_main: list[dict] = []
 
     if existing:
+        used_existing: set[str] = set()
         for profile in existing:
             if not isinstance(profile, dict):
                 continue
@@ -700,14 +702,16 @@ def build_happ_profiles(
             if low in {"🇪🇺 автовыбор", "автовыбор"} or "автовыбор обход" in low:
                 if "vpn" not in low:
                     continue
-            styled = restyle_server_name(rem)
+            # Уже restyle'нутые имена (Турция #2) оставляем; сырые — в страну.
+            styled = restyle_server_name(rem) or rem
             if not styled or should_skip_profile(styled):
                 continue
+            unique = allocate_unique_remark(styled, used_existing)
             cloned = copy.deepcopy(profile)
-            cloned["remarks"] = styled
-            if has_bypass_pool and is_mobile_bypass_remark(styled) and not is_source_auto_profile_name(styled):
+            cloned["remarks"] = unique
+            if has_bypass_pool and is_mobile_bypass_remark(unique) and not is_source_auto_profile_name(unique):
                 continue
-            if is_source_auto_profile_name(styled):
+            if is_source_auto_profile_name(unique):
                 source_autos.append(cloned)
             else:
                 source_main.append(cloned)
