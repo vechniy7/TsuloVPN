@@ -57,7 +57,10 @@ AMVERA_ORIGIN=https://tsulovpn-culoebali.msk1.amvera.tech
 ```
 BOT_TOKEN=<токен бота>
 ADMINS=<ваш telegram id>
+ADMIN_PANEL_TOKEN=<тот же токен, что ADMIN_PANEL_TOKEN в Amvera>
 ```
+
+Без `ADMIN_PANEL_TOKEN` на Pages рассылка и личные сообщения из админ-панели дают **401 unauthorized**.
 
 Уже в `wrangler.toml` [vars]:
 

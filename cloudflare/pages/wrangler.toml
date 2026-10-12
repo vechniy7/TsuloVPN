@@ -7,4 +7,6 @@ AMVERA_ORIGIN = "https://tsulovpn-culoebali.msk1.amvera.tech"
 REQUIRED_CHANNEL = "@TsuloVPN"
 CHANNEL_URL = "https://t.me/TsuloVPN"
 CHANNEL_GATE_ENABLED = "true"
-# BOT_TOKEN и ADMINS — только через Pages Secrets (не в git)
+# Secrets (Pages Dashboard / wrangler pages secret put) — не в git:
+#   BOT_TOKEN, ADMINS, ADMIN_PANEL_TOKEN
+# ADMIN_PANEL_TOKEN должен совпадать с Amvera — иначе /telegram/broadcast → 401

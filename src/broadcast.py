@@ -212,40 +212,75 @@ def build_direct_message_job(admin_id: int, telegram_id: int, text: str) -> dict
     }
 
 
+def _edge_auth_token() -> str:
+    """Токен для Cloudflare /telegram/broadcast.
+
+    Сначала ADMIN_PANEL_TOKEN, иначе BOT_TOKEN (Pages уже хранит BOT_TOKEN для webhook).
+    """
+    panel = (config.ADMIN_PANEL_TOKEN or "").strip()
+    if panel:
+        return panel
+    bot = (config.BOT_TOKEN or "").strip()
+    if bot:
+        return bot
+    raise RuntimeError("Нужен ADMIN_PANEL_TOKEN или BOT_TOKEN для рассылки")
+
+
 async def dispatch_broadcast_to_edge(job: dict) -> dict:
     """POST job на Cloudflare Pages /telegram/broadcast."""
-    if not config.ADMIN_PANEL_TOKEN:
-        raise RuntimeError("ADMIN_PANEL_TOKEN не задан")
     url = edge_broadcast_url()
-    logger.info(
-        "edge broadcast POST %s recipients=%s",
-        url,
-        len(job.get("recipients") or []),
-    )
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {config.ADMIN_PANEL_TOKEN}",
-    }
+    panel = (config.ADMIN_PANEL_TOKEN or "").strip()
+    bot = (config.BOT_TOKEN or "").strip()
+    # Сначала panel-токен; при 401 — BOT_TOKEN (часто уже есть в Pages Secrets).
+    tokens: list[tuple[str, str]] = []
+    if panel:
+        tokens.append(("panel", panel))
+    if bot and bot != panel:
+        tokens.append(("bot", bot))
+    if not tokens:
+        raise RuntimeError("Нужен ADMIN_PANEL_TOKEN или BOT_TOKEN для рассылки")
+
     timeout = aiohttp.ClientTimeout(total=45)
+    last_error = "unknown"
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=job, headers=headers) as resp:
-            raw = await resp.text()
-            try:
-                data = json.loads(raw) if raw else {}
-            except Exception:
-                data = {"raw": raw[:500]}
-            if resp.status >= 400:
+        for label, token in tokens:
+            logger.info(
+                "edge broadcast POST %s recipients=%s auth=%s",
+                url,
+                len(job.get("recipients") or []),
+                label,
+            )
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            async with session.post(url, json=job, headers=headers) as resp:
+                raw = await resp.text()
+                try:
+                    data = json.loads(raw) if raw else {}
+                except Exception:
+                    data = {"raw": raw[:500]}
+                if resp.status < 400:
+                    return data if isinstance(data, dict) else {"ok": True, "raw": data}
+                last_error = (
+                    f"HTTP {resp.status}: "
+                    f"{(data.get('error') if isinstance(data, dict) else None) or raw[:200]}"
+                )
                 logger.error(
-                    "edge broadcast failed url=%s status=%s body=%s",
+                    "edge broadcast failed url=%s auth=%s status=%s body=%s",
                     url,
+                    label,
                     resp.status,
                     raw[:500],
                 )
-                raise RuntimeError(
-                    f"Cloudflare broadcast HTTP {resp.status} ({url}): "
-                    f"{(data.get('error') if isinstance(data, dict) else None) or raw[:200]}"
-                )
-            return data if isinstance(data, dict) else {"ok": True, "raw": data}
+                # 401 — пробуем следующий токен; остальное — сразу ошибка.
+                if resp.status != 401:
+                    break
+
+    raise RuntimeError(
+        f"Cloudflare broadcast failed ({url}): {last_error}. "
+        "На Pages Secrets нужны BOT_TOKEN и/или ADMIN_PANEL_TOKEN (= Amvera)."
+    )
 
 
 def draft_to_dict(draft: BroadcastDraft) -> dict:

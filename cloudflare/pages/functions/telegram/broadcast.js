@@ -8,14 +8,19 @@
 import { runBroadcast } from "../_lib/tg_broadcast.js";
 
 function authorized(request, env) {
-  const expected = String((env && env.ADMIN_PANEL_TOKEN) || "").trim();
-  if (!expected) return false;
+  const panel = String((env && env.ADMIN_PANEL_TOKEN) || "").trim();
+  const bot = String((env && env.BOT_TOKEN) || "").trim();
   const auth = request.headers.get("Authorization") || "";
   const bearer = auth.toLowerCase().startsWith("bearer ")
     ? auth.slice(7).trim()
     : "";
   const hdr = (request.headers.get("X-Admin-Token") || "").trim();
-  return bearer === expected || hdr === expected;
+  const token = bearer || hdr;
+  if (!token) return false;
+  // ADMIN_PANEL_TOKEN (предпочтительно) или BOT_TOKEN — тот же секрет, что на Amvera.
+  if (panel && token === panel) return true;
+  if (bot && token === bot) return true;
+  return false;
 }
 
 export async function onRequest(context) {
