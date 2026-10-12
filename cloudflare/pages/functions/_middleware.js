@@ -72,13 +72,16 @@ export async function onRequest(context) {
   const { request, env, next } = context;
   const incoming = new URL(request.url);
 
-  // Баннеры бота (1vpn.PNG и т.п.) — из Pages public.
+  // Баннеры бота (1vpn.PNG и т.п.) — из Pages public/ASSETS.
   // НЕ перехватывать *.css/*.js: /panel/static и /miniapp/static живут на Amvera.
   if (
     !incoming.pathname.startsWith("/panel") &&
     !incoming.pathname.startsWith("/miniapp") &&
     /\.(png|jpe?g|webp|gif|ico)$/i.test(incoming.pathname)
   ) {
+    if (env && env.ASSETS) {
+      return env.ASSETS.fetch(request);
+    }
     return next();
   }
 

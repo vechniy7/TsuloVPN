@@ -45,10 +45,22 @@ def photo_url(screen: str) -> str | None:
     # Локальный файл должен существовать на диске (sanity).
     if not (PHOTO_DIR / filename).is_file():
         return None
-    base = (config.SUBSCRIPTION_PUBLIC_URL or "").rstrip("/")
-    if not base.startswith("https://"):
-        return None
-    return f"{base}/{filename}"
+    # Telegram качает баннер по HTTPS URL (webhook не умеет локальные файлы).
+    # Приоритет: PUBLIC (Pages public/*.PNG) → KEY → FALLBACK (Amvera /photo).
+    candidates = (
+        config.SUBSCRIPTION_PUBLIC_URL,
+        config.SUBSCRIPTION_KEY_URL,
+        config.SUBSCRIPTION_FALLBACK_URL,
+    )
+    for raw in candidates:
+        base = (raw or "").rstrip("/")
+        if not base.startswith("https://"):
+            continue
+        # На Amvera баннеры лежат под /photo/, на Pages — в корне public/.
+        if "amvera." in base.lower() or "amvera.io" in base.lower():
+            return f"{base}/photo/{filename}"
+        return f"{base}/{filename}"
+    return None
 
 
 def _media(screen: str) -> str | None:

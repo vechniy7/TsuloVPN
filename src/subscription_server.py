@@ -2,8 +2,10 @@ import base64
 import json
 import logging
 import time
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 
 from config import config
 from pool_engine_v3 import get_happ_json_profiles, get_pool_state
@@ -18,11 +20,29 @@ from open_apps import APP_DEEPLINKS, decode_open_query, open_app_html
 
 logger = logging.getLogger(__name__)
 
+_PHOTO_DIR = Path(__file__).parent / "photo"
+
 app = FastAPI(title="TsuloVPN Subscription Server", docs_url=None, redoc_url=None)
 app.include_router(miniapp_router)
 app.include_router(cardlink_router)
 app.include_router(platega_router)
 app.include_router(panel_router)
+
+
+@app.get("/photo/{filename}")
+async def bot_banner_photo(filename: str):
+    """Баннеры для sendPhoto в webhook (Telegram качает по HTTPS)."""
+    safe = Path(filename).name
+    if not safe.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+        raise HTTPException(status_code=404, detail="Not found")
+    path = _PHOTO_DIR / safe
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.get("/privacy")
