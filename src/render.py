@@ -63,8 +63,8 @@ def photo_url(screen: str) -> str | None:
             if not amvera_fallback:
                 amvera_fallback = f"{base}/photo/{filename}"
             continue
-        # Pages: /1vpn.PNG и /photo/1vpn.PNG
-        return f"{base}/photo/{filename}"
+        # Pages public: /1vpn.PNG (не /photo/ — на CF Assets его может не быть)
+        return f"{base}/{filename}"
     return amvera_fallback
 
 
