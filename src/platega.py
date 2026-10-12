@@ -48,6 +48,7 @@ async def create_transaction(
     description: str,
     telegram_id: int,
     username: str | None = None,
+    metadata: dict[str, str] | None = None,
 ) -> dict:
     if not config.use_platega:
         raise PlategaError("Platega is not configured")
@@ -59,6 +60,19 @@ async def create_transaction(
     if not uname:
         uname = f"tg:{telegram_id}"
 
+    meta: dict[str, str] = {
+        "userId": str(telegram_id),
+        "telegramId": str(telegram_id),
+        "userName": uname,
+    }
+    if metadata:
+        for key, value in metadata.items():
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                meta[str(key)] = text
+
     payload = {
         "paymentDetails": {
             "amount": float(amount),
@@ -69,10 +83,7 @@ async def create_transaction(
         "failedUrl": f"{base}/platega/fail",
         "payload": order_id,
         "orderId": order_id,
-        "metadata": {
-            "userId": str(telegram_id),
-            "userName": uname,
-        },
+        "metadata": meta,
     }
 
     # Опционально зафиксировать метод (2=СБП QR, 11=карты). Пусто = выбор на пейформе (v2).

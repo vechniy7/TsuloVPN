@@ -65,6 +65,109 @@ def is_subscription_active(user: User) -> bool:
         return True
 
 
+def _parse_user_expires(user: User | None) -> datetime | None:
+    if not user or not user.expires_at:
+        return None
+    try:
+        expires = datetime.fromisoformat(user.expires_at)
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        return expires
+    except ValueError:
+        return None
+
+
+def _fmt_ru_date(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%d.%m.%Y")
+
+
+def subscription_stack_base(user: User | None) -> datetime:
+    """С какой даты начнётся начисляемый период (как в extend_subscription)."""
+    now = datetime.now(timezone.utc)
+    current = _parse_user_expires(user)
+    if current and current > now:
+        return current
+    return now
+
+
+def build_platega_checkout_info(
+    *,
+    telegram_id: int,
+    username: str | None,
+    plan: TariffPlan,
+    user: User | None,
+    amount: int,
+) -> tuple[str, dict[str, str]]:
+    """
+    Текст и metadata для Platega: tg id, тариф, период с→по.
+    Чтобы в кабинете/выгрузке можно было восстановить оплату после сбоя БД.
+    """
+    bot = (config.BOT_NAME or "TsuloVPN").strip()
+    uname = (username or "").strip()
+    if uname and not uname.startswith("@"):
+        uname = f"@{uname}"
+    handle = uname or f"tg:{telegram_id}"
+
+    pack = parse_pack_plan(plan.id)
+    addon = parse_device_addon_plan(plan.id)
+    devices_now = user_device_limit(user) if user else 1
+    current_exp = _parse_user_expires(user)
+
+    meta: dict[str, str] = {
+        "userId": str(telegram_id),
+        "telegramId": str(telegram_id),
+        "userName": handle,
+        "planId": plan.id,
+        "planTitle": plan.title,
+        "amountRub": str(int(amount)),
+    }
+    if current_exp:
+        meta["expiresBefore"] = current_exp.astimezone(timezone.utc).strftime("%Y-%m-%d")
+
+    if addon is not None:
+        new_limit = clamp_device_limit(devices_now + addon)
+        meta["devicesBefore"] = str(devices_now)
+        meta["devicesAfter"] = str(new_limit)
+        meta["periodNote"] = "addon_slots_only"
+        if current_exp:
+            meta["expiresAt"] = current_exp.astimezone(timezone.utc).strftime("%Y-%m-%d")
+            until = _fmt_ru_date(current_exp)
+        else:
+            until = "—"
+        description = (
+            f"{bot} · tg:{telegram_id} · {handle} · {plan.title} · {int(amount)}₽ · "
+            f"слоты {devices_now}→{new_limit} · срок не меняется · до {until}"
+        )
+        return description[:240], meta
+
+    months = plan.months
+    if pack is not None:
+        months, devices = pack
+        meta["devices"] = str(devices)
+    else:
+        meta["devices"] = str(devices_now)
+
+    if months <= 0:
+        description = (
+            f"{bot} · tg:{telegram_id} · {handle} · {plan.title} · {int(amount)}₽"
+        )
+        return description[:240], meta
+
+    period_from = subscription_stack_base(user)
+    period_to = period_from + timedelta(days=months * 30)
+    meta["periodFrom"] = period_from.astimezone(timezone.utc).strftime("%Y-%m-%d")
+    meta["periodTo"] = period_to.astimezone(timezone.utc).strftime("%Y-%m-%d")
+    meta["expiresAt"] = meta["periodTo"]
+    meta["days"] = str(months * 30)
+
+    description = (
+        f"{bot} · tg:{telegram_id} · {handle} · {plan.title} · {int(amount)}₽ · "
+        f"с {_fmt_ru_date(period_from)} по {_fmt_ru_date(period_to)} · "
+        f"до {_fmt_ru_date(period_to)}"
+    )
+    return description[:240], meta
+
+
 async def extend_subscription(user: User, plan_id: str) -> User:
     plan = get_plan(plan_id)
     if not plan:

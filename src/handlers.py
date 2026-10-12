@@ -299,7 +299,12 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
 
     plan_id = callback.data.split(":", 1)[1].strip()
     from devices import parse_device_addon_plan, parse_pack_plan
-    from payments import create_pending_order, is_subscription_active, resolve_checkout
+    from payments import (
+        build_platega_checkout_info,
+        create_pending_order,
+        is_subscription_active,
+        resolve_checkout,
+    )
 
     user = await get_user(callback.from_user.id)
     if not user:
@@ -384,13 +389,21 @@ async def order_pay_callback(callback: CallbackQuery) -> None:
     from platega import PlategaError, create_transaction, new_order_id
 
     order_id = new_order_id(callback.from_user.id, plan.id)
+    description, pay_meta = build_platega_checkout_info(
+        telegram_id=callback.from_user.id,
+        username=callback.from_user.username,
+        plan=plan,
+        user=user,
+        amount=amount,
+    )
     try:
         result = await create_transaction(
             amount=amount,
             order_id=order_id,
-            description=f"{config.BOT_NAME} · {plan.title}",
+            description=description,
             telegram_id=callback.from_user.id,
             username=callback.from_user.username,
+            metadata=pay_meta,
         )
     except PlategaError as exc:
         logger.error("Platega create failed: %s", exc)
