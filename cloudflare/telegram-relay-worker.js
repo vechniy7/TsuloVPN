@@ -10,7 +10,7 @@
  *  - KV binding OFFSETS (ключ "telegram_offset")
  */
 const AMVERA_DEFAULT =
-  "https://tsulovpn-culoebali.amvera.io/telegram/webhook";
+  "https://tsulovpn-culoebali.msk1.amvera.tech/telegram/webhook";
 
 async function tg(token, method, payload) {
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {

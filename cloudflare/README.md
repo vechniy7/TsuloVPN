@@ -45,7 +45,7 @@ npx wrangler pages deploy public --project-name=tsulo-tg-relay --commit-dirty=tr
 Переменная origin (по умолчанию уже в `wrangler.toml`):
 
 ```
-AMVERA_ORIGIN=https://tsulovpn-culoebali.amvera.io
+AMVERA_ORIGIN=https://tsulovpn-culoebali.msk1.amvera.tech
 ```
 
 ## Channel gate (Telegram)
