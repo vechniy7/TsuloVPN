@@ -5,7 +5,7 @@ import warnings
 import coloredlogs
 import uvicorn
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
+from aiogram.types import BotCommand, MenuButtonCommands
 
 from bot_notify import set_bot
 from bot_profile import restore_bot_profile
@@ -28,19 +28,17 @@ logger = logging.getLogger(__name__)
 
 
 async def setup_bot_commands(bot: Bot) -> None:
+    """Меню как у VPN-ботов: кнопка «Меню» → пункт «Меню бота» → /start."""
     commands = [
-        BotCommand(command="start", description="Главная"),
-        BotCommand(command="access", description="Мой доступ / ключ"),
+        BotCommand(command="start", description="Меню бота"),
+        BotCommand(command="access", description="Мой ключ"),
         BotCommand(command="help", description="Инструкция"),
         BotCommand(command="tariffs", description="Тарифы"),
         BotCommand(command="docs", description="Документы"),
     ]
     await bot.set_my_commands(commands)
-    miniapp = config.miniapp_url
-    if miniapp.lower().startswith("https://"):
-        await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="Кабинет", web_app=WebAppInfo(url=miniapp))
-        )
+    # Не WebApp («Начать» открывало браузер) — список команд.
+    await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
 
 async def _telegram_bootstrap(bot: Bot) -> None:

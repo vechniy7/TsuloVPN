@@ -171,6 +171,12 @@ async def menu_cmd(message: Message, bot: Bot) -> None:
     await show_menu(bot, message.from_user.id)
 
 
+@router.message(F.text.in_({"Меню бота", "Главное меню", "меню бота", "главное меню"}))
+async def menu_text_cmd(message: Message, bot: Bot) -> None:
+    """Текст из меню/клавиатуры — то же, что /start."""
+    await start_cmd(message, bot)
+
+
 @router.message(Command("key", "connect", "access"))
 async def key_cmd(message: Message) -> None:
     user = await get_user(message.from_user.id)
