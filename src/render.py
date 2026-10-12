@@ -1,7 +1,8 @@
-"""Отправка экранов бота. Баннеры — по HTTPS URL (webhook не умеет FSInputFile)."""
+"""Отправка экранов бота. Баннеры — file_id (webhook не умеет FSInputFile)."""
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -34,6 +35,25 @@ PHOTO_CAPTION_LIMIT = 1024
 _file_ids: dict[str, str] = {}
 # message_id → имя файла баннера (чтобы не дергать editMessageMedia зря)
 _message_banner: dict[int, str] = {}
+_STATIC_FILE_IDS: dict[str, str] | None = None
+
+
+def _load_static_file_ids() -> dict[str, str]:
+    """file_id из photo/file_ids.json — Telegram не качает URL с Amvera/Pages."""
+    global _STATIC_FILE_IDS
+    if _STATIC_FILE_IDS is not None:
+        return _STATIC_FILE_IDS
+    path = PHOTO_DIR / "file_ids.json"
+    data: dict[str, str] = {}
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                data = {str(k): str(v) for k, v in raw.items() if v}
+        except Exception as exc:
+            logger.warning("file_ids.json read failed: %s", exc)
+    _STATIC_FILE_IDS = data
+    return data
 
 
 def photo_url(screen: str) -> str | None:
@@ -45,9 +65,7 @@ def photo_url(screen: str) -> str | None:
     # Локальный файл должен существовать на диске (sanity).
     if not (PHOTO_DIR / filename).is_file():
         return None
-    # Telegram качает баннер по HTTPS. Amvera *.amvera.tech часто недоступен
-    # серверам Telegram («failed to get HTTP URL content») → /start молчит,
-    # а кнопки (edit caption) работают. Поэтому Pages/CF — первыми.
+    # Запасной HTTPS URL (часто Telegram его не скачивает с Amvera).
     candidates = (
         config.SUBSCRIPTION_PUBLIC_URL,
         config.SUBSCRIPTION_KEY_URL,
@@ -63,18 +81,23 @@ def photo_url(screen: str) -> str | None:
             if not amvera_fallback:
                 amvera_fallback = f"{base}/photo/{filename}"
             continue
-        # Pages public: /1vpn.PNG (не /photo/ — на CF Assets его может не быть)
         return f"{base}/{filename}"
     return amvera_fallback
 
 
 def _media(screen: str) -> str | None:
-    """file_id или публичный HTTPS URL — оба сериализуются в webhook JSON."""
+    """file_id (предпочтительно) или HTTPS URL — оба сериализуются в webhook JSON."""
     if not USE_SCREEN_PHOTOS:
         return None
     file_id = _file_ids.get(screen)
     if file_id:
         return file_id
+    filename = SCREEN_PHOTO_FILES.get(screen or "")
+    if filename:
+        static_id = _load_static_file_ids().get(filename)
+        if static_id:
+            _file_ids[screen] = static_id
+            return static_id
     return photo_url(screen)
 
 
