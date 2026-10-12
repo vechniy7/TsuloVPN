@@ -45,22 +45,27 @@ def photo_url(screen: str) -> str | None:
     # Локальный файл должен существовать на диске (sanity).
     if not (PHOTO_DIR / filename).is_file():
         return None
-    # Telegram качает баннер по HTTPS URL (webhook не умеет локальные файлы).
-    # Amvera /photo/* стабильнее Pages (edge иногда 403 на картинки).
+    # Telegram качает баннер по HTTPS. Amvera *.amvera.tech часто недоступен
+    # серверам Telegram («failed to get HTTP URL content») → /start молчит,
+    # а кнопки (edit caption) работают. Поэтому Pages/CF — первыми.
     candidates = (
-        config.SUBSCRIPTION_FALLBACK_URL,
-        config.SUBSCRIPTION_KEY_URL,
         config.SUBSCRIPTION_PUBLIC_URL,
+        config.SUBSCRIPTION_KEY_URL,
+        config.SUBSCRIPTION_FALLBACK_URL,
     )
+    amvera_fallback: str | None = None
     for raw in candidates:
         base = (raw or "").rstrip("/")
         if not base.startswith("https://"):
             continue
         host = base.lower()
         if "amvera." in host or "amvera.io" in host:
-            return f"{base}/photo/{filename}"
-        return f"{base}/{filename}"
-    return None
+            if not amvera_fallback:
+                amvera_fallback = f"{base}/photo/{filename}"
+            continue
+        # Pages: /1vpn.PNG и /photo/1vpn.PNG
+        return f"{base}/photo/{filename}"
+    return amvera_fallback
 
 
 def _media(screen: str) -> str | None:
