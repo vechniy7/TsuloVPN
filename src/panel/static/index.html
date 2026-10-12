@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>TsuloVPN Nexus · Панель</title>
-  <link rel="stylesheet" href="/panel/static/panel.css?v=8" />
+  <link rel="stylesheet" href="/panel/static/panel.css?v=9" />
 </head>
 <body>
   <div id="login-view" class="login hidden">
@@ -134,7 +134,7 @@
           <h3>Рассылка всем</h3>
           <p class="muted" id="broadcast-hint">Текст уйдёт всем в Telegram через Cloudflare. HTML: &lt;b&gt;, &lt;i&gt;, &lt;a&gt;.</p>
           <label for="broadcast-text">Сообщение</label>
-          <textarea id="broadcast-text" rows="8" maxlength="4000" placeholder="Текст рассылки всем…"></textarea>
+          <textarea id="broadcast-text" rows="8" maxlength="4000" placeholder="Пример:&#10;&#10;<b>TsuloVPN</b>&#10;&#10;Доступ продлён. Обновите подписку в Happ.&#10;&#10;Поддержка: @tsulovpn_support"></textarea>
           <div class="broadcast-actions">
             <button type="button" id="btn-broadcast" class="primary">Отправить всем</button>
             <span id="broadcast-status" class="muted"></span>
@@ -203,6 +203,6 @@
     </form>
   </dialog>
 
-  <script src="/panel/static/panel.js?v=8"></script>
+  <script src="/panel/static/panel.js?v=9"></script>
 </body>
 </html>

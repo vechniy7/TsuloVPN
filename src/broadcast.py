@@ -129,11 +129,28 @@ def schedule_clear_running(admin_id: int | None, recipient_count: int) -> None:
 
 
 def edge_broadcast_url() -> str:
-    base = (
-        config.subscription_fallback_base()
-        or (config.SUBSCRIPTION_PUBLIC_URL or "").rstrip("/")
-    )
-    return f"{base.rstrip('/')}/telegram/broadcast"
+    """URL Cloudflare Pages /telegram/broadcast (не Amvera — там 404).
+
+    Берём хост из TELEGRAM webhook (pages.dev), иначе PUBLIC_URL с pages.dev.
+    FALLBACK (Amvera) для рассылки не подходит: Amvera не ходит в Telegram API.
+    """
+    webhook = (config.telegram_webhook_url() or "").rstrip("/")
+    if webhook.endswith("/telegram/webhook"):
+        return f"{webhook[: -len('/telegram/webhook')]}/telegram/broadcast"
+
+    public = (config.SUBSCRIPTION_PUBLIC_URL or "").rstrip("/")
+    fallback = config.subscription_fallback_base()
+    for base in (public, fallback):
+        if not base:
+            continue
+        host = base.lower()
+        if "pages.dev" in host or "workers.dev" in host:
+            return f"{base}/telegram/broadcast"
+    if public:
+        return f"{public}/telegram/broadcast"
+    if fallback:
+        return f"{fallback}/telegram/broadcast"
+    raise RuntimeError("Не задан URL Cloudflare для /telegram/broadcast")
 
 
 async def build_broadcast_job(
@@ -200,6 +217,11 @@ async def dispatch_broadcast_to_edge(job: dict) -> dict:
     if not config.ADMIN_PANEL_TOKEN:
         raise RuntimeError("ADMIN_PANEL_TOKEN не задан")
     url = edge_broadcast_url()
+    logger.info(
+        "edge broadcast POST %s recipients=%s",
+        url,
+        len(job.get("recipients") or []),
+    )
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {config.ADMIN_PANEL_TOKEN}",
@@ -213,9 +235,14 @@ async def dispatch_broadcast_to_edge(job: dict) -> dict:
             except Exception:
                 data = {"raw": raw[:500]}
             if resp.status >= 400:
-                logger.error("edge broadcast failed status=%s body=%s", resp.status, raw[:500])
+                logger.error(
+                    "edge broadcast failed url=%s status=%s body=%s",
+                    url,
+                    resp.status,
+                    raw[:500],
+                )
                 raise RuntimeError(
-                    f"Cloudflare broadcast HTTP {resp.status}: "
+                    f"Cloudflare broadcast HTTP {resp.status} ({url}): "
                     f"{(data.get('error') if isinstance(data, dict) else None) or raw[:200]}"
                 )
             return data if isinstance(data, dict) else {"ok": True, "raw": data}
