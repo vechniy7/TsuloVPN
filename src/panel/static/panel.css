@@ -145,9 +145,16 @@ body {
 .kv div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 8px 0; }
 .kv span:last-child { color: var(--text); font-weight: 600; word-break: break-all; text-align: right; }
 
-.toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
 .toolbar input { flex: 1; min-width: 200px; }
 .toolbar select { width: 180px; }
+.toolbar.bulk-extend input#bulk-extend-days {
+  flex: 0 0 auto;
+  width: 88px;
+  min-width: 88px;
+  text-align: center;
+}
+.toolbar.bulk-extend label { color: var(--muted, #9aa3b2); white-space: nowrap; }
 
 .table-wrap {
   overflow: auto;

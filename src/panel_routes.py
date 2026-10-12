@@ -56,6 +56,10 @@ class ExtendBody(BaseModel):
     plan_id: str | None = None
 
 
+class BulkExtendBody(BaseModel):
+    days: int = Field(ge=1, le=3650)
+
+
 class ExpireBody(BaseModel):
     expires_at: str | None = None
     days_from_now: int | None = Field(default=None, ge=0, le=3650)
@@ -373,6 +377,17 @@ async def panel_user_detail(telegram_id: int, _: str = Depends(require_admin)):
     return _user_payload(user)
 
 
+def _stack_expiry(user, *, days: int = 0, minutes: int = 0) -> None:
+    """Прибавить дни/минуты к текущему expires_at (или от now, если истёк)."""
+    now = _utcnow()
+    base = now
+    current = _parse_iso(user.expires_at)
+    if current and current > now:
+        base = current
+    user.expires_at = (base + timedelta(days=days, minutes=minutes)).isoformat()
+    user.disabled = False
+
+
 @router.post("/panel/api/users/{telegram_id}/extend")
 async def panel_user_extend(
     telegram_id: int,
@@ -393,17 +408,37 @@ async def panel_user_extend(
     if days == 30 and minutes == 0 and get_plan(plan_id):
         user = await extend_subscription(user, plan_id)
     else:
-        now = _utcnow()
-        base = now
-        current = _parse_iso(user.expires_at)
-        if current and current > now:
-            base = current
-        user.expires_at = (base + timedelta(days=days, minutes=minutes)).isoformat()
+        _stack_expiry(user, days=days, minutes=minutes)
         if plan_id:
             user.plan = plan_id
-        user.disabled = False
         user = await save_user(user)
     return _user_payload(user)
+
+
+@router.post("/panel/api/users/extend-active")
+async def panel_users_extend_active(
+    body: BulkExtendBody,
+    _: str = Depends(require_admin),
+):
+    """Добавить N дней всем со статусом «активен» (не админам / не истёкшим)."""
+    days = int(body.days)
+    users = await get_all_users(use_cache=False)
+    updated = 0
+    skipped = 0
+    for user in users:
+        if _user_status(user) != "active":
+            skipped += 1
+            continue
+        _stack_expiry(user, days=days)
+        await save_user(user)
+        updated += 1
+    logger.info("Bulk extend +%sd: updated=%s skipped=%s", days, updated, skipped)
+    return {
+        "ok": True,
+        "days": days,
+        "updated": updated,
+        "skipped": skipped,
+    }
 
 
 @router.post("/panel/api/users/{telegram_id}/expire")

@@ -369,6 +369,39 @@
     }
   });
 
+  $("#btn-bulk-extend").addEventListener("click", async () => {
+    const days = Math.floor(Number($("#bulk-extend-days").value || 0));
+    const status = $("#bulk-extend-status");
+    const btn = $("#btn-bulk-extend");
+    if (!Number.isFinite(days) || days < 1) {
+      alert("Укажите число дней (минимум 1)");
+      return;
+    }
+    if (
+      !confirm(
+        `Добавить ${days} дн. ВСЕМ пользователям со статусом «активен»?\n\nИстёкшие, отключённые и админы не затронуты.`
+      )
+    ) {
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = "Начисление…";
+    try {
+      const res = await api("/panel/api/users/extend-active", {
+        method: "POST",
+        body: JSON.stringify({ days }),
+      });
+      status.textContent = `Готово: +${res.days} дн. → ${res.updated} активным (пропущено ${res.skipped})`;
+      await loadUsers();
+      if (state.view === "dashboard") await loadDashboard();
+    } catch (err) {
+      status.textContent = "";
+      alert(err.message || String(err));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   $("#btn-broadcast").addEventListener("click", async () => {
     const text = ($("#broadcast-text").value || "").trim();
     const status = $("#broadcast-status");

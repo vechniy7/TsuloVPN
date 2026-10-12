@@ -67,6 +67,13 @@
             <option value="admin">админ</option>
           </select>
         </div>
+        <div class="toolbar bulk-extend">
+          <label for="bulk-extend-days">Всем активным +</label>
+          <input id="bulk-extend-days" type="number" min="1" max="3650" value="1" title="Число дней" />
+          <span class="muted">дн.</span>
+          <button type="button" id="btn-bulk-extend" class="primary">Начислить всем активным</button>
+          <span id="bulk-extend-status" class="muted"></span>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -176,6 +183,6 @@
     </form>
   </dialog>
 
-  <script src="/panel/static/panel.js?v=5"></script>
+  <script src="/panel/static/panel.js?v=6"></script>
 </body>
 </html>
