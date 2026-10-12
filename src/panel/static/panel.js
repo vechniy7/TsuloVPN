@@ -203,6 +203,8 @@
     state.selected = u;
     $("#modal-title").textContent = u.username ? `@${u.username}` : u.full_name || `ID ${u.telegram_id}`;
     $("#modal-note").value = u.note || "";
+    $("#modal-msg").value = "";
+    $("#modal-msg-status").textContent = "";
     $("#modal-device-limit").value = String(u.device_limit || 1);
     const hwids = (u.bound_hwids || []).length
       ? (u.bound_hwids || []).map((h) => escapeHtml(h)).join("<br>")
@@ -261,6 +263,28 @@
         method: "POST",
         body: JSON.stringify({ note: $("#modal-note").value }),
       });
+    }
+    if (name === "message") {
+      const text = ($("#modal-msg").value || "").trim();
+      const status = $("#modal-msg-status");
+      if (!text) {
+        alert("Введите текст сообщения");
+        return;
+      }
+      if (!confirm(`Отправить сообщение пользователю ${id}?`)) return;
+      status.textContent = "Отправка…";
+      try {
+        await api(`/panel/api/users/${id}/message`, {
+          method: "POST",
+          body: JSON.stringify({ text }),
+        });
+        status.textContent = "Отправлено";
+        $("#modal-msg").value = "";
+      } catch (err) {
+        status.textContent = "";
+        throw err;
+      }
+      return;
     }
     await openUser(id);
     if (state.view === "users") await loadUsers();
@@ -366,6 +390,37 @@
       await loadNodes();
     } catch (err) {
       alert(err.message);
+    }
+  });
+
+  $("#btn-dm").addEventListener("click", async () => {
+    const tid = String($("#dm-telegram-id").value || "").trim();
+    const text = ($("#dm-text").value || "").trim();
+    const status = $("#dm-status");
+    const btn = $("#btn-dm");
+    if (!/^\d{5,15}$/.test(tid)) {
+      alert("Укажите корректный Telegram ID");
+      return;
+    }
+    if (!text) {
+      alert("Введите текст сообщения");
+      return;
+    }
+    if (!confirm(`Отправить сообщение пользователю ${tid}?`)) return;
+    btn.disabled = true;
+    status.textContent = "Отправка…";
+    try {
+      await api("/panel/api/message", {
+        method: "POST",
+        body: JSON.stringify({ telegram_id: Number(tid), text }),
+      });
+      status.textContent = `Отправлено · ${tid}`;
+      $("#dm-text").value = "";
+    } catch (err) {
+      status.textContent = "";
+      alert(err.message || String(err));
+    } finally {
+      btn.disabled = false;
     }
   });
 

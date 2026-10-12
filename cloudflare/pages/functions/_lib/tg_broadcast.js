@@ -72,7 +72,8 @@ export async function runBroadcast(token, job) {
   }
 
   const adminId = job && job.admin_id;
-  if (adminId) {
+  const notifyAdmin = !(job && job.notify_admin === false);
+  if (adminId && notifyAdmin) {
     try {
       await tgApi(token, "sendMessage", {
         chat_id: adminId,

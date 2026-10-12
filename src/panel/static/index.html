@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>TsuloVPN Nexus · Панель</title>
-  <link rel="stylesheet" href="/panel/static/panel.css?v=7" />
+  <link rel="stylesheet" href="/panel/static/panel.css?v=8" />
 </head>
 <body>
   <div id="login-view" class="login hidden">
@@ -119,10 +119,22 @@
 
       <section id="view-broadcast" class="view hidden">
         <div class="card">
-          <h3>Рассылка всем пользователям</h3>
-          <p class="muted" id="broadcast-hint">Текст уйдёт в Telegram через Cloudflare. HTML: &lt;b&gt;, &lt;i&gt;, &lt;a&gt;.</p>
+          <h3>Одному пользователю</h3>
+          <p class="muted">Личное сообщение в боте. HTML: &lt;b&gt;, &lt;i&gt;, &lt;a&gt;.</p>
+          <label for="dm-telegram-id">Telegram ID</label>
+          <input id="dm-telegram-id" type="text" inputmode="numeric" placeholder="например 123456789" />
+          <label for="dm-text">Сообщение</label>
+          <textarea id="dm-text" rows="5" maxlength="4000" placeholder="Текст пользователю…"></textarea>
+          <div class="broadcast-actions">
+            <button type="button" id="btn-dm" class="primary">Отправить пользователю</button>
+            <span id="dm-status" class="muted"></span>
+          </div>
+        </div>
+        <div class="card" style="margin-top:12px">
+          <h3>Рассылка всем</h3>
+          <p class="muted" id="broadcast-hint">Текст уйдёт всем в Telegram через Cloudflare. HTML: &lt;b&gt;, &lt;i&gt;, &lt;a&gt;.</p>
           <label for="broadcast-text">Сообщение</label>
-          <textarea id="broadcast-text" rows="8" maxlength="4000" placeholder="Текст рассылки…"></textarea>
+          <textarea id="broadcast-text" rows="8" maxlength="4000" placeholder="Текст рассылки всем…"></textarea>
           <div class="broadcast-actions">
             <button type="button" id="btn-broadcast" class="primary">Отправить всем</button>
             <span id="broadcast-status" class="muted"></span>
@@ -182,9 +194,15 @@
         <input id="modal-note" type="text" maxlength="500" />
         <button type="button" data-act="note" class="ghost">Сохранить</button>
       </div>
+      <label class="note-label" for="modal-msg">Сообщение в боте</label>
+      <textarea id="modal-msg" rows="3" maxlength="4000" placeholder="Текст пользователю в Telegram…"></textarea>
+      <div class="note-row" style="margin-top:8px">
+        <button type="button" data-act="message" class="primary">Отправить сообщение</button>
+        <span id="modal-msg-status" class="muted"></span>
+      </div>
     </form>
   </dialog>
 
-  <script src="/panel/static/panel.js?v=7"></script>
+  <script src="/panel/static/panel.js?v=8"></script>
 </body>
 </html>

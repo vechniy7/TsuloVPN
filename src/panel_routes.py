@@ -30,6 +30,7 @@ from devices import (
     user_device_limit,
 )
 from broadcast import (
+    build_direct_message_job,
     build_text_broadcast_job,
     dispatch_broadcast_to_edge,
     is_panel_broadcast_running,
@@ -79,6 +80,11 @@ class DeviceLimitBody(BaseModel):
 
 class BroadcastBody(BaseModel):
     text: str = Field(default="", max_length=4000)
+
+
+class DirectMessageBody(BaseModel):
+    text: str = Field(default="", max_length=4000)
+    telegram_id: int | None = None
 
 
 def _utcnow() -> datetime:
@@ -517,6 +523,54 @@ async def panel_user_note(
     user.note = (body.note or "").strip()[:500] or None
     user = await save_user(user)
     return _user_payload(user)
+
+
+async def _send_user_telegram_message(telegram_id: int, text: str) -> dict:
+    user = await get_user(telegram_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    body = (text or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Введите текст сообщения")
+    if not config.ADMINS:
+        raise HTTPException(status_code=500, detail="ADMINS не заданы")
+
+    admin_id = int(config.ADMINS[0])
+    try:
+        job = build_direct_message_job(admin_id, telegram_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        edge = await dispatch_broadcast_to_edge(job)
+    except Exception as exc:
+        logger.exception("panel direct message failed tg=%s", telegram_id)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {
+        "ok": True,
+        "telegram_id": telegram_id,
+        "edge": edge,
+        "hint": "Сообщение уходит через Cloudflare в Telegram.",
+    }
+
+
+@router.post("/panel/api/users/{telegram_id}/message")
+async def panel_user_message(
+    telegram_id: int,
+    body: DirectMessageBody,
+    _: str = Depends(require_admin),
+):
+    """Отправить текст в бота конкретному пользователю (через Cloudflare)."""
+    return await _send_user_telegram_message(telegram_id, body.text)
+
+
+@router.post("/panel/api/message")
+async def panel_direct_message(body: DirectMessageBody, _: str = Depends(require_admin)):
+    """Сообщение одному пользователю по telegram_id (со страницы «Рассылка»)."""
+    if body.telegram_id is None:
+        raise HTTPException(status_code=400, detail="Укажите telegram_id")
+    return await _send_user_telegram_message(int(body.telegram_id), body.text)
 
 
 @router.get("/panel/api/orders")

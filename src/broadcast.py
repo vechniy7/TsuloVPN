@@ -177,6 +177,24 @@ async def build_text_broadcast_job(admin_id: int, text: str) -> dict:
     return await build_broadcast_job(admin_id, draft)
 
 
+def build_direct_message_job(admin_id: int, telegram_id: int, text: str) -> dict:
+    """Одно сообщение конкретному пользователю через Cloudflare edge."""
+    body = (text or "").strip()
+    if not body:
+        raise ValueError("Пустой текст сообщения")
+    chat_id = int(telegram_id)
+    return {
+        "admin_id": int(admin_id),
+        "recipients": [chat_id],
+        "text": body,
+        "caption": None,
+        "photo_file_id": None,
+        "parse_mode": "HTML",
+        "total": 1,
+        "notify_admin": False,
+    }
+
+
 async def dispatch_broadcast_to_edge(job: dict) -> dict:
     """POST job на Cloudflare Pages /telegram/broadcast."""
     if not config.ADMIN_PANEL_TOKEN:
