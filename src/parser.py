@@ -1061,11 +1061,24 @@ def brand_bypass_uris(
 
 
 def renumber_mobile_profiles(profiles: list[dict]) -> list[dict]:
-    """Обход из ключа не трогаем — оставляем исходные имена (LTE → ОБХОД и т.п.).
-
-    Раньше всё сводилось к «Мобильный Интернет #N»; теперь сохраняем remarks как есть.
-    """
-    return [p for p in profiles if isinstance(p, dict)]
+    """Переименовать обходные серверы в «Мобильный Интернет #N» (+ 🔥/⚡)."""
+    mobile_idx = 0
+    result: list[dict] = []
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        remark = str(profile.get("remarks") or profile.get("remark") or "")
+        if is_mobile_bypass_remark(remark):
+            mobile_idx += 1
+            cloned = copy.deepcopy(profile)
+            cloned["remarks"] = mobile_internet_label(
+                mobile_idx,
+                marker=bypass_marker_from_remark(remark),
+            )
+            result.append(cloned)
+        else:
+            result.append(profile)
+    return result
 
 
 def should_skip_profile(name: str) -> bool:
@@ -2104,18 +2117,16 @@ def brand_config(uri: str, label: str) -> str:
 
 
 def unique_source_labels(uris: list[str]) -> list[str]:
-    """Обычные → страна (+ #2); обходные — исходное имя из ключа."""
+    """Обычные → страна (+ #2); обход → «Мобильный Интернет #N»."""
     used: set[str] = set()
     result: list[str] = []
+    mobile_idx = 0
     for idx, uri in enumerate(uris, start=1):
         original = urllib.parse.unquote(uri.split("#", 1)[1]).strip() if "#" in uri else ""
         if original and is_bypass_profile_name(original):
-            # Мобильный обход — не переименовываем.
-            label = original
-            key = label.lower()
-            if key in used:
-                continue
-            used.add(key)
+            mobile_idx += 1
+            label = mobile_internet_label(mobile_idx)
+            used.add(label.lower())
         else:
             label = restyle_server_name(original) if original else None
             if not label:
