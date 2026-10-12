@@ -212,20 +212,6 @@ def build_direct_message_job(admin_id: int, telegram_id: int, text: str) -> dict
     }
 
 
-def _edge_auth_token() -> str:
-    """Токен для Cloudflare /telegram/broadcast.
-
-    Сначала ADMIN_PANEL_TOKEN, иначе BOT_TOKEN (Pages уже хранит BOT_TOKEN для webhook).
-    """
-    panel = (config.ADMIN_PANEL_TOKEN or "").strip()
-    if panel:
-        return panel
-    bot = (config.BOT_TOKEN or "").strip()
-    if bot:
-        return bot
-    raise RuntimeError("Нужен ADMIN_PANEL_TOKEN или BOT_TOKEN для рассылки")
-
-
 async def dispatch_broadcast_to_edge(job: dict) -> dict:
     """POST job на Cloudflare Pages /telegram/broadcast."""
     url = edge_broadcast_url()
