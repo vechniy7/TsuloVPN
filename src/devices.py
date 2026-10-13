@@ -35,14 +35,65 @@ def user_device_limit(user) -> int:
     return clamp_device_limit(raw)
 
 
-def bound_hwid_list(user) -> list[str]:
+def _hwid_as_str(item) -> str:
+    if isinstance(item, dict):
+        return str(item.get("hwid") or "").strip()
+    return str(item or "").strip()
+
+
+def bound_device_records(user) -> list[dict]:
+    """Список устройств: [{hwid, name?, os?, last_seen?}, …]."""
     if user is None:
         return []
     items = getattr(user, "bound_hwids", None)
+    out: list[dict] = []
     if isinstance(items, list) and items:
-        return [str(x).strip() for x in items if str(x).strip()]
+        for x in items:
+            if isinstance(x, dict):
+                h = str(x.get("hwid") or "").strip()
+                if not h:
+                    continue
+                rec = {"hwid": h}
+                for key in ("name", "os", "last_seen"):
+                    val = str(x.get(key) or "").strip()
+                    if val:
+                        rec[key] = val
+                out.append(rec)
+            else:
+                h = str(x or "").strip()
+                if h:
+                    out.append({"hwid": h})
+        return out
     legacy = (getattr(user, "bound_hwid", None) or "").strip()
-    return [legacy] if legacy else []
+    return [{"hwid": legacy}] if legacy else []
+
+
+def bound_hwid_list(user) -> list[str]:
+    return [r["hwid"] for r in bound_device_records(user) if r.get("hwid")]
+
+
+def format_device_label(record: dict | str, index: int = 0) -> str:
+    """Короткое имя: Устройство 1 · iPhone · …a1b2c3d4"""
+    if isinstance(record, dict):
+        h = str(record.get("hwid") or "").strip()
+        name = str(record.get("name") or "").strip()
+        os_name = str(record.get("os") or "").strip()
+    else:
+        h = str(record or "").strip()
+        name = ""
+        os_name = ""
+    short = h[-8:] if len(h) > 8 else h
+    pretty = name or os_name
+    if pretty:
+        # Обрезаем длинные модели под кнопку Telegram (≤64).
+        pretty = pretty[:28]
+        return f"Устройство {index + 1} · {pretty} · …{short}"
+    return f"Устройство {index + 1} · …{short}"
+
+
+def format_hwid_label(hwid: str, index: int = 0) -> str:
+    """Короткое имя для клиента: Устройство 1 · …a1b2c3d4"""
+    return format_device_label({"hwid": hwid}, index)
 
 
 def slot_price(slot_number: int) -> int:

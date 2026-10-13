@@ -448,6 +448,58 @@ async def devices_callback(callback: CallbackQuery) -> None:
     )
 
 
+@router.callback_query(F.data.startswith("rm_hwid:"))
+async def remove_hwid_callback(callback: CallbackQuery) -> None:
+    from database import remove_user_hwid
+    from devices import bound_device_records, format_device_label
+
+    user = await get_user(callback.from_user.id)
+    if not user:
+        await callback.answer()
+        return
+    if (
+        config.payments_active
+        and not is_subscription_active(user)
+        and not _is_admin(user, user.telegram_id)
+    ):
+        await callback.answer("Сначала оформите подписку", show_alert=True)
+        return
+
+    raw = (callback.data or "").split(":", 1)[-1]
+    try:
+        index = int(raw)
+    except ValueError:
+        await callback.answer("Некорректное устройство", show_alert=True)
+        return
+
+    records = bound_device_records(user)
+    if index < 0 or index >= len(records):
+        await callback.answer("Устройство уже удалено", show_alert=True)
+        user = await get_user(callback.from_user.id)
+        if user and callback.message:
+            await render_screen(
+                callback.message,
+                caption=ui.screen_devices(user),
+                markup=ui.kb_devices(user),
+                screen="tariffs",
+                edit=True,
+            )
+        return
+
+    label = format_device_label(records[index], index)
+    await remove_user_hwid(callback.from_user.id, index=index)
+    user = await get_user(callback.from_user.id)
+    await callback.answer("Устройство отвязано", show_alert=True)
+    if user and callback.message:
+        await render_screen(
+            callback.message,
+            caption=ui.screen_hwid_removed(user, label),
+            markup=ui.kb_devices(user),
+            screen="tariffs",
+            edit=True,
+        )
+
+
 @router.callback_query(F.data == "reset_hwid")
 async def reset_hwid_callback(callback: CallbackQuery) -> None:
     from database import reset_user_hwid

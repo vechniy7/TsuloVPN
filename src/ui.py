@@ -151,10 +151,24 @@ def kb_access(
 
 
 def kb_devices(user: User) -> InlineKeyboardMarkup:
-    from devices import addon_options, pack_plan_id
+    from devices import (
+        addon_options,
+        bound_device_records,
+        format_device_label,
+        pack_plan_id,
+    )
     from payments import is_subscription_active
 
     b = InlineKeyboardBuilder()
+    records = bound_device_records(user)
+    for i, rec in enumerate(records):
+        label = format_device_label(rec, i)
+        # Кнопка удаления одного устройства
+        btn = f"🗑 {label}"
+        if len(btn) > 64:
+            btn = f"🗑 Устр. {i + 1} · …{(rec.get('hwid') or '')[-8:]}"
+        b.button(text=btn, callback_data=f"rm_hwid:{i}")
+
     active = is_subscription_active(user) if config.payments_active else True
     if active:
         for opt in addon_options(user):
@@ -171,7 +185,8 @@ def kb_devices(user: User) -> InlineKeyboardMarkup:
                 text=f"📱 {limit} {word} · {price} ₽ / мес",
                 callback_data=f"order:{pack_plan_id(limit)}",
             )
-    b.button(text="🔓  Сбросить привязки (HWID)", callback_data="reset_hwid")
+    if records:
+        b.button(text="🔓  Сбросить все привязки", callback_data="reset_hwid")
     b.button(text="💜  Все пакеты", callback_data="tariffs")
     b.button(text="🔑  К ключу", callback_data="get_key")
     b.button(text="◀️  В меню", callback_data="back_to_menu")
@@ -412,7 +427,8 @@ def screen_devices(user: User) -> str:
         FIRST_EXTRA_SLOT_PRICE,
         MAX_DEVICE_SLOTS,
         addon_options,
-        bound_hwid_list,
+        bound_device_records,
+        format_device_label,
         monthly_price_for_user,
         pack_price,
         slot_price,
@@ -421,7 +437,8 @@ def screen_devices(user: User) -> str:
     from payments import is_subscription_active
 
     limit = user_device_limit(user)
-    used = len(bound_hwid_list(user))
+    records = bound_device_records(user)
+    used = len(records)
     month = monthly_price_for_user(user)
     active = is_subscription_active(user) if config.payments_active else True
 
@@ -429,6 +446,34 @@ def screen_devices(user: User) -> str:
     if limit > 1:
         parts = [f"слот {n}: {slot_price(n)} ₽" for n in range(2, limit + 1)]
         extras = "Доп. слоты в цене: " + ", ".join(parts) + ".\n"
+
+    if records:
+        lines = []
+        for i, rec in enumerate(records):
+            label = format_device_label(rec, i)
+            seen = ""
+            raw_seen = str(rec.get("last_seen") or "").strip()
+            if raw_seen:
+                try:
+                    from datetime import datetime, timezone
+
+                    dt = datetime.fromisoformat(raw_seen)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    seen = f" · был {dt.astimezone().strftime('%d.%m %H:%M')}"
+                except ValueError:
+                    seen = ""
+            lines.append(f"{i + 1}. {_esc(label)}{seen}")
+        devices_block = (
+            "<b>Сейчас на ключе:</b>\n"
+            + "\n".join(lines)
+            + "\n\nНажмите <b>🗑</b> на кнопке ниже, чтобы отвязать устройство.\n"
+        )
+    else:
+        devices_block = (
+            "<b>Сейчас на ключе:</b> пусто.\n"
+            "Устройства появятся после обновления подписки в Happ.\n"
+        )
 
     if not active:
         buy_block = (
@@ -453,13 +498,26 @@ def screen_devices(user: User) -> str:
     return (
         f"💜 <b>Устройства</b>\n"
         f"━━━━━━━━━━━━━━━━\n\n"
-        f"Сейчас привязано: <b>{used} / {limit}</b>\n"
+        f"Слоты: <b>{used} / {limit}</b>\n"
+        f"{devices_block}\n"
         f"База — 1 устройство ({BASE_MONTHLY_PRICE} ₽/мес).\n"
         f"Первый доп. слот — {FIRST_EXTRA_SLOT_PRICE} ₽, каждый следующий +5 ₽.\n"
         f"{extras}"
         f"Ваше продление сейчас: <b>{month} ₽/мес</b>.\n"
-        f"{buy_block}\n"
-        f"<b>Сброс привязок</b> — освобождает слоты (лимит и цена не меняются)."
+        f"{buy_block}"
+    )
+
+
+def screen_hwid_removed(user: User, label: str) -> str:
+    from devices import bound_device_records, user_device_limit
+
+    used = len(bound_device_records(user))
+    return (
+        f"💜 <b>Устройство отвязано</b>\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"Удалено: <b>{_esc(label)}</b>\n"
+        f"Слоты: <b>{used} / {user_device_limit(user)}</b>\n\n"
+        f"На этом слоте можно заново добавить ключ в Happ."
     )
 
 

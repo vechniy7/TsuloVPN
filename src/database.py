@@ -662,12 +662,22 @@ def normalize_client_hwid(raw: str | None) -> str:
     return hwid[:128]
 
 
-async def check_and_bind_hwid(telegram_id: int, client_hwid: str) -> tuple[User | None, str | None]:
-    from devices import bound_hwid_list, user_device_limit
+async def check_and_bind_hwid(
+    telegram_id: int,
+    client_hwid: str,
+    *,
+    device_name: str | None = None,
+    device_os: str | None = None,
+) -> tuple[User | None, str | None]:
+    from devices import bound_device_records, user_device_limit
 
     hwid = normalize_client_hwid(client_hwid)
     if not config.DEVICE_LIMIT_ENABLED:
         return await get_user(telegram_id), None
+
+    name = (device_name or "").strip()[:64]
+    os_name = (device_os or "").strip()[:64]
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     def _check():
         with _db_lock:
@@ -683,15 +693,37 @@ async def check_and_bind_hwid(telegram_id: int, client_hwid: str) -> tuple[User 
             limit = user_device_limit(user)
             if limit <= 0:
                 return user, None, False
-            hwids = bound_hwid_list(user)
-            if hwid in hwids:
-                return user, None, False
-            if len(hwids) >= limit:
+            records = bound_device_records(user)
+            for rec in records:
+                if rec.get("hwid") == hwid:
+                    # Уже привязано — обновим last_seen / имя модели.
+                    changed = False
+                    if rec.get("last_seen") != now_iso:
+                        rec["last_seen"] = now_iso
+                        changed = True
+                    if name and rec.get("name") != name:
+                        rec["name"] = name
+                        changed = True
+                    if os_name and rec.get("os") != os_name:
+                        rec["os"] = os_name
+                        changed = True
+                    if changed:
+                        user.bound_hwids = records
+                        user.bound_hwid = records[0]["hwid"]
+                        _upsert_user(conn, user)
+                        conn.commit()
+                    return user, None, changed
+            if len(records) >= limit:
                 return user, "hwid_limit", False
-            hwids.append(hwid)
-            user.bound_hwids = hwids
-            user.bound_hwid = hwids[0]
-            user.hwid_bound_at = datetime.now(timezone.utc).isoformat()
+            rec = {"hwid": hwid, "last_seen": now_iso}
+            if name:
+                rec["name"] = name
+            if os_name:
+                rec["os"] = os_name
+            records.append(rec)
+            user.bound_hwids = records
+            user.bound_hwid = records[0]["hwid"]
+            user.hwid_bound_at = now_iso
             _upsert_user(conn, user)
             conn.commit()
             return user, None, True
@@ -724,8 +756,60 @@ async def reset_user_hwid(telegram_id: int) -> User | None:
     return user
 
 
+async def remove_user_hwid(
+    telegram_id: int,
+    *,
+    index: int | None = None,
+    hwid: str | None = None,
+) -> User | None:
+    """Удалить одно устройство из привязок (по индексу или по HWID)."""
+    from devices import bound_device_records
+
+    target = normalize_client_hwid(hwid or "")
+
+    def _remove():
+        with _db_lock:
+            conn = _connect()
+            row = conn.execute(
+                "SELECT * FROM users WHERE telegram_id=?", (int(telegram_id),)
+            ).fetchone()
+            user = _row_to_user(row)
+            if not user:
+                return None
+            records = bound_device_records(user)
+            if not records:
+                return user
+            remove_at = None
+            if index is not None:
+                try:
+                    i = int(index)
+                except (TypeError, ValueError):
+                    i = -1
+                if 0 <= i < len(records):
+                    remove_at = i
+            elif target:
+                for i, rec in enumerate(records):
+                    if rec.get("hwid") == target:
+                        remove_at = i
+                        break
+            if remove_at is None:
+                return user
+            records.pop(remove_at)
+            user.bound_hwids = records or None
+            user.bound_hwid = records[0]["hwid"] if records else None
+            if not records:
+                user.hwid_bound_at = None
+            _upsert_user(conn, user)
+            conn.commit()
+            return user
+
+    user = await _run(_remove)
+    _invalidate_users_cache()
+    return user
+
+
 async def set_user_device_limit(telegram_id: int, limit: int) -> User | None:
-    from devices import bound_hwid_list, clamp_device_limit
+    from devices import bound_device_records, clamp_device_limit
 
     def _set():
         with _db_lock:
@@ -737,11 +821,11 @@ async def set_user_device_limit(telegram_id: int, limit: int) -> User | None:
             if not user:
                 return None
             user.device_limit = clamp_device_limit(limit)
-            hwids = bound_hwid_list(user)
-            if len(hwids) > user.device_limit:
-                hwids = hwids[: user.device_limit]
-                user.bound_hwids = hwids or None
-                user.bound_hwid = hwids[0] if hwids else None
+            records = bound_device_records(user)
+            if len(records) > user.device_limit:
+                records = records[: user.device_limit]
+                user.bound_hwids = records or None
+                user.bound_hwid = records[0]["hwid"] if records else None
             _upsert_user(conn, user)
             conn.commit()
             return user
