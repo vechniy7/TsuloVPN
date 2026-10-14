@@ -19,13 +19,16 @@ from database import (
     get_user,
     get_user_count,
     regenerate_user_token,
+    remove_user_hwid,
     reset_user_hwid,
     save_user,
     set_user_device_limit,
 )
 from devices import (
     MAX_DEVICE_SLOTS,
+    bound_device_records,
     bound_hwid_list,
+    format_device_label,
     monthly_price_for_user,
     user_device_limit,
 )
@@ -76,6 +79,11 @@ class NoteBody(BaseModel):
 
 class DeviceLimitBody(BaseModel):
     device_limit: int = Field(ge=1, le=MAX_DEVICE_SLOTS)
+
+
+class RemoveHwidBody(BaseModel):
+    index: int | None = Field(default=None, ge=0, le=20)
+    hwid: str | None = None
 
 
 class BroadcastBody(BaseModel):
@@ -144,6 +152,17 @@ def _user_payload(user) -> dict[str, Any]:
         "note": user.note or "",
         "bound_hwid": user.bound_hwid or "",
         "bound_hwids": bound_hwid_list(user),
+        "devices": [
+            {
+                "index": i,
+                "hwid": rec.get("hwid") or "",
+                "name": rec.get("name") or "",
+                "os": rec.get("os") or "",
+                "last_seen": rec.get("last_seen") or "",
+                "label": format_device_label(rec, i),
+            }
+            for i, rec in enumerate(bound_device_records(user))
+        ],
         "hwid_bound_at": user.hwid_bound_at,
         "device_limit": user_device_limit(user),
         "devices_used": len(bound_hwid_list(user)),
@@ -494,6 +513,25 @@ async def panel_user_regen(telegram_id: int, _: str = Depends(require_admin)):
 @router.post("/panel/api/users/{telegram_id}/reset-hwid")
 async def panel_user_reset_hwid(telegram_id: int, _: str = Depends(require_admin)):
     user = await reset_user_hwid(telegram_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _user_payload(user)
+
+
+@router.post("/panel/api/users/{telegram_id}/remove-hwid")
+async def panel_user_remove_hwid(
+    telegram_id: int,
+    body: RemoveHwidBody,
+    _: str = Depends(require_admin),
+):
+    """Отвязать одно устройство по индексу или HWID."""
+    if body.index is None and not (body.hwid or "").strip():
+        raise HTTPException(status_code=400, detail="Укажите index или hwid")
+    user = await remove_user_hwid(
+        telegram_id,
+        index=body.index,
+        hwid=(body.hwid or "").strip() or None,
+    )
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return _user_payload(user)

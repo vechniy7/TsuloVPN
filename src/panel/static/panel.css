@@ -438,6 +438,20 @@ dialog::backdrop {
   align-items: center;
   margin-bottom: 12px;
 }
+.devices-row { align-items: start !important; }
+.device-list { display: grid; gap: 8px; width: 100%; }
+.device-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(12, 6, 22, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.device-item .muted { font-size: 12px; word-break: break-all; }
+.device-item button { flex: 0 0 auto; }
 .device-row label { color: var(--muted); font-size: 13px; }
 .device-row select {
   background: rgba(12, 6, 22, 0.75);

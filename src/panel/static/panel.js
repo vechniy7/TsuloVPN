@@ -206,9 +206,20 @@
     $("#modal-msg").value = "";
     $("#modal-msg-status").textContent = "";
     $("#modal-device-limit").value = String(u.device_limit || 1);
-    const hwids = (u.bound_hwids || []).length
-      ? (u.bound_hwids || []).map((h) => escapeHtml(h)).join("<br>")
-      : "— не привязаны";
+    const devices = Array.isArray(u.devices) ? u.devices : [];
+    const devicesHtml = devices.length
+      ? `<div class="device-list">${devices
+          .map(
+            (d) => `<div class="device-item">
+              <div>
+                <b>${escapeHtml(d.label || d.hwid || "устройство")}</b>
+                <div class="muted">${escapeHtml(d.hwid || "")}${d.last_seen ? ` · ${fmtTs(d.last_seen)}` : ""}</div>
+              </div>
+              <button type="button" class="danger" data-rm-hwid="${d.index}">Удалить</button>
+            </div>`
+          )
+          .join("")}</div>`
+      : `<div class="muted">— не привязаны</div>`;
     $("#modal-body").innerHTML = `
       <div class="row"><b>Telegram ID</b><span>${u.telegram_id}</span></div>
       <div class="row"><b>Статус</b><span class="pill ${u.status}">${statusLabel(u.status)}</span></div>
@@ -219,7 +230,7 @@
       <div class="row"><b>Продление</b><span>${u.monthly_price_rub ?? "—"} ₽/мес</span></div>
       <div class="row"><b>Обновления ключа</b><span>${u.sub_fetch_count} · ${fmtTs(u.last_seen_at)}</span></div>
       <div class="row"><b>Регистрация</b><span>${fmtTs(u.registration_date)}</span></div>
-      <div class="row"><b>HWID</b><code>${hwids}</code></div>
+      <div class="row devices-row"><b>На ключе</b><div>${devicesHtml}</div></div>
       <div class="row"><b>Токен</b><code>${escapeHtml(u.subscription_token)}</code></div>
       <div class="row"><b>URL ключа</b><code id="modal-url">${escapeHtml(u.subscription_url)}</code></div>
       <div class="row"><b>Запасной URL</b><code>${escapeHtml(u.subscription_fallback_url || "—")}</code></div>
@@ -384,6 +395,25 @@
   $$("#user-form [data-act]").forEach((b) =>
     b.addEventListener("click", () => act(b.dataset.act).catch((err) => alert(err.message)))
   );
+  $("#modal-body").addEventListener("click", async (e) => {
+    const btn = e.target?.closest?.("[data-rm-hwid]");
+    if (!btn) return;
+    const id = state.selectedId;
+    if (!id) return;
+    const index = Number(btn.dataset.rmHwid);
+    if (!Number.isFinite(index)) return;
+    if (!confirm(`Отвязать устройство #${index + 1}?`)) return;
+    try {
+      await api(`/panel/api/users/${id}/remove-hwid`, {
+        method: "POST",
+        body: JSON.stringify({ index }),
+      });
+      await openUser(id);
+      if (state.view === "users") await loadUsers();
+    } catch (err) {
+      alert(err.message || String(err));
+    }
+  });
   $("#btn-pool-refresh").addEventListener("click", async () => {
     try {
       await api("/panel/api/pool/refresh", { method: "POST", body: "{}" });
