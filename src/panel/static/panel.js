@@ -210,13 +210,21 @@
     const devicesHtml = devices.length
       ? `<div class="device-list">${devices
           .map(
-            (d) => `<div class="device-item">
+            (d) => {
+              const title = d.label || d.name || "устройство";
+              const hid = String(d.hwid || "");
+              const short = hid.length > 10 ? `…${hid.slice(-8)}` : hid;
+              const meta = [d.os, short, d.last_seen ? fmtTs(d.last_seen) : ""]
+                .filter(Boolean)
+                .join(" · ");
+              return `<div class="device-item">
               <div>
-                <b>${escapeHtml(d.label || d.hwid || "устройство")}</b>
-                <div class="muted">${escapeHtml(d.hwid || "")}${d.last_seen ? ` · ${fmtTs(d.last_seen)}` : ""}</div>
+                <b>${escapeHtml(title)}</b>
+                <div class="muted">${escapeHtml(meta)}</div>
               </div>
               <button type="button" class="danger" data-rm-hwid="${d.index}">Удалить</button>
-            </div>`
+            </div>`;
+            }
           )
           .join("")}</div>`
       : `<div class="muted">— не привязаны</div>`;

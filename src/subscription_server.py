@@ -319,6 +319,8 @@ async def subscription(token: str, request: Request):
             request.headers.get("x-device-model")
             or request.headers.get("X-Device-Model")
             or request.headers.get("x-model")
+            or request.headers.get("x-device-name")
+            or request.headers.get("x-device")
             or ""
         )
         device_os = (
@@ -327,11 +329,13 @@ async def subscription(token: str, request: Request):
             or request.headers.get("x-os")
             or ""
         )
+        user_agent = request.headers.get("user-agent") or request.headers.get("User-Agent") or ""
         user, hwid_reason = await check_and_bind_hwid(
             user.telegram_id,
             client_hwid,
             device_name=device_name,
             device_os=device_os,
+            user_agent=user_agent,
         )
         if hwid_reason:
             reason = hwid_reason

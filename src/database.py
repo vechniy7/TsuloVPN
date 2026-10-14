@@ -132,20 +132,16 @@ def _parse_user_dict(data: dict) -> User | None:
             data["device_limit"] = None
     else:
         data["device_limit"] = None
-    hwids = data.get("bound_hwids")
-    if isinstance(hwids, str):
-        try:
-            hwids = json.loads(hwids)
-        except json.JSONDecodeError:
-            hwids = [hwids] if hwids.strip() else []
-    if not isinstance(hwids, list):
-        hwids = []
-    hwids = [str(x).strip() for x in hwids if str(x).strip()]
-    legacy = (data.get("bound_hwid") or "").strip()
-    if legacy and legacy not in hwids:
-        hwids.insert(0, legacy)
-    data["bound_hwids"] = hwids or None
-    data["bound_hwid"] = hwids[0] if hwids else None
+    # ВАЖНО: не делать str(dict) — это плодило фейковые HWID вида "{'hwid': '…'}".
+    from devices import extract_raw_hwid, normalize_device_records
+
+    raw_hwids = data.get("bound_hwids")
+    records = normalize_device_records(raw_hwids)
+    legacy = extract_raw_hwid(data.get("bound_hwid") or "")
+    if legacy and not any(r.get("hwid") == legacy for r in records):
+        records.insert(0, {"hwid": legacy})
+    data["bound_hwids"] = records or None
+    data["bound_hwid"] = records[0]["hwid"] if records else None
     allowed = {f.name for f in fields(User)}
     return User(**{k: v for k, v in data.items() if k in allowed})
 
@@ -391,12 +387,43 @@ def _import_seed_if_needed(conn: sqlite3.Connection) -> None:
     )
 
 
+def _repair_corrupted_hwids(conn: sqlite3.Connection) -> int:
+    """Схлопнуть вложенные str(dict) HWID в БД (баг старого str(x) в _parse_user_dict)."""
+    from devices import extract_raw_hwid, normalize_device_records
+
+    fixed = 0
+    rows = conn.execute(
+        "SELECT telegram_id, bound_hwid, bound_hwids FROM users "
+        "WHERE bound_hwids IS NOT NULL OR bound_hwid IS NOT NULL"
+    ).fetchall()
+    for row in rows:
+        raw_json = row["bound_hwids"]
+        records = normalize_device_records(raw_json)
+        legacy = extract_raw_hwid(row["bound_hwid"] or "")
+        if legacy and not any(r.get("hwid") == legacy for r in records):
+            records.insert(0, {"hwid": legacy})
+        new_json = json.dumps(records, ensure_ascii=False) if records else None
+        new_bound = records[0]["hwid"] if records else None
+        old_bound = (row["bound_hwid"] or None) or None
+        if new_json != raw_json or new_bound != old_bound:
+            conn.execute(
+                "UPDATE users SET bound_hwids=?, bound_hwid=? WHERE telegram_id=?",
+                (new_json, new_bound, int(row["telegram_id"])),
+            )
+            fixed += 1
+    if fixed:
+        conn.commit()
+        logger.info("Repaired nested/corrupt bound_hwids for %s users", fixed)
+    return fixed
+
+
 async def init_db() -> None:
     def _init():
         with _db_lock:
             conn = _connect()
             _ensure_schema(conn)
             _import_seed_if_needed(conn)
+            _repair_corrupted_hwids(conn)
             users = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
             orders = conn.execute("SELECT COUNT(*) AS c FROM orders").fetchone()["c"]
             logger.info("SQLite ready (%s users, %s orders)", users, orders)
@@ -654,12 +681,24 @@ async def regenerate_user_token(telegram_id: int) -> User | None:
 
 
 def normalize_client_hwid(raw: str | None) -> str:
-    if not raw or not isinstance(raw, str):
+    """Только чистый HWID. Нельзя str(dict) — это и давало 7 «устройств» вместо 1."""
+    if raw is None:
+        return ""
+    from devices import extract_raw_hwid
+
+    extracted = extract_raw_hwid(raw)
+    if extracted:
+        return extracted
+    if not isinstance(raw, str):
+        return ""
+    s = raw.strip()
+    # Явный мусор от старого парсера — не принимать как id.
+    if not s or s.startswith("{") or ("hwid" in s and ("'" in s or '"' in s)):
         return ""
     import re
 
-    hwid = re.sub(r"[^a-zA-Z0-9=\-_.:]", "", raw.strip())
-    return hwid[:128]
+    hwid = re.sub(r"[^a-zA-Z0-9=\-_.:]", "", s)
+    return hwid[:128] if len(hwid) >= 6 else ""
 
 
 async def check_and_bind_hwid(
@@ -668,15 +707,22 @@ async def check_and_bind_hwid(
     *,
     device_name: str | None = None,
     device_os: str | None = None,
+    user_agent: str | None = None,
 ) -> tuple[User | None, str | None]:
-    from devices import bound_device_records, user_device_limit
+    from devices import (
+        bound_device_records,
+        extract_raw_hwid,
+        friendly_device_name,
+        normalize_device_records,
+        user_device_limit,
+    )
 
-    hwid = normalize_client_hwid(client_hwid)
+    hwid = extract_raw_hwid(client_hwid) or normalize_client_hwid(client_hwid)
     if not config.DEVICE_LIMIT_ENABLED:
         return await get_user(telegram_id), None
 
-    name = (device_name or "").strip()[:64]
     os_name = (device_os or "").strip()[:64]
+    name = friendly_device_name(device_name, os_name, user_agent=user_agent)[:64]
     now_iso = datetime.now(timezone.utc).isoformat()
 
     def _check():
@@ -693,17 +739,33 @@ async def check_and_bind_hwid(
             limit = user_device_limit(user)
             if limit <= 0:
                 return user, None, False
-            records = bound_device_records(user)
+            # Сравниваем с сырым JSON из БД: _parse_user_dict уже чистит in-memory.
+            raw_db = row["bound_hwids"] if row is not None else None
+            records = normalize_device_records(
+                list(user.bound_hwids or []) if user.bound_hwids else raw_db
+            )
+            repaired_json = (
+                json.dumps(records, ensure_ascii=False) if records else None
+            ) != (raw_db or None)
+
             for rec in records:
                 if rec.get("hwid") == hwid:
-                    # Уже привязано — обновим last_seen / имя модели.
-                    changed = False
+                    changed = repaired_json
                     if rec.get("last_seen") != now_iso:
                         rec["last_seen"] = now_iso
                         changed = True
+                    # Обновляем имя, если пришло человекочитаемое / лучше заводского кода.
                     if name and rec.get("name") != name:
-                        rec["name"] = name
-                        changed = True
+                        from devices import is_factory_model_code
+
+                        prev = str(rec.get("name") or "")
+                        if (
+                            not prev
+                            or (is_factory_model_code(prev) and not is_factory_model_code(name))
+                            or (not is_factory_model_code(name) and len(name) >= len(prev))
+                        ):
+                            rec["name"] = name
+                            changed = True
                     if os_name and rec.get("os") != os_name:
                         rec["os"] = os_name
                         changed = True
@@ -714,6 +776,12 @@ async def check_and_bind_hwid(
                         conn.commit()
                     return user, None, changed
             if len(records) >= limit:
+                if repaired_json:
+                    user.bound_hwids = records
+                    user.bound_hwid = records[0]["hwid"] if records else None
+                    _upsert_user(conn, user)
+                    conn.commit()
+                    return user, "hwid_limit", True
                 return user, "hwid_limit", False
             rec = {"hwid": hwid, "last_seen": now_iso}
             if name:

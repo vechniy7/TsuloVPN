@@ -163,10 +163,10 @@ def kb_devices(user: User) -> InlineKeyboardMarkup:
     records = bound_device_records(user)
     for i, rec in enumerate(records):
         label = format_device_label(rec, i)
-        # Кнопка удаления одного устройства
+        # Имя устройства (Xiaomi 14T Pro), не сырой HWID
         btn = f"🗑 {label}"
         if len(btn) > 64:
-            btn = f"🗑 Устр. {i + 1} · …{(rec.get('hwid') or '')[-8:]}"
+            btn = f"🗑 {label[:40]}"
         b.button(text=btn, callback_data=f"rm_hwid:{i}")
 
     active = is_subscription_active(user) if config.payments_active else True
