@@ -599,6 +599,164 @@ def split_profiles_main_and_bypass(profiles: list[dict]) -> tuple[list[dict], li
     return main, bypass
 
 
+def is_reserve_profile_name(name: str) -> bool:
+    """Резервные ноды из доп. ключа — не показываем."""
+    compact = " ".join((name or "").lower().split())
+    return "резервн" in compact
+
+
+def is_only_wifi_auto_name(name: str) -> bool:
+    """«Авто» / автовыбор из VPN_ONLY_WIFI_SOURCE_URL."""
+    if is_source_auto_profile_name(name):
+        return True
+    compact = _name_compact(name)
+    flat = compact.replace(" ", "").replace("-", "")
+    if flat in ("авто", "auto", "автовпн", "autovpn"):
+        return True
+    # Чистое «Авто 1», «Auto #2» без «обход».
+    if re.fullmatch(r"(авто|auto)(?:#?\d+)?", flat):
+        return True
+    return False
+
+
+_EMOJI_STRIP_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"
+    "\U00002600-\U000027BF"
+    "\U0000FE00-\U0000FE0F"
+    "\U0000200D"
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def strip_profile_decorations(name: str) -> str:
+    """Убрать флаги/смайлы, оставить текст (YouTube без рекламы)."""
+    raw = " ".join((name or "").split()).strip()
+    if not raw:
+        return ""
+    cleaned = _FLAG_RE.sub(" ", raw)
+    cleaned = _DECOR_RE.sub(" ", cleaned)
+    cleaned = _EMOJI_STRIP_RE.sub(" ", cleaned)
+    cleaned = re.sub(r"\[.*?\]", " ", cleaned)
+    cleaned = re.sub(r"[»|✦·]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ·-–|#")
+    cleaned = re.sub(r"\s*#?\d+\s*$", "", cleaned).strip()
+    return cleaned
+
+
+def style_only_wifi_remark(name: str) -> str | None:
+    """
+    Имя для VPN_ONLY_WIFI_SOURCE_URL:
+    - Авто → «Авто» (один);
+    - страны → как restyle_server_name (с флагом);
+    - спец. («YouTube без рекламы») → текст без смайлов.
+    """
+    raw = " ".join((name or "").split()).strip()
+    if not raw or should_skip_profile(raw) or is_reserve_profile_name(raw):
+        return None
+    if is_only_wifi_auto_name(raw):
+        return "Авто"
+    if is_bypass_profile_name(raw) or is_mobile_bypass_remark(raw):
+        return None
+    styled = restyle_server_name(raw)
+    if styled and is_only_wifi_auto_name(styled):
+        return "Авто"
+    if styled and (
+        "авто-выбор" in styled.lower() or styled.strip().lower() in ("авто", "auto")
+    ):
+        return "Авто"
+    # Страна с флагом (🇫🇮 Финляндия) — оставляем как в VPN_SOURCE_URL.
+    if (
+        styled
+        and not is_bypass_profile_name(styled)
+        and _FLAG_RE.match(styled.lstrip())
+    ):
+        return styled
+    plain = strip_profile_decorations(raw)
+    if not plain or should_skip_profile(plain) or is_reserve_profile_name(plain):
+        return None
+    if is_only_wifi_auto_name(plain):
+        return "Авто"
+    return plain[:64]
+
+
+def prepare_only_wifi_source_profiles(
+    text: str,
+    uris: list[str] | None = None,
+) -> list[dict]:
+    """
+    VPN_ONLY_WIFI_SOURCE_URL → только обычные VPN-страны / Авто / спец. имена.
+
+    Мобильный обход и «резервные» отбрасываются. Несколько «Авто» → один «Авто».
+    Порядок: Авто первым, затем остальные.
+    """
+    autos: list[dict] = []
+    mains: list[dict] = []
+    used_names: set[str] = set()
+    seen_content: set[str] = set()
+
+    def _take(profile: dict, remark: str) -> None:
+        uri_hint = str(profile.get("_only_wifi_uri") or "").strip()
+        key = (
+            f"uri:{uri_identity(uri_hint)}"
+            if uri_hint
+            else profile_content_key(profile)
+        )
+        if key in seen_content:
+            return
+        if remark == "Авто":
+            if autos:
+                return
+            cloned = copy.deepcopy(profile)
+            cloned["remarks"] = "Авто"
+            seen_content.add(key)
+            used_names.add("авто")
+            autos.append(cloned)
+            return
+        unique = allocate_unique_remark(remark, used_names)
+        cloned = copy.deepcopy(profile)
+        cloned["remarks"] = unique
+        seen_content.add(key)
+        mains.append(cloned)
+
+    raw = [
+        p
+        for p in extract_raw_json_profiles(text or "")
+        if _profile_has_proxy(p) and not is_upstream_notice_profile(p)
+    ]
+    if raw:
+        main_p, _bypass_p = split_profiles_main_and_bypass(raw)
+        for profile in main_p:
+            rem = str(profile.get("remarks") or profile.get("remark") or "").strip()
+            styled = style_only_wifi_remark(rem)
+            if not styled:
+                continue
+            _take(profile, styled)
+        return autos + mains
+
+    real = [
+        uri
+        for uri in (uris or [])
+        if not is_placeholder_config(uri)
+        and not should_skip_profile(uri_profile_name(uri))
+        and not is_reserve_profile_name(uri_profile_name(uri))
+    ]
+    wifi_uris, _bypass_uris = split_uris_by_bypass(real)
+    for uri in wifi_uris:
+        if is_bypass_uri(uri):
+            continue
+        original = uri_profile_name(uri)
+        styled = style_only_wifi_remark(original or "")
+        if not styled:
+            continue
+        # Собираем минимальный Happ-профиль через URI → позже build_single_server.
+        # Здесь храним как «псевдо-профиль» с remarks + _uri для xray_builder.
+        fake = {"remarks": styled, "_only_wifi_uri": uri}
+        _take(fake, styled)
+    return autos + mains
+
+
 def prepare_extra_source_profiles(
     text: str,
     uris: list[str] | None = None,

@@ -107,9 +107,15 @@ def resolve_vpn_bypass_source_url_2() -> str:
     return blank_subscription_url(os.getenv("VPN_BYPASS_SOURCE_URL_2", ""))
 
 
+def resolve_vpn_only_wifi_source_url() -> str:
+    """Доп. ключ только обычных Wi‑Fi/VPN стран (без мобильного обхода)."""
+    return blank_subscription_url(os.getenv("VPN_ONLY_WIFI_SOURCE_URL", ""))
+
+
 VPN_SOURCE_URL = resolve_vpn_source_url()
 VPN_BYPASS_SOURCE_URL = resolve_vpn_bypass_source_url()
 VPN_BYPASS_SOURCE_URL_2 = resolve_vpn_bypass_source_url_2()
+VPN_ONLY_WIFI_SOURCE_URL = resolve_vpn_only_wifi_source_url()
 
 
 class Config(BaseModel):
@@ -142,6 +148,8 @@ class Config(BaseModel):
     VPN_BYPASS_SOURCE_URL: str = VPN_BYPASS_SOURCE_URL
     # Второй доп. источник мобильных профилей (⚡).
     VPN_BYPASS_SOURCE_URL_2: str = VPN_BYPASS_SOURCE_URL_2
+    # Доп. ключ только обычных стран (без LTE/обхода). Пусто / "-" = не используется.
+    VPN_ONLY_WIFI_SOURCE_URL: str = VPN_ONLY_WIFI_SOURCE_URL
     # legacy aliases (читаются, но не нужны в env)
     PRIMARY_SUB_URL: str = VPN_SOURCE_URL
     LIDERVPN_SUB_URL: str = normalize_subscription_url(os.getenv("LIDERVPN_SUB_URL", "")) or VPN_SOURCE_URL
@@ -413,12 +421,35 @@ class Config(BaseModel):
         url = self.bypass_source_url_2()
         return url.rstrip("/").split("/")[-1] if url else ""
 
+    def only_wifi_source_url(self) -> str:
+        url = blank_subscription_url(self.VPN_ONLY_WIFI_SOURCE_URL or "")
+        if not url:
+            return ""
+        normalized = url.rstrip("/")
+        main = self.resolved_source_url()
+        if main and normalized == main.rstrip("/"):
+            return ""
+        bypass = self.bypass_source_url()
+        if bypass and normalized == bypass.rstrip("/"):
+            return ""
+        bypass2 = self.bypass_source_url_2()
+        if bypass2 and normalized == bypass2.rstrip("/"):
+            return ""
+        return url
+
+    def only_wifi_source_label(self) -> str:
+        url = self.only_wifi_source_url()
+        return url.rstrip("/").split("/")[-1] if url else ""
+
     def upstream_fetch_plan(self) -> list[tuple[str, str]]:
-        """(роль, url): main, bypass (🔥), bypass2 (⚡)."""
+        """(роль, url): main, only_wifi, bypass (🔥), bypass2 (⚡)."""
         plan: list[tuple[str, str]] = []
         main = self.resolved_source_url()
         if main:
             plan.append(("main", main))
+        only_wifi = self.only_wifi_source_url()
+        if only_wifi:
+            plan.append(("only_wifi", only_wifi))
         bypass = self.bypass_source_url()
         if bypass:
             plan.append(("bypass", bypass))

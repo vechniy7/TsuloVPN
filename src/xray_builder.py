@@ -619,6 +619,7 @@ def build_happ_profiles(
     bypass_uris: list[str] | None = None,
     main_bypass_profiles: list[dict] | None = None,
     bypass_auto_uris: list[str] | None = None,
+    only_wifi_profiles: list[dict] | None = None,
     extra_main_profiles: list[dict] | None = None,
     extra_main_uris: list[str] | None = None,
     extra_bypass_uris: list[str] | None = None,
@@ -632,11 +633,10 @@ def build_happ_profiles(
 ) -> list[dict]:
     """
     Клиентская подписка TsuloVPN:
-    1) Авто-профили из основного ключа сверху
-    2) страны основного ключа
+    1) Авто / страны из VPN_SOURCE_URL (всегда сверху)
+    2) Авто + страны из VPN_ONLY_WIFI_SOURCE_URL («Авто» первым в этом блоке)
     3) Мобильный Интернет #N — обход из основного ключа (если есть)
     4) Мобильный Интернет #N 🔥/⚡ — только обход из VPN_BYPASS_SOURCE_URL / _2
-       (страны из этих ключей не подмешиваются)
     """
     cap = max(1, int(limit or config.SUBSCRIPTION_CONFIG_LIMIT))
     wifi_cap = config.subscription_wifi_limit()
@@ -645,6 +645,7 @@ def build_happ_profiles(
     bypass_uris = bypass_uris or []
     main_bypass_profiles = main_bypass_profiles or []
     bypass_auto_uris = bypass_auto_uris or []
+    only_wifi_profiles = only_wifi_profiles or []
     extra_main_profiles = extra_main_profiles or []
     extra_main_uris = extra_main_uris or []
     extra_bypass_uris = extra_bypass_uris or []
@@ -667,6 +668,7 @@ def build_happ_profiles(
         or extra_main_uris
         or extra_main2_profiles
         or extra_main2_uris
+        or only_wifi_profiles
     )
     pool = [uri for uri in uris if uri_to_outbound(uri, "probe") and not is_placeholder_config(uri)]
     if not pool and not has_bypass_pool and not has_extra_main and not existing:
@@ -727,6 +729,39 @@ def build_happ_profiles(
         entries.append(profile)
         if len(entries) >= wifi_cap + 2:
             break
+
+    # VPN_ONLY_WIFI_SOURCE_URL: сразу после основного ключа, «Авто» уже первым в списке.
+    seen_content = {profile_content_key(p) for p in entries if isinstance(p, dict)}
+    for profile in only_wifi_profiles:
+        if len(entries) >= wifi_cap + 2:
+            break
+        if not isinstance(profile, dict):
+            continue
+        rem = str(profile.get("remarks") or "").strip()
+        if not rem or rem.lower() in seen:
+            continue
+        uri_hint = str(profile.get("_only_wifi_uri") or "").strip()
+        if uri_hint:
+            cfg = build_single_server_config(uri_hint, len(entries) + 1)
+            if not cfg:
+                continue
+            cfg["remarks"] = rem
+            key_c = profile_content_key(cfg)
+            if key_c in seen_content:
+                continue
+            seen.add(rem.lower())
+            seen_content.add(key_c)
+            entries.append(cfg)
+            continue
+        key_c = profile_content_key(profile)
+        if key_c in seen_content:
+            continue
+        cloned = copy.deepcopy(profile)
+        cloned.pop("_only_wifi_uri", None)
+        cloned["remarks"] = rem
+        seen.add(rem.lower())
+        seen_content.add(key_c)
+        entries.append(cloned)
 
     if not existing:
         for idx, uri in enumerate(pool, start=1):

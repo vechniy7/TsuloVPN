@@ -31,6 +31,7 @@ from parser import (
     lte_speed_score,
     parse_subscription_lines,
     prepare_extra_source_profiles,
+    prepare_only_wifi_source_profiles,
     rank_configs_for_speed,
     rank_lte_configs,
     rank_universal_configs,
@@ -489,9 +490,11 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
         bypass_label = config.bypass_source_label()
         bypass2_label = config.bypass_source_label_2()
+        only_wifi_label = config.only_wifi_source_label()
         logger.info(
-            "pool_engine_v3: main=%s bypass=%s bypass2=%s (happ_hwid=%s)",
+            "pool_engine_v3: main=%s only_wifi=%s bypass=%s bypass2=%s (happ_hwid=%s)",
             config.source_label(),
+            only_wifi_label or "—",
             bypass_label or "—",
             bypass2_label or "—",
             requires_happ_hwid(config.resolved_source_url() or ""),
@@ -506,6 +509,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
             fetch_errors: list[str] = []
             last_status: int | None = None
             main_result: tuple[str | None, list[str], str | None, int | None] | None = None
+            only_wifi_result: tuple[str | None, list[str], str | None, int | None] | None = None
             bypass_result: tuple[str | None, list[str], str | None, int | None] | None = None
             bypass2_result: tuple[str | None, list[str], str | None, int | None] | None = None
 
@@ -540,6 +544,22 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     main_result = (text, uris, err, status)
                     if err:
                         fetch_errors.append(err)
+                elif role == "only_wifi":
+                    only_wifi_result = (text, uris, err, status)
+                    if text is None:
+                        logger.warning(
+                            "Only-wifi source %s unavailable: %s",
+                            only_wifi_label or label,
+                            err or "unknown",
+                        )
+                    else:
+                        prepared = prepare_only_wifi_source_profiles(text or "", uris or [])
+                        logger.info(
+                            "Only-wifi source %s: %s raw uris → %s profiles",
+                            only_wifi_label or label,
+                            len(uris or []),
+                            len(prepared),
+                        )
                 elif role == "bypass":
                     bypass_result = (text, uris, err, status)
                     _log_bypass_source(role, label, text, uris or [], err)
@@ -593,6 +613,14 @@ async def refresh_pool(force: bool = False) -> PoolState:
                         f"Не удалось загрузить конфиги: <code>{err_hint}</code>.",
                     )
                 return _pool
+
+            only_wifi_text = ""
+            only_wifi_uris_raw: list[str] = []
+            if only_wifi_result and only_wifi_result[0]:
+                only_wifi_text, only_wifi_uris_raw, _, _ = only_wifi_result
+            only_wifi_profiles = prepare_only_wifi_source_profiles(
+                only_wifi_text, only_wifi_uris_raw
+            )
 
             bypass_text = ""
             bypass_uris_raw: list[str] = []
@@ -684,15 +712,24 @@ async def refresh_pool(force: bool = False) -> PoolState:
             branded = branded_wifi + branded_bypass
 
             texts = [main_text or ""]
+            if only_wifi_text:
+                texts.append(only_wifi_text)
             if bypass_text:
                 texts.append(bypass_text)
             if bypass2_text:
                 texts.append(bypass2_text)
 
-            total_raw = len(main_uris_raw) + len(bypass_uris_raw) + len(bypass2_uris_raw)
+            total_raw = (
+                len(main_uris_raw)
+                + len(only_wifi_uris_raw)
+                + len(bypass_uris_raw)
+                + len(bypass2_uris_raw)
+            )
             source_counts: dict[str, int] = {
                 config.source_label(): len(main_uris_raw),
             }
+            if only_wifi_label:
+                source_counts[only_wifi_label] = len(only_wifi_profiles)
             if bypass_label:
                 source_counts[bypass_label] = extra_bypass_count
             if bypass2_label:
@@ -700,6 +737,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
 
             _pool.source_real_count = (
                 len(wifi_uris)
+                + len(only_wifi_profiles)
                 + main_bypass_count
                 + extra_bypass_count
                 + extra_bypass2_count
@@ -753,6 +791,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     bypass_uris=branded_main_bypass,
                     main_bypass_profiles=main_bypass_profiles,
                     bypass_auto_uris=bypass_auto_uris,
+                    only_wifi_profiles=only_wifi_profiles,
                     extra_main_profiles=extra_main_profiles,
                     extra_main_uris=extra_main_uris,
                     extra_bypass_uris=branded_extra_bypass,
@@ -774,6 +813,7 @@ async def refresh_pool(force: bool = False) -> PoolState:
                     bypass_uris=branded_main_bypass,
                     main_bypass_profiles=main_bypass_profiles,
                     bypass_auto_uris=bypass_auto_uris,
+                    only_wifi_profiles=only_wifi_profiles,
                     extra_main_profiles=extra_main_profiles,
                     extra_main_uris=extra_main_uris,
                     extra_bypass_uris=branded_extra_bypass,
@@ -848,9 +888,10 @@ async def refresh_pool(force: bool = False) -> PoolState:
             _pool.consecutive_fetch_failures = 0
 
             logger.info(
-                "Pool updated: %s json profiles (wifi=%s bypass=%s extra=%s extra2=%s, limit=%s) from %s raw (%s) in %.1fs",
+                "Pool updated: %s json profiles (wifi=%s only_wifi=%s bypass=%s extra=%s extra2=%s, limit=%s) from %s raw (%s) in %.1fs",
                 len(json_profiles),
                 len(wifi_uris),
+                len(only_wifi_profiles),
                 main_bypass_count,
                 extra_bypass_count,
                 extra_bypass2_count,
