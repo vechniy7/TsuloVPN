@@ -720,13 +720,9 @@ def build_happ_profiles(
 
     source_autos.sort(key=lambda p: source_auto_sort_key(str(p.get("remarks") or "")))
 
-    # Слоты стран: оставляем место под VPN_ONLY_WIFI, иначе основной ключ съедает лимит.
-    country_cap = wifi_cap + 2
-    if only_wifi_profiles:
-        reserved = min(len(only_wifi_profiles), max(8, wifi_cap // 2))
-        main_cap = max(2, country_cap - reserved)
-    else:
-        main_cap = country_cap
+    # Основной ключ — полный wifi_cap; ONLY_WIFI добавляется следом в общий лимит стран.
+    main_cap = wifi_cap + 2
+    non_bypass_cap = max(main_cap, int(cap))
 
     for profile in source_autos + source_main:
         rem = str(profile.get("remarks") or "").strip()
@@ -741,7 +737,7 @@ def build_happ_profiles(
     # VPN_ONLY_WIFI_SOURCE_URL: сразу после основного ключа; имена #2 при коллизии.
     seen_content = {profile_content_key(p) for p in entries if isinstance(p, dict)}
     for profile in only_wifi_profiles:
-        if len(entries) >= country_cap:
+        if len(entries) >= non_bypass_cap:
             break
         if not isinstance(profile, dict):
             continue
