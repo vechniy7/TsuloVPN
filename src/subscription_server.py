@@ -363,7 +363,7 @@ async def subscription(token: str, request: Request):
             profile_title=title,
             expire_ts=int(time.time()) - 60,
             cache_max_age=600,
-            update_interval="12",
+            update_interval="2",
         )
 
     profiles = get_happ_json_profiles()
@@ -386,7 +386,7 @@ async def subscription(token: str, request: Request):
         profile_title=f"🔮 {config.BOT_NAME}",
         expire_ts=_parse_expire_ts(user),
         cache_max_age=300,
-        update_interval="12",
+        update_interval="2",
     )
 
 
