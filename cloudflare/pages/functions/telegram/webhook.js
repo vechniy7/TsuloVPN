@@ -7,12 +7,12 @@
  *   REQUIRED_CHANNEL=@TsuloVPN
  *   CHANNEL_URL=https://t.me/TsuloVPN
  *   ADMINS=123,456
- *   AMVERA_ORIGIN=https://tsulovpn-culoebali.msk1.amvera.tech
+ *   AMVERA_ORIGIN=https://sub.tsulo-vpn.ru
  *   CHANNEL_GATE_ENABLED=true
  */
 import { runBroadcast, tgApi } from "../_lib/tg_broadcast.js";
 
-const DEFAULT_ORIGIN = "https://tsulovpn-culoebali.msk1.amvera.tech";
+const DEFAULT_ORIGIN = "https://sub.tsulo-vpn.ru";
 const CHECK_CB = "check_channel_sub";
 
 function originBase(env) {

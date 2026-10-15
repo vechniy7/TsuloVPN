@@ -10,7 +10,7 @@
  *  - KV binding OFFSETS (ключ "telegram_offset")
  */
 const AMVERA_DEFAULT =
-  "https://tsulovpn-culoebali.msk1.amvera.tech/telegram/webhook";
+  "https://sub.tsulo-vpn.ru/telegram/webhook";
 
 async function tg(token, method, payload) {
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
@@ -53,12 +53,8 @@ async function pollOnce(env) {
     return { ok: false, error: "OFFSETS KV missing" };
   }
 
-  // Webhook мешает getUpdates — снимаем один раз.
-  const flag = await env.OFFSETS.get("webhook_cleared");
-  if (flag !== "1") {
-    await tg(env.BOT_TOKEN, "deleteWebhook", { drop_pending_updates: false });
-    await env.OFFSETS.put("webhook_cleared", "1");
-  }
+  // Не трогаем webhook: основной путь — Pages webhook (мгновенно).
+  // Этот Worker — только ручной /run запасной poll.
 
   const rawOffset = await env.OFFSETS.get("telegram_offset");
   const offset = rawOffset ? Number(rawOffset) : undefined;
