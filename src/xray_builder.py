@@ -720,6 +720,14 @@ def build_happ_profiles(
 
     source_autos.sort(key=lambda p: source_auto_sort_key(str(p.get("remarks") or "")))
 
+    # Слоты стран: оставляем место под VPN_ONLY_WIFI, иначе основной ключ съедает лимит.
+    country_cap = wifi_cap + 2
+    if only_wifi_profiles:
+        reserved = min(len(only_wifi_profiles), max(8, wifi_cap // 2))
+        main_cap = max(2, country_cap - reserved)
+    else:
+        main_cap = country_cap
+
     for profile in source_autos + source_main:
         rem = str(profile.get("remarks") or "").strip()
         key = rem.lower()
@@ -727,29 +735,29 @@ def build_happ_profiles(
             continue
         seen.add(key)
         entries.append(profile)
-        if len(entries) >= wifi_cap + 2:
+        if len(entries) >= main_cap:
             break
 
-    # VPN_ONLY_WIFI_SOURCE_URL: сразу после основного ключа, «Авто» уже первым в списке.
+    # VPN_ONLY_WIFI_SOURCE_URL: сразу после основного ключа; имена #2 при коллизии.
     seen_content = {profile_content_key(p) for p in entries if isinstance(p, dict)}
     for profile in only_wifi_profiles:
-        if len(entries) >= wifi_cap + 2:
+        if len(entries) >= country_cap:
             break
         if not isinstance(profile, dict):
             continue
         rem = str(profile.get("remarks") or "").strip()
-        if not rem or rem.lower() in seen:
+        if not rem:
             continue
         uri_hint = str(profile.get("_only_wifi_uri") or "").strip()
+        unique = allocate_unique_remark(rem, seen)
         if uri_hint:
             cfg = build_single_server_config(uri_hint, len(entries) + 1)
             if not cfg:
                 continue
-            cfg["remarks"] = rem
+            cfg["remarks"] = unique
             key_c = profile_content_key(cfg)
             if key_c in seen_content:
                 continue
-            seen.add(rem.lower())
             seen_content.add(key_c)
             entries.append(cfg)
             continue
@@ -758,8 +766,7 @@ def build_happ_profiles(
             continue
         cloned = copy.deepcopy(profile)
         cloned.pop("_only_wifi_uri", None)
-        cloned["remarks"] = rem
-        seen.add(rem.lower())
+        cloned["remarks"] = unique
         seen_content.add(key_c)
         entries.append(cloned)
 

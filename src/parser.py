@@ -659,6 +659,11 @@ def style_only_wifi_remark(name: str) -> str | None:
         return "Авто"
     if is_bypass_profile_name(raw) or is_mobile_bypass_remark(raw):
         return None
+    plain_early = strip_profile_decorations(raw).lower()
+    # Спец. имена (YouTube и т.п.) — без флагов/смайлов, даже если в исходнике 🇷🇺.
+    if any(tok in plain_early for tok in ("youtube", "ютуб", "youtu")):
+        plain = strip_profile_decorations(raw)
+        return plain[:64] if plain else None
     styled = restyle_server_name(raw)
     if styled and is_only_wifi_auto_name(styled):
         return "Авто"
