@@ -6,9 +6,9 @@
  * Pages прозрачно проксирует на Amvera (origin скрыт, лучше проходит LTE/VPN).
  *
  * Env (Pages → Settings → Environment variables):
- *   AMVERA_ORIGIN=https://tsulovpn-culoebali.msk1.amvera.tech
+ *   AMVERA_ORIGIN=https://sub.tsulo-vpn.ru
  */
-const DEFAULT_ORIGIN = "https://tsulovpn-culoebali.msk1.amvera.tech";
+const DEFAULT_ORIGIN = "https://sub.tsulo-vpn.ru";
 
 const SKIP_REQ = new Set([
   "host",

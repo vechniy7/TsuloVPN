@@ -1,0 +1,20 @@
+[Unit]
+Description=TsuloVPN bot + subscription (FirstVDS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tsulovpn
+EnvironmentFile=/opt/tsulovpn/.env
+ExecStart=/opt/tsulovpn/.venv/bin/python /opt/tsulovpn/src/app.py
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+# 1 GB RAM — не раздувать
+MemoryMax=700M
+
+[Install]
+WantedBy=multi-user.target

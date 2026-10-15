@@ -14,3 +14,7 @@ tmp_sub.txt
 .wrangler/
 cloudflare/**/.wrangler/
 фыв
+
+deploy/firstvds.env
+amvera.env
+

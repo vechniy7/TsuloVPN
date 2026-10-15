@@ -668,6 +668,31 @@ async def panel_users_count(_: str = Depends(require_admin)):
     return {"count": await get_user_count()}
 
 
+@router.get("/panel/api/backup-db")
+async def panel_backup_db(_: str = Depends(require_admin)):
+    """Скачать SQLite (миграция FirstVDS / бэкап)."""
+    from database import resolve_db_path
+
+    path = resolve_db_path()
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"DB not found: {path}")
+    # Сбросить WAL в основной файл перед копией.
+    try:
+        import sqlite3
+
+        conn = sqlite3.connect(str(path), timeout=30)
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.close()
+    except Exception as exc:
+        logger.warning("wal_checkpoint before backup: %s", exc)
+    return FileResponse(
+        path,
+        filename="tsulovpn.db",
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.post("/panel/api/broadcast")
 async def panel_broadcast(body: BroadcastBody, _: str = Depends(require_admin)):
     text = (body.text or "").strip()

@@ -3,7 +3,7 @@ compatibility_date = "2024-11-01"
 pages_build_output_dir = "public"
 
 [vars]
-AMVERA_ORIGIN = "https://tsulovpn-culoebali.msk1.amvera.tech"
+AMVERA_ORIGIN = "https://sub.tsulo-vpn.ru"
 REQUIRED_CHANNEL = "@TsuloVPN"
 CHANNEL_URL = "https://t.me/TsuloVPN"
 CHANNEL_GATE_ENABLED = "true"
