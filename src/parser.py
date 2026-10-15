@@ -645,32 +645,45 @@ def strip_profile_decorations(name: str) -> str:
     return cleaned
 
 
+_ONLY_WIFI_EU_FLAG = "🇪🇺"
+
+
+def _ensure_only_wifi_flag(name: str) -> str:
+    """Без флага страны → 🇪🇺 (Авто, YouTube и т.п.)."""
+    text = " ".join((name or "").split()).strip()
+    if not text:
+        return text
+    if _FLAG_RE.match(text.lstrip()):
+        return text
+    return f"{_ONLY_WIFI_EU_FLAG} {text}"
+
+
 def style_only_wifi_remark(name: str) -> str | None:
     """
     Имя для VPN_ONLY_WIFI_SOURCE_URL:
-    - Авто → «Авто» (один);
+    - Авто → «🇪🇺 Авто» (один);
     - страны → как restyle_server_name (с флагом);
-    - спец. («YouTube без рекламы») → текст без смайлов.
+    - спец. («YouTube…») → текст без лишних смайлов + 🇪🇺, если флага не было.
     """
     raw = " ".join((name or "").split()).strip()
     if not raw or should_skip_profile(raw) or is_reserve_profile_name(raw):
         return None
     if is_only_wifi_auto_name(raw):
-        return "Авто"
+        return f"{_ONLY_WIFI_EU_FLAG} Авто"
     if is_bypass_profile_name(raw) or is_mobile_bypass_remark(raw):
         return None
     plain_early = strip_profile_decorations(raw).lower()
-    # Спец. имена (YouTube и т.п.) — без флагов/смайлов, даже если в исходнике 🇷🇺.
+    # Спец. имена (YouTube и т.п.) — без декора, флаг страны → 🇪🇺.
     if any(tok in plain_early for tok in ("youtube", "ютуб", "youtu")):
         plain = strip_profile_decorations(raw)
-        return plain[:64] if plain else None
+        return _ensure_only_wifi_flag(plain[:64]) if plain else None
     styled = restyle_server_name(raw)
     if styled and is_only_wifi_auto_name(styled):
-        return "Авто"
+        return f"{_ONLY_WIFI_EU_FLAG} Авто"
     if styled and (
         "авто-выбор" in styled.lower() or styled.strip().lower() in ("авто", "auto")
     ):
-        return "Авто"
+        return f"{_ONLY_WIFI_EU_FLAG} Авто"
     # Страна с флагом (🇫🇮 Финляндия) — оставляем как в VPN_SOURCE_URL.
     if (
         styled
@@ -682,8 +695,8 @@ def style_only_wifi_remark(name: str) -> str | None:
     if not plain or should_skip_profile(plain) or is_reserve_profile_name(plain):
         return None
     if is_only_wifi_auto_name(plain):
-        return "Авто"
-    return plain[:64]
+        return f"{_ONLY_WIFI_EU_FLAG} Авто"
+    return _ensure_only_wifi_flag(plain[:64])
 
 
 def prepare_only_wifi_source_profiles(
@@ -710,12 +723,13 @@ def prepare_only_wifi_source_profiles(
         )
         if key in seen_content:
             return
-        if remark == "Авто":
+        if remark == f"{_ONLY_WIFI_EU_FLAG} Авто" or remark == "Авто":
             if autos:
                 return
             cloned = copy.deepcopy(profile)
-            cloned["remarks"] = "Авто"
+            cloned["remarks"] = f"{_ONLY_WIFI_EU_FLAG} Авто"
             seen_content.add(key)
+            used_names.add(f"{_ONLY_WIFI_EU_FLAG} авто".lower())
             used_names.add("авто")
             autos.append(cloned)
             return
